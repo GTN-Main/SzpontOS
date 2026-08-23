@@ -31,10 +31,11 @@ void pmm_init(struct limine_memmap_response *memmap, uint64_t hhdm_offset) {
     g_hhdm_offset = hhdm_offset;
     uintptr_t max_addr = 0;
 
-    /* Find highest usable physical address */
+    /* Find highest physical address from usable memory regions */
     for (size_t i = 0; i < memmap->entry_count; i++) {
         struct limine_memmap_entry *entry = memmap->entries[i];
-        if (entry->type == LIMINE_MEMMAP_USABLE) {
+        if (entry->type == LIMINE_MEMMAP_USABLE ||
+            entry->type == LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE) {
             uintptr_t top = entry->base + entry->length;
             if (top > max_addr) {
                 max_addr = top;
@@ -42,20 +43,80 @@ void pmm_init(struct limine_memmap_response *memmap, uint64_t hhdm_offset) {
         }
     }
 
+    if (max_addr == 0) {
+        panic("PMM: No usable memory regions found!");
+    }
+
     g_total_pages = max_addr / PAGE_SIZE;
     size_t bitmap_size = ALIGN_UP(g_total_pages / 8, PAGE_SIZE);
 
-    /* Find a usable memory region large enough to hold our bitmap */
+    /*
+     * Find a memory region large enough to hold our bitmap.
+     * Pass 1: Look for a USABLE region >= 1 MiB (0x100000).
+     * Pass 2: Look for any USABLE region.
+     * Pass 3: Look for BOOTLOADER_RECLAIMABLE region.
+     */
     uintptr_t bitmap_phys = 0;
+    bool found_bitmap = false;
+
+    /* Pass 1: USABLE region >= 1 MiB */
     for (size_t i = 0; i < memmap->entry_count; i++) {
         struct limine_memmap_entry *entry = memmap->entries[i];
-        if (entry->type == LIMINE_MEMMAP_USABLE && entry->length >= bitmap_size) {
-            bitmap_phys = entry->base;
-            break;
+        if (entry->type == LIMINE_MEMMAP_USABLE) {
+            uintptr_t start = ALIGN_UP(entry->base, PAGE_SIZE);
+            uintptr_t end = entry->base + entry->length;
+
+            if (start < 0x100000) {
+                start = 0x100000;
+            }
+
+            if (end > start && (end - start) >= bitmap_size) {
+                bitmap_phys = start;
+                found_bitmap = true;
+                break;
+            }
         }
     }
 
-    if (bitmap_phys == 0) {
+    /* Pass 2: Any USABLE region */
+    if (!found_bitmap) {
+        for (size_t i = 0; i < memmap->entry_count; i++) {
+            struct limine_memmap_entry *entry = memmap->entries[i];
+            if (entry->type == LIMINE_MEMMAP_USABLE) {
+                uintptr_t start = ALIGN_UP(entry->base, PAGE_SIZE);
+                uintptr_t end = entry->base + entry->length;
+
+                if (end > start && (end - start) >= bitmap_size) {
+                    bitmap_phys = start;
+                    found_bitmap = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    /* Pass 3: BOOTLOADER_RECLAIMABLE region (fallback) */
+    if (!found_bitmap) {
+        for (size_t i = 0; i < memmap->entry_count; i++) {
+            struct limine_memmap_entry *entry = memmap->entries[i];
+            if (entry->type == LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE) {
+                uintptr_t start = ALIGN_UP(entry->base, PAGE_SIZE);
+                uintptr_t end = entry->base + entry->length;
+
+                if (start < 0x100000) {
+                    start = 0x100000;
+                }
+
+                if (end > start && (end - start) >= bitmap_size) {
+                    bitmap_phys = start;
+                    found_bitmap = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!found_bitmap) {
         panic("PMM: Could not find contiguous physical memory for allocation bitmap (%lu bytes required)!", bitmap_size);
     }
 
@@ -70,38 +131,48 @@ void pmm_init(struct limine_memmap_response *memmap, uint64_t hhdm_offset) {
     for (size_t i = 0; i < memmap->entry_count; i++) {
         struct limine_memmap_entry *entry = memmap->entries[i];
         if (entry->type == LIMINE_MEMMAP_USABLE) {
-            size_t start_page = entry->base / PAGE_SIZE;
-            size_t page_count = entry->length / PAGE_SIZE;
+            uintptr_t start = ALIGN_UP(entry->base, PAGE_SIZE);
+            uintptr_t end = ALIGN_DOWN(entry->base + entry->length, PAGE_SIZE);
 
-            for (size_t p = 0; p < page_count; p++) {
-                if (start_page + p < g_total_pages) {
-                    bitmap_clear(start_page + p);
-                    g_used_pages--;
+            if (end > start) {
+                size_t start_page = start / PAGE_SIZE;
+                size_t end_page = end / PAGE_SIZE;
+
+                for (size_t p = start_page; p < end_page && p < g_total_pages; p++) {
+                    if (bitmap_test(p)) {
+                        bitmap_clear(p);
+                        g_used_pages--;
+                    }
                 }
             }
         }
     }
 
-    /* Mark the bitmap itself and low 1MB as used */
+    /* Mark the bitmap's own pages as used */
     size_t bitmap_start_page = bitmap_phys / PAGE_SIZE;
     size_t bitmap_page_count = bitmap_size / PAGE_SIZE;
     for (size_t p = 0; p < bitmap_page_count; p++) {
-        bitmap_set(bitmap_start_page + p);
-        g_used_pages++;
+        size_t page_idx = bitmap_start_page + p;
+        if (page_idx < g_total_pages && !bitmap_test(page_idx)) {
+            bitmap_set(page_idx);
+            g_used_pages++;
+        }
     }
 
-    /* Lock low 1MiB (BIOS/hardware structures) */
-    for (size_t p = 0; p < 256; p++) {
+    /* Lock low 1 MiB (BIOS/UEFI IVT, BDA, EBDA, hardware structures) */
+    size_t low_1mb_pages = 0x100000 / PAGE_SIZE; /* 256 pages */
+    for (size_t p = 0; p < low_1mb_pages && p < g_total_pages; p++) {
         if (!bitmap_test(p)) {
             bitmap_set(p);
             g_used_pages++;
         }
     }
 
-    klog_info("PMM initialized: %lu MiB total, %lu MiB free, %lu MiB used",
+    klog_info("PMM initialized: %lu MiB total, %lu MiB free, %lu MiB used (bitmap at phys 0x%016lx)",
               (g_total_pages * PAGE_SIZE) / (1024 * 1024),
               ((g_total_pages - g_used_pages) * PAGE_SIZE) / (1024 * 1024),
-              (g_used_pages * PAGE_SIZE) / (1024 * 1024));
+              (g_used_pages * PAGE_SIZE) / (1024 * 1024),
+              (unsigned long)bitmap_phys);
 }
 
 uintptr_t pmm_alloc_page(void) {
