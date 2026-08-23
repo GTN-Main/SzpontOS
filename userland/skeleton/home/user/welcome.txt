@@ -1,0 +1,2 @@
+Witaj w swoim katalogu domowym (/home/user)!
+SzpontOS Unix Multi-User Environment.

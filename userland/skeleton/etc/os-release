@@ -1,0 +1,11 @@
+NAME="SzpontOS"
+PRETTY_NAME="SzpontOS (x86_64)"
+ID=szpontos
+ID_LIKE=szpontos
+VERSION="1.0"
+VERSION_ID="1.0"
+BUILD_ID="20260823"
+HOME_URL="https://szpont.industries"
+SUPPORT_URL="https://szpont.industries"
+BUG_REPORT_URL="https://szpont.industries"
+LOGO=szpontos

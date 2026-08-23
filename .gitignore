@@ -1,0 +1,18 @@
+# Build artifacts
+build/
+*.iso
+*.o
+*.bin
+*.elf
+
+# Limine bootloader binary submodule/checkout
+limine-bin
+
+.cache
+
+# macOS metadata
+.DS_Store
+
+# Compilation database (optional, can be generated anytime via make compile-commands)
+# compile_commands.json
+compile_commands.json

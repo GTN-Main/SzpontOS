@@ -1,0 +1,15 @@
+[submodule "third_party/file"]
+	path = third_party/file
+	url = https://github.com/file/file.git
+[submodule "third_party/nano"]
+	path = third_party/nano
+	url = https://github.com/madnight/nano.git
+[submodule "third_party/ncurses"]
+	path = third_party/ncurses
+	url = https://github.com/mirror/ncurses.git
+[submodule "third_party/zsh"]
+	path = third_party/zsh
+	url = https://github.com/zsh-users/zsh.git
+[submodule "third_party/fastfetch"]
+	path = third_party/fastfetch
+	url = https://github.com/fastfetch-cli/fastfetch.git

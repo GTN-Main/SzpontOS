@@ -1,0 +1,6 @@
+#ifndef _LINUX_SOCKIOS_H
+#define _LINUX_SOCKIOS_H
+
+#define SIOCETHTOOL 0x8946
+
+#endif /* _LINUX_SOCKIOS_H */

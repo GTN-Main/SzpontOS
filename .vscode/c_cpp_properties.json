@@ -1,0 +1,20 @@
+{
+  "configurations": [
+    {
+      "name": "SzpontOS (x86_64-elf-gcc)",
+      "includePath": [
+        "${workspaceFolder}/libc/include",
+        "${workspaceFolder}/kernel/include",
+        "${workspaceFolder}"
+      ],
+      "defines": [
+        "__x86_64__=1"
+      ],
+      "compilerPath": "/opt/homebrew/bin/x86_64-elf-gcc",
+      "cStandard": "c17",
+      "intelliSenseMode": "gcc-x64",
+      "compileCommands": "${workspaceFolder}/compile_commands.json"
+    }
+  ],
+  "version": 4
+}
