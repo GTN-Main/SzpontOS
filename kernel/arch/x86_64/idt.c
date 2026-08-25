@@ -1,18 +1,19 @@
 #include <arch/x86_64/idt.h>
 #include <arch/x86_64/gdt.h>
 #include <arch/x86_64/io.h>
+#include <drivers/ioapic.h>
 #include <kernel/string.h>
 #include <kernel/kprint.h>
 #include <kernel/panic.h>
 
 struct __attribute__((packed)) idt_entry {
-    uint16_t isr_low;       /* The lower 16 bits of the ISR's address */
-    uint16_t kernel_cs;     /* The GDT segment selector that the CPU will load into CS */
-    uint8_t  ist;           /* IST index in TSS */
-    uint8_t  attributes;    /* Type and attributes (e.g. 0x8E for 64-bit Interrupt Gate) */
-    uint16_t isr_mid;       /* The higher 16 bits of the lower 32 bits of the ISR's address */
-    uint32_t isr_high;      /* The higher 32 bits of the ISR's address */
-    uint32_t reserved;      /* Set to zero */
+    uint16_t isr_low;   /* The lower 16 bits of the ISR's address */
+    uint16_t kernel_cs; /* The GDT segment selector that the CPU will load into CS */
+    uint8_t ist;        /* IST index in TSS */
+    uint8_t attributes; /* Type and attributes (e.g. 0x8E for 64-bit Interrupt Gate) */
+    uint16_t isr_mid;   /* The higher 16 bits of the lower 32 bits of the ISR's address */
+    uint32_t isr_high;  /* The higher 32 bits of the ISR's address */
+    uint32_t reserved;  /* Set to zero */
 };
 
 struct __attribute__((packed)) idtr {
@@ -27,40 +28,38 @@ static isr_handler_t g_interrupt_handlers[IDT_ENTRIES];
 extern void *isr_stub_table[];
 extern void idt_load(struct idtr *ptr);
 
-static const char *g_exception_names[32] = {
-    "Divide-by-zero (#DE)",
-    "Debug (#DB)",
-    "Non-maskable Interrupt (#NMI)",
-    "Breakpoint (#BP)",
-    "Overflow (#OF)",
-    "Bound Range Exceeded (#BR)",
-    "Invalid Opcode (#UD)",
-    "Device Not Available (#NM)",
-    "Double Fault (#DF)",
-    "Coprocessor Segment Overrun",
-    "Invalid TSS (#TS)",
-    "Segment Not Present (#NP)",
-    "Stack-Segment Fault (#SS)",
-    "General Protection Fault (#GP)",
-    "Page Fault (#PF)",
-    "Reserved",
-    "x87 Floating-Point Exception (#MF)",
-    "Alignment Check (#AC)",
-    "Machine Check (#MC)",
-    "SIMD Floating-Point Exception (#XM)",
-    "Virtualization Exception (#VE)",
-    "Control Protection Exception (#CP)",
-    "Reserved",
-    "Reserved",
-    "Reserved",
-    "Reserved",
-    "Reserved",
-    "Reserved",
-    "Hypervisor Injection Exception",
-    "VMM Communication Exception",
-    "Security Exception",
-    "Reserved"
-};
+static const char *g_exception_names[32] = {"Divide-by-zero (#DE)",
+                                            "Debug (#DB)",
+                                            "Non-maskable Interrupt (#NMI)",
+                                            "Breakpoint (#BP)",
+                                            "Overflow (#OF)",
+                                            "Bound Range Exceeded (#BR)",
+                                            "Invalid Opcode (#UD)",
+                                            "Device Not Available (#NM)",
+                                            "Double Fault (#DF)",
+                                            "Coprocessor Segment Overrun",
+                                            "Invalid TSS (#TS)",
+                                            "Segment Not Present (#NP)",
+                                            "Stack-Segment Fault (#SS)",
+                                            "General Protection Fault (#GP)",
+                                            "Page Fault (#PF)",
+                                            "Reserved",
+                                            "x87 Floating-Point Exception (#MF)",
+                                            "Alignment Check (#AC)",
+                                            "Machine Check (#MC)",
+                                            "SIMD Floating-Point Exception (#XM)",
+                                            "Virtualization Exception (#VE)",
+                                            "Control Protection Exception (#CP)",
+                                            "Reserved",
+                                            "Reserved",
+                                            "Reserved",
+                                            "Reserved",
+                                            "Reserved",
+                                            "Reserved",
+                                            "Hypervisor Injection Exception",
+                                            "VMM Communication Exception",
+                                            "Security Exception",
+                                            "Reserved"};
 
 void idt_set_gate(uint8_t vector, void *handler, uint8_t flags) {
     uintptr_t addr = (uintptr_t)handler;
@@ -94,16 +93,18 @@ void isr_handler(interrupt_frame_t *frame) {
         klog_error("R14: 0x%016lx  R15: 0x%016lx", frame->r14, frame->r15);
         klog_error("===============================================");
 
-        panic_with_frame(frame, "Unhandled CPU Exception #%u: %s", (uint32_t)frame->int_no, g_exception_names[frame->int_no]);
+        panic_with_frame(frame, "Unhandled CPU Exception #%u: %s", (uint32_t)frame->int_no,
+                         g_exception_names[frame->int_no]);
     }
 
-    /* Send End of Interrupt (EOI) to PIC if it's a hardware IRQ (32-47) before invoking handlers */
+    /* Send End of Interrupt (EOI) to PIC and Local APIC */
     if (frame->int_no >= 32 && frame->int_no <= 47) {
         if (frame->int_no >= 40) {
             outb(0xA0, 0x20); /* Slave PIC EOI */
         }
-        outb(0x20, 0x20);     /* Master PIC EOI */
+        outb(0x20, 0x20); /* Master PIC EOI */
     }
+    lapic_eoi();
 
     /* Check for registered handler */
     if (g_interrupt_handlers[frame->int_no]) {

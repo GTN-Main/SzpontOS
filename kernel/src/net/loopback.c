@@ -10,10 +10,12 @@
 static netif_t g_loopback_netif;
 
 static int loopback_send(netif_t *netif, net_buf_t *buf) {
-    if (!netif || !buf) return -1;
+    if (!netif || !buf)
+        return -1;
 
     net_buf_t *rx_copy = net_buf_alloc();
-    if (!rx_copy) return -1;
+    if (!rx_copy)
+        return -1;
 
     memcpy(rx_copy->data, buf->data + buf->offset, buf->len);
     rx_copy->len = buf->len;

@@ -11,7 +11,7 @@
 #include <sys/ioctl.h>
 
 #ifndef TIOCGPTN
-#define TIOCGPTN   0x80045430
+#define TIOCGPTN 0x80045430
 #endif
 #ifndef TIOCSPTLCK
 #define TIOCSPTLCK 0x40045431

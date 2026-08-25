@@ -3,7 +3,8 @@
 #include <pwd.h>
 
 int main(int argc, char *argv[]) {
-    (void)argc; (void)argv;
+    (void)argc;
+    (void)argv;
 
     uid_t euid = geteuid();
     struct passwd *pw = getpwuid(euid);

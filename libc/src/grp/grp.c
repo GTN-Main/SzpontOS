@@ -27,7 +27,8 @@ void endgrent(void) {
 struct group *getgrent(void) {
     if (g_group_fd < 0) {
         setgrent();
-        if (g_group_fd < 0) return NULL;
+        if (g_group_fd < 0)
+            return NULL;
     }
 
     size_t pos = 0;
@@ -35,14 +36,17 @@ struct group *getgrent(void) {
         char c;
         ssize_t bytes = read(g_group_fd, &c, 1);
         if (bytes <= 0) {
-            if (pos == 0) return NULL;
+            if (pos == 0)
+                return NULL;
             break;
         }
-        if (c == '\n') break;
+        if (c == '\n')
+            break;
         g_group_buf[pos++] = c;
     }
     g_group_buf[pos] = '\0';
-    if (pos == 0) return NULL;
+    if (pos == 0)
+        return NULL;
 
     /* Parse: name:password:gid:members */
     char *fields[4];
@@ -54,7 +58,8 @@ struct group *getgrent(void) {
             *colon = '\0';
             p = colon + 1;
         } else {
-            if (i < 3) return NULL;
+            if (i < 3)
+                return NULL;
             break;
         }
     }
@@ -83,7 +88,8 @@ struct group *getgrent(void) {
 }
 
 struct group *getgrnam(const char *name) {
-    if (!name) return NULL;
+    if (!name)
+        return NULL;
     setgrent();
     struct group *gr;
     while ((gr = getgrent()) != NULL) {

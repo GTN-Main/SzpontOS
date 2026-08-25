@@ -20,20 +20,24 @@ static inline int futex_wake(volatile int *addr, int count) {
 
 int sem_init(sem_t *sem, int pshared, unsigned int value) {
     (void)pshared;
-    if (!sem) return EINVAL;
+    if (!sem)
+        return EINVAL;
     sem->val = (int)value;
     sem->waiters = 0;
     return 0;
 }
 
 int sem_destroy(sem_t *sem) {
-    if (!sem) return EINVAL;
-    if (sem->waiters > 0) return EBUSY;
+    if (!sem)
+        return EINVAL;
+    if (sem->waiters > 0)
+        return EBUSY;
     return 0;
 }
 
 int sem_wait(sem_t *sem) {
-    if (!sem) return EINVAL;
+    if (!sem)
+        return EINVAL;
 
     while (1) {
         int val = sem->val;
@@ -50,11 +54,13 @@ int sem_wait(sem_t *sem) {
 }
 
 int sem_trywait(sem_t *sem) {
-    if (!sem) return EINVAL;
+    if (!sem)
+        return EINVAL;
 
     while (1) {
         int val = sem->val;
-        if (val <= 0) return EAGAIN;
+        if (val <= 0)
+            return EAGAIN;
         if (__sync_bool_compare_and_swap(&sem->val, val, val - 1)) {
             return 0;
         }
@@ -62,7 +68,8 @@ int sem_trywait(sem_t *sem) {
 }
 
 int sem_timedwait(sem_t *sem, const struct timespec *abs_timeout) {
-    if (!sem) return EINVAL;
+    if (!sem)
+        return EINVAL;
 
     while (1) {
         int val = sem->val;
@@ -74,13 +81,15 @@ int sem_timedwait(sem_t *sem, const struct timespec *abs_timeout) {
             __sync_fetch_and_add(&sem->waiters, 1);
             int res = futex_wait(&sem->val, 0, abs_timeout);
             __sync_fetch_and_sub(&sem->waiters, 1);
-            if (res == -110 /* -ETIMEDOUT */) return ETIMEDOUT;
+            if (res == -110 /* -ETIMEDOUT */)
+                return ETIMEDOUT;
         }
     }
 }
 
 int sem_post(sem_t *sem) {
-    if (!sem) return EINVAL;
+    if (!sem)
+        return EINVAL;
 
     __sync_fetch_and_add(&sem->val, 1);
     if (sem->waiters > 0) {
@@ -90,7 +99,8 @@ int sem_post(sem_t *sem) {
 }
 
 int sem_getvalue(sem_t *sem, int *sval) {
-    if (!sem || !sval) return EINVAL;
+    if (!sem || !sval)
+        return EINVAL;
     *sval = sem->val;
     return 0;
 }

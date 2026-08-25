@@ -104,7 +104,8 @@ process_t *process_create(const char *name) {
 
 thread_t *thread_create(process_t *proc, void (*entry_point)(void), bool is_user) {
     UNUSED(is_user);
-    if (!proc) return NULL;
+    if (!proc)
+        return NULL;
 
     spinlock_acquire(&g_process_lock);
 
@@ -147,7 +148,8 @@ thread_t *thread_create(process_t *proc, void (*entry_point)(void), bool is_user
 void thread_exit(int exit_code) {
     UNUSED(exit_code);
     thread_t *curr = sched_get_current_thread();
-    if (!curr) return;
+    if (!curr)
+        return;
 
     /* Handle CLONE_CHILD_CLEARTID / set_tid_address */
     if (curr->clear_child_tid && curr->process && curr->process->pagemap) {
@@ -182,7 +184,8 @@ void thread_exit(int exit_code) {
 
 void process_exit(int exit_code) {
     process_t *proc = sched_get_current_process();
-    if (!proc) return;
+    if (!proc)
+        return;
 
     proc->status = PROCESS_ZOMBIE;
     proc->exit_code = exit_code;
@@ -208,8 +211,10 @@ void process_exit(int exit_code) {
 }
 
 int process_send_signal(process_t *proc, int sig) {
-    if (!proc || sig < 0 || sig >= 32) return -1;
-    if (sig == 0) return 0; /* Null signal: check process existence */
+    if (!proc || sig < 0 || sig >= 32)
+        return -1;
+    if (sig == 0)
+        return 0; /* Null signal: check process existence */
 
     spinlock_acquire(&g_process_lock);
     if (proc->status != PROCESS_ACTIVE) {
@@ -228,8 +233,8 @@ int process_send_signal(process_t *proc, int sig) {
 
     if (handler == SIG_DFL) {
         /* Terminating signals */
-        if (sig == SIGHUP || sig == SIGINT || sig == SIGQUIT ||
-            sig == SIGKILL || sig == SIGTERM || sig == SIGSEGV || sig == SIGILL) {
+        if (sig == SIGHUP || sig == SIGINT || sig == SIGQUIT || sig == SIGKILL || sig == SIGTERM || sig == SIGSEGV ||
+            sig == SIGILL) {
             proc->status = PROCESS_ZOMBIE;
             proc->exit_code = (128 + sig);
 
@@ -257,13 +262,17 @@ int process_send_signal(process_t *proc, int sig) {
 
 int process_setpgid(pid_t pid, pid_t pgid) {
     process_t *curr = sched_get_current_process();
-    if (!curr) return -1;
+    if (!curr)
+        return -1;
 
     process_t *target = (pid == 0 || pid == curr->pid) ? curr : process_get_by_pid(pid);
-    if (!target) return -1; /* ESRCH */
+    if (!target)
+        return -1; /* ESRCH */
 
-    if (pgid < 0) return -1; /* EINVAL */
-    if (pgid == 0) pgid = target->pid;
+    if (pgid < 0)
+        return -1; /* EINVAL */
+    if (pgid == 0)
+        pgid = target->pid;
 
     spinlock_acquire(&g_process_lock);
     target->pgid = pgid;
@@ -273,16 +282,19 @@ int process_setpgid(pid_t pid, pid_t pgid) {
 
 pid_t process_getpgid(pid_t pid) {
     process_t *curr = sched_get_current_process();
-    if (!curr) return -1;
+    if (!curr)
+        return -1;
 
     process_t *target = (pid == 0 || pid == curr->pid) ? curr : process_get_by_pid(pid);
-    if (!target) return -1;
+    if (!target)
+        return -1;
     return target->pgid;
 }
 
 pid_t process_setsid(void) {
     process_t *curr = sched_get_current_process();
-    if (!curr) return -1;
+    if (!curr)
+        return -1;
 
     spinlock_acquire(&g_process_lock);
     /* Cannot become session leader if already process group leader */
@@ -299,18 +311,23 @@ pid_t process_setsid(void) {
 
 pid_t process_getsid(pid_t pid) {
     process_t *curr = sched_get_current_process();
-    if (!curr) return -1;
+    if (!curr)
+        return -1;
 
     process_t *target = (pid == 0 || pid == curr->pid) ? curr : process_get_by_pid(pid);
-    if (!target) return -1;
+    if (!target)
+        return -1;
     return target->sid;
 }
 
 int process_setgroups(size_t size, const gid_t *list) {
     process_t *curr = sched_get_current_process();
-    if (!curr) return -1;
-    if (curr->euid != 0) return -1; /* EPERM */
-    if (size > NGROUPS_MAX) return -1; /* EINVAL */
+    if (!curr)
+        return -1;
+    if (curr->euid != 0)
+        return -1; /* EPERM */
+    if (size > NGROUPS_MAX)
+        return -1; /* EINVAL */
 
     spinlock_acquire(&g_process_lock);
     curr->ngroups = (int)size;
@@ -323,7 +340,8 @@ int process_setgroups(size_t size, const gid_t *list) {
 
 int process_getgroups(size_t size, gid_t *list) {
     process_t *curr = sched_get_current_process();
-    if (!curr) return -1;
+    if (!curr)
+        return -1;
 
     spinlock_acquire(&g_process_lock);
     int count = curr->ngroups;
@@ -343,9 +361,11 @@ int process_getgroups(size_t size, gid_t *list) {
 }
 
 int process_sigaction(int sig, const struct sigaction *act, struct sigaction *oldact) {
-    if (sig <= 0 || sig >= 32 || sig == SIGKILL || sig == SIGSTOP) return -1;
+    if (sig <= 0 || sig >= 32 || sig == SIGKILL || sig == SIGSTOP)
+        return -1;
     process_t *curr = sched_get_current_process();
-    if (!curr) return -1;
+    if (!curr)
+        return -1;
 
     spinlock_acquire(&g_process_lock);
     if (oldact && (uintptr_t)oldact > 0x1000) {
@@ -368,7 +388,8 @@ int process_sigaction(int sig, const struct sigaction *act, struct sigaction *ol
 
 int process_sigprocmask(int how, const sigset_t *set, sigset_t *oldset) {
     process_t *curr = sched_get_current_process();
-    if (!curr) return -1;
+    if (!curr)
+        return -1;
 
     spinlock_acquire(&g_process_lock);
     if (oldset) {
@@ -389,9 +410,11 @@ int process_sigprocmask(int how, const sigset_t *set, sigset_t *oldset) {
 }
 
 int process_sigpending(sigset_t *set) {
-    if (!set) return -1;
+    if (!set)
+        return -1;
     process_t *curr = sched_get_current_process();
-    if (!curr) return -1;
+    if (!curr)
+        return -1;
 
     spinlock_acquire(&g_process_lock);
     *set = curr->pending_signals & curr->blocked_signals;
@@ -400,13 +423,16 @@ int process_sigpending(sigset_t *set) {
 }
 
 int process_kill(pid_t pid, int sig) {
-    if (sig < 0 || sig >= 32) return -1;
+    if (sig < 0 || sig >= 32)
+        return -1;
     process_t *curr = sched_get_current_process();
-    if (!curr) return -1;
+    if (!curr)
+        return -1;
 
     if (pid > 0) {
         process_t *p = process_get_by_pid(pid);
-        if (!p) return -1; /* ESRCH */
+        if (!p)
+            return -1; /* ESRCH */
         return process_send_signal(p, sig);
     }
 
@@ -416,7 +442,8 @@ int process_kill(pid_t pid, int sig) {
     list_node_t *pos;
     list_for_each(pos, &g_process_list) {
         process_t *p = container_of(pos, process_t, proc_list_node);
-        if (p->status != PROCESS_ACTIVE) continue;
+        if (p->status != PROCESS_ACTIVE)
+            continue;
 
         bool target = false;
         if (pid == 0 && p->pgid == curr->pgid) {
@@ -449,7 +476,8 @@ int process_kill(pid_t pid, int sig) {
 
 pid_t process_waitpid(pid_t pid, int *status, int options) {
     process_t *curr = sched_get_current_process();
-    if (!curr) return -1;
+    if (!curr)
+        return -1;
 
     while (1) {
         bool has_children = false;
@@ -467,7 +495,8 @@ pid_t process_waitpid(pid_t pid, int *status, int options) {
                         }
                     } else if (p->status == PROCESS_ZOMBIE) {
                         pid_t found_pid = p->pid;
-                        if (status) *status = ((p->exit_code & 0xFF) << 8);
+                        if (status)
+                            *status = ((p->exit_code & 0xFF) << 8);
 
                         if (g_foreground_proc == p) {
                             g_foreground_proc = NULL;
@@ -501,7 +530,8 @@ pid_t process_waitpid(pid_t pid, int *status, int options) {
         }
 
         spinlock_release(&g_process_lock);
-        if (!has_children) return -1;
+        if (!has_children)
+            return -1;
         if (options & 1) { /* WNOHANG */
             return 0;
         }
@@ -525,12 +555,14 @@ process_t *process_get_by_pid(pid_t pid) {
 }
 
 size_t process_get_list(proc_info_t *buf, size_t max_count) {
-    if (!buf || max_count == 0) return 0;
+    if (!buf || max_count == 0)
+        return 0;
     spinlock_acquire(&g_process_lock);
     size_t count = 0;
     list_node_t *pos;
     list_for_each(pos, &g_process_list) {
-        if (count >= max_count) break;
+        if (count >= max_count)
+            break;
         process_t *p = container_of(pos, process_t, proc_list_node);
         buf[count].pid = p->pid;
         buf[count].ppid = p->ppid;

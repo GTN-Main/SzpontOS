@@ -13,10 +13,8 @@
 #include <kernel/kprint.h>
 #include <kernel/spinlock.h>
 
-extern int tcp_send_segment(uint32_t src_ip, uint16_t src_port,
-                            uint32_t dest_ip, uint16_t dest_port,
-                            uint32_t seq, uint32_t ack, uint8_t flags,
-                            const void *data, size_t len);
+extern int tcp_send_segment(uint32_t src_ip, uint16_t src_port, uint32_t dest_ip, uint16_t dest_port, uint32_t seq,
+                            uint32_t ack, uint8_t flags, const void *data, size_t len);
 
 static socket_t *g_socket_list = NULL;
 static spinlock_t g_socket_list_lock = SPINLOCK_INIT;
@@ -26,14 +24,16 @@ static vfs_ops_t g_socket_vfs_ops;
 
 static ssize_t socket_vfs_read(vfs_node_t *node, off_t offset, size_t size, void *buffer) {
     (void)offset;
-    if (!node || !node->device_data || !buffer || size == 0) return 0;
+    if (!node || !node->device_data || !buffer || size == 0)
+        return 0;
     socket_t *sock = (socket_t *)node->device_data;
 
     extern void e1000_poll(void);
     e1000_poll();
 
     while (sock->rx_len == 0) {
-        if (sock->state == SS_CLOSED || sock->tcp_state == TCP_STATE_CLOSE_WAIT || sock->tcp_state == TCP_STATE_CLOSED) {
+        if (sock->state == SS_CLOSED || sock->tcp_state == TCP_STATE_CLOSE_WAIT ||
+            sock->tcp_state == TCP_STATE_CLOSED) {
             return 0; /* EOF */
         }
         e1000_poll();
@@ -54,11 +54,13 @@ static ssize_t socket_vfs_read(vfs_node_t *node, off_t offset, size_t size, void
 
 static ssize_t socket_vfs_write(vfs_node_t *node, off_t offset, size_t size, const void *buffer) {
     (void)offset;
-    if (!node || !node->device_data || !buffer || size == 0) return 0;
+    if (!node || !node->device_data || !buffer || size == 0)
+        return 0;
     socket_t *sock = (socket_t *)node->device_data;
 
     if (sock->domain == AF_UNIX) {
-        if (!sock->peer) return -1;
+        if (!sock->peer)
+            return -1;
         socket_t *peer = sock->peer;
         spinlock_acquire(&peer->lock);
         size_t written = 0;
@@ -73,14 +75,16 @@ static ssize_t socket_vfs_write(vfs_node_t *node, off_t offset, size_t size, con
     }
 
     if (sock->type == SOCK_STREAM) {
-        if (sock->tcp_state != TCP_STATE_ESTABLISHED) return -1;
-        tcp_send_segment(sock->local_ip, sock->local_port, sock->remote_ip, sock->remote_port,
-                         sock->snd_nxt, sock->rcv_nxt, TCP_FLAG_ACK | TCP_FLAG_PSH, buffer, size);
+        if (sock->tcp_state != TCP_STATE_ESTABLISHED)
+            return -1;
+        tcp_send_segment(sock->local_ip, sock->local_port, sock->remote_ip, sock->remote_port, sock->snd_nxt,
+                         sock->rcv_nxt, TCP_FLAG_ACK | TCP_FLAG_PSH, buffer, size);
         sock->snd_nxt += (uint32_t)size;
         return (ssize_t)size;
     } else if (sock->type == SOCK_DGRAM) {
         net_buf_t *buf = net_buf_alloc();
-        if (!buf) return -1;
+        if (!buf)
+            return -1;
         memcpy(buf->data, buffer, size);
         buf->len = size;
         buf->offset = 0;
@@ -92,7 +96,8 @@ static ssize_t socket_vfs_write(vfs_node_t *node, off_t offset, size_t size, con
 }
 
 static int socket_vfs_close(vfs_node_t *node) {
-    if (!node) return 0;
+    if (!node)
+        return 0;
     socket_t *sock = (socket_t *)node->device_data;
     if (sock) {
         socket_destroy(sock);
@@ -110,7 +115,8 @@ void socket_subsystem_init(void) {
 
 socket_t *socket_create(int domain, int type, int protocol) {
     socket_t *sock = (socket_t *)kmalloc(sizeof(socket_t));
-    if (!sock) return NULL;
+    if (!sock)
+        return NULL;
     memset(sock, 0, sizeof(socket_t));
 
     sock->domain = domain;
@@ -129,12 +135,13 @@ socket_t *socket_create(int domain, int type, int protocol) {
 }
 
 void socket_destroy(socket_t *sock) {
-    if (!sock) return;
+    if (!sock)
+        return;
 
     if (sock->type == SOCK_STREAM && sock->tcp_state == TCP_STATE_ESTABLISHED) {
         /* Send FIN */
-        tcp_send_segment(sock->local_ip, sock->local_port, sock->remote_ip, sock->remote_port,
-                         sock->snd_nxt, sock->rcv_nxt, TCP_FLAG_FIN | TCP_FLAG_ACK, NULL, 0);
+        tcp_send_segment(sock->local_ip, sock->local_port, sock->remote_ip, sock->remote_port, sock->snd_nxt,
+                         sock->rcv_nxt, TCP_FLAG_FIN | TCP_FLAG_ACK, NULL, 0);
         sock->snd_nxt++;
         sock->tcp_state = TCP_STATE_FIN_WAIT_1;
     }
@@ -178,8 +185,8 @@ socket_t *socket_find_tcp(uint32_t local_ip, uint16_t local_port, uint32_t remot
     spinlock_acquire(&g_socket_list_lock);
     for (socket_t *cur = g_socket_list; cur != NULL; cur = cur->next) {
         if (cur->type == SOCK_STREAM && cur->local_port == local_port &&
-            (cur->local_ip == 0 || cur->local_ip == local_ip) &&
-            cur->remote_port == remote_port && cur->remote_ip == remote_ip) {
+            (cur->local_ip == 0 || cur->local_ip == local_ip) && cur->remote_port == remote_port &&
+            cur->remote_ip == remote_ip) {
             spinlock_release(&g_socket_list_lock);
             return cur;
         }
@@ -203,9 +210,11 @@ socket_t *socket_find_tcp_listener(uint32_t local_ip, uint16_t local_port) {
 }
 
 socket_t *socket_create_child(socket_t *listener, uint32_t remote_ip, uint16_t remote_port) {
-    if (!listener) return NULL;
+    if (!listener)
+        return NULL;
     socket_t *child = socket_create(listener->domain, listener->type, listener->protocol);
-    if (!child) return NULL;
+    if (!child)
+        return NULL;
 
     child->local_ip = listener->local_ip;
     child->local_port = listener->local_port;
@@ -235,7 +244,8 @@ socket_t *socket_find_icmp(uint32_t local_ip) {
 }
 
 int socket_enqueue_data(socket_t *sock, const void *data, size_t len, uint32_t from_ip, uint16_t from_port) {
-    if (!sock || !data || len == 0) return 0;
+    if (!sock || !data || len == 0)
+        return 0;
 
     spinlock_acquire(&sock->lock);
     if (from_ip != 0) {
@@ -257,16 +267,19 @@ int socket_enqueue_data(socket_t *sock, const void *data, size_t len, uint32_t f
 
 static socket_t *get_socket_from_fd(int fd) {
     process_t *proc = sched_get_current_process();
-    if (!proc || fd < 0 || fd >= MAX_FD) return NULL;
+    if (!proc || fd < 0 || fd >= MAX_FD)
+        return NULL;
     file_descriptor_t *fdesc = proc->fds[fd];
-    if (!fdesc || !fdesc->node || fdesc->node->flags != VFS_TYPE_SOCKET) return NULL;
+    if (!fdesc || !fdesc->node || fdesc->node->flags != VFS_TYPE_SOCKET)
+        return NULL;
     return (socket_t *)fdesc->node->device_data;
 }
 
 /* Syscall Wrappers */
 int sys_socket(int domain, int type, int protocol) {
     process_t *proc = sched_get_current_process();
-    if (!proc) return -1;
+    if (!proc)
+        return -1;
 
     /* Find free fd */
     int fd = -1;
@@ -276,10 +289,12 @@ int sys_socket(int domain, int type, int protocol) {
             break;
         }
     }
-    if (fd == -1) return -1;
+    if (fd == -1)
+        return -1;
 
     socket_t *sock = socket_create(domain, type, protocol);
-    if (!sock) return -1;
+    if (!sock)
+        return -1;
 
     vfs_node_t *node = (vfs_node_t *)kmalloc(sizeof(vfs_node_t));
     if (!node) {
@@ -310,7 +325,8 @@ int sys_socket(int domain, int type, int protocol) {
 
 int sys_bind(int fd, const struct sockaddr *addr, uint32_t addrlen) {
     socket_t *sock = get_socket_from_fd(fd);
-    if (!sock || !addr || addrlen < sizeof(struct sockaddr)) return -1;
+    if (!sock || !addr || addrlen < sizeof(struct sockaddr))
+        return -1;
 
     if (sock->domain == AF_INET) {
         const struct sockaddr_in *in = (const struct sockaddr_in *)addr;
@@ -330,7 +346,8 @@ int sys_bind(int fd, const struct sockaddr *addr, uint32_t addrlen) {
 
 int sys_listen(int fd, int backlog) {
     socket_t *sock = get_socket_from_fd(fd);
-    if (!sock || sock->type != SOCK_STREAM) return -1;
+    if (!sock || sock->type != SOCK_STREAM)
+        return -1;
 
     sock->backlog = backlog > 0 ? backlog : 5;
     sock->state = SS_LISTENING;
@@ -340,7 +357,8 @@ int sys_listen(int fd, int backlog) {
 
 int sys_accept(int fd, struct sockaddr *addr, uint32_t *addrlen) {
     socket_t *sock = get_socket_from_fd(fd);
-    if (!sock || sock->state != SS_LISTENING) return -1;
+    if (!sock || sock->state != SS_LISTENING)
+        return -1;
 
     /* Wait for child socket in accept_queue */
     socket_t *child = NULL;
@@ -419,7 +437,8 @@ int sys_accept(int fd, struct sockaddr *addr, uint32_t *addrlen) {
 
 int sys_connect(int fd, const struct sockaddr *addr, uint32_t addrlen) {
     socket_t *sock = get_socket_from_fd(fd);
-    if (!sock || !addr || addrlen < sizeof(struct sockaddr)) return -1;
+    if (!sock || !addr || addrlen < sizeof(struct sockaddr))
+        return -1;
 
     if (sock->domain == AF_INET) {
         const struct sockaddr_in *in = (const struct sockaddr_in *)addr;
@@ -428,12 +447,14 @@ int sys_connect(int fd, const struct sockaddr *addr, uint32_t addrlen) {
 
         if (sock->local_port == 0) {
             sock->local_port = g_ephemeral_port++;
-            if (g_ephemeral_port > 65000) g_ephemeral_port = 49152;
+            if (g_ephemeral_port > 65000)
+                g_ephemeral_port = 49152;
         }
 
         if (sock->local_ip == 0) {
             netif_t *def = ((sock->remote_ip & 0xFF) == 127) ? netif_get_loopback() : netif_get_default();
-            if (def) sock->local_ip = def->ip;
+            if (def)
+                sock->local_ip = def->ip;
         }
 
         if (sock->type == SOCK_STREAM) {
@@ -442,8 +463,8 @@ int sys_connect(int fd, const struct sockaddr *addr, uint32_t addrlen) {
             sock->state = SS_CONNECTING;
 
             /* Send SYN */
-            tcp_send_segment(sock->local_ip, sock->local_port, sock->remote_ip, sock->remote_port,
-                             sock->snd_nxt, 0, TCP_FLAG_SYN, NULL, 0);
+            tcp_send_segment(sock->local_ip, sock->local_port, sock->remote_ip, sock->remote_port, sock->snd_nxt, 0,
+                             TCP_FLAG_SYN, NULL, 0);
             sock->snd_nxt++;
 
             /* Wait for ESTABLISHED or timeout */
@@ -497,11 +518,11 @@ int sys_connect(int fd, const struct sockaddr *addr, uint32_t addrlen) {
     return -1;
 }
 
-ssize_t sys_sendto(int fd, const void *buf, size_t len, int flags,
-                   const struct sockaddr *dest_addr, uint32_t addrlen) {
+ssize_t sys_sendto(int fd, const void *buf, size_t len, int flags, const struct sockaddr *dest_addr, uint32_t addrlen) {
     (void)flags;
     socket_t *sock = get_socket_from_fd(fd);
-    if (!sock || !buf || len == 0) return -1;
+    if (!sock || !buf || len == 0)
+        return -1;
 
     uint32_t dest_ip = sock->remote_ip;
     uint16_t dest_port = sock->remote_port;
@@ -514,16 +535,19 @@ ssize_t sys_sendto(int fd, const void *buf, size_t len, int flags,
 
     if (sock->local_port == 0) {
         sock->local_port = g_ephemeral_port++;
-        if (g_ephemeral_port > 65000) g_ephemeral_port = 49152;
+        if (g_ephemeral_port > 65000)
+            g_ephemeral_port = 49152;
     }
     if (sock->local_ip == 0) {
         netif_t *def = ((dest_ip & 0xFF) == 127) ? netif_get_loopback() : netif_get_default();
-        if (def) sock->local_ip = def->ip;
+        if (def)
+            sock->local_ip = def->ip;
     }
 
     if (sock->type == SOCK_RAW || sock->protocol == IP_PROTO_ICMP || sock->protocol == 1) {
         net_buf_t *pbuf = net_buf_alloc();
-        if (!pbuf) return -1;
+        if (!pbuf)
+            return -1;
         memcpy(pbuf->data, buf, len);
         pbuf->len = len;
         pbuf->offset = 0;
@@ -536,13 +560,14 @@ ssize_t sys_sendto(int fd, const void *buf, size_t len, int flags,
         ipv4_output(NULL, dest_ip, IP_PROTO_ICMP, pbuf);
         return (ssize_t)len;
     } else if (sock->type == SOCK_STREAM) {
-        tcp_send_segment(sock->local_ip, sock->local_port, dest_ip, dest_port,
-                         sock->snd_nxt, sock->rcv_nxt, TCP_FLAG_ACK | TCP_FLAG_PSH, buf, len);
+        tcp_send_segment(sock->local_ip, sock->local_port, dest_ip, dest_port, sock->snd_nxt, sock->rcv_nxt,
+                         TCP_FLAG_ACK | TCP_FLAG_PSH, buf, len);
         sock->snd_nxt += (uint32_t)len;
         return (ssize_t)len;
     } else if (sock->type == SOCK_DGRAM) {
         net_buf_t *pbuf = net_buf_alloc();
-        if (!pbuf) return -1;
+        if (!pbuf)
+            return -1;
         memcpy(pbuf->data, buf, len);
         pbuf->len = len;
         pbuf->offset = 0;
@@ -553,11 +578,11 @@ ssize_t sys_sendto(int fd, const void *buf, size_t len, int flags,
     return -1;
 }
 
-ssize_t sys_recvfrom(int fd, void *buf, size_t len, int flags,
-                     struct sockaddr *src_addr, uint32_t *addrlen) {
+ssize_t sys_recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr *src_addr, uint32_t *addrlen) {
     (void)flags;
     socket_t *sock = (fd >= 0) ? get_socket_from_fd(fd) : NULL;
-    if (!sock && fd >= 0) return -1;
+    if (!sock && fd >= 0)
+        return -1;
 
     /* If called from vfs_read, sock was validated in caller */
     process_t *proc = sched_get_current_process();
@@ -576,7 +601,8 @@ ssize_t sys_recvfrom(int fd, void *buf, size_t len, int flags,
 
     /* Wait for data in rx_buf */
     while (sock->rx_len == 0) {
-        if (sock->state == SS_CLOSED || sock->tcp_state == TCP_STATE_CLOSE_WAIT || sock->tcp_state == TCP_STATE_CLOSED) {
+        if (sock->state == SS_CLOSED || sock->tcp_state == TCP_STATE_CLOSE_WAIT ||
+            sock->tcp_state == TCP_STATE_CLOSED) {
             return 0; /* EOF */
         }
         e1000_poll();
@@ -608,14 +634,16 @@ ssize_t sys_recvfrom(int fd, void *buf, size_t len, int flags,
 int sys_shutdown(int fd, int how) {
     (void)how;
     socket_t *sock = get_socket_from_fd(fd);
-    if (!sock) return -1;
+    if (!sock)
+        return -1;
     sock->state = SS_CLOSED;
     return 0;
 }
 
 int sys_getsockname(int fd, struct sockaddr *addr, uint32_t *addrlen) {
     socket_t *sock = get_socket_from_fd(fd);
-    if (!sock || !addr || !addrlen) return -1;
+    if (!sock || !addr || !addrlen)
+        return -1;
 
     if (sock->domain == AF_INET && *addrlen >= sizeof(struct sockaddr_in)) {
         struct sockaddr_in *in = (struct sockaddr_in *)addr;
@@ -630,7 +658,8 @@ int sys_getsockname(int fd, struct sockaddr *addr, uint32_t *addrlen) {
 
 int sys_getpeername(int fd, struct sockaddr *addr, uint32_t *addrlen) {
     socket_t *sock = get_socket_from_fd(fd);
-    if (!sock || !addr || !addrlen) return -1;
+    if (!sock || !addr || !addrlen)
+        return -1;
 
     if (sock->domain == AF_INET && *addrlen >= sizeof(struct sockaddr_in)) {
         struct sockaddr_in *in = (struct sockaddr_in *)addr;
@@ -644,24 +673,36 @@ int sys_getpeername(int fd, struct sockaddr *addr, uint32_t *addrlen) {
 }
 
 int sys_setsockopt(int fd, int level, int optname, const void *optval, uint32_t optlen) {
-    (void)fd; (void)level; (void)optname; (void)optval; (void)optlen;
+    (void)fd;
+    (void)level;
+    (void)optname;
+    (void)optval;
+    (void)optlen;
     return 0;
 }
 
 int sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *optlen) {
-    (void)fd; (void)level; (void)optname; (void)optval; (void)optlen;
+    (void)fd;
+    (void)level;
+    (void)optname;
+    (void)optval;
+    (void)optlen;
     return 0;
 }
 
 int sys_socketpair(int domain, int type, int protocol, int sv[2]) {
-    (void)domain; (void)type; (void)protocol;
+    (void)domain;
+    (void)type;
+    (void)protocol;
     int fd1 = sys_socket(AF_UNIX, SOCK_STREAM, 0);
     int fd2 = sys_socket(AF_UNIX, SOCK_STREAM, 0);
-    if (fd1 < 0 || fd2 < 0) return -1;
+    if (fd1 < 0 || fd2 < 0)
+        return -1;
 
     socket_t *s1 = get_socket_from_fd(fd1);
     socket_t *s2 = get_socket_from_fd(fd2);
-    if (!s1 || !s2) return -1;
+    if (!s1 || !s2)
+        return -1;
 
     s1->peer = s2;
     s2->peer = s1;

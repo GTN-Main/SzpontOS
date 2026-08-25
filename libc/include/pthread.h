@@ -8,13 +8,13 @@
 #define PTHREAD_CREATE_JOINABLE 0
 #define PTHREAD_CREATE_DETACHED 1
 
-#define PTHREAD_MUTEX_NORMAL     0
-#define PTHREAD_MUTEX_RECURSIVE  1
+#define PTHREAD_MUTEX_NORMAL 0
+#define PTHREAD_MUTEX_RECURSIVE 1
 #define PTHREAD_MUTEX_ERRORCHECK 2
-#define PTHREAD_MUTEX_DEFAULT    PTHREAD_MUTEX_NORMAL
+#define PTHREAD_MUTEX_DEFAULT PTHREAD_MUTEX_NORMAL
 
-#define PTHREAD_PROCESS_PRIVATE  0
-#define PTHREAD_PROCESS_SHARED   1
+#define PTHREAD_PROCESS_PRIVATE 0
+#define PTHREAD_PROCESS_SHARED 1
 
 #define PTHREAD_BARRIER_SERIAL_THREAD -1
 
@@ -73,10 +73,10 @@ typedef struct {
 typedef unsigned int pthread_key_t;
 typedef int pthread_once_t;
 
-#define PTHREAD_MUTEX_INITIALIZER  { 0, PTHREAD_MUTEX_NORMAL, 0, 0 }
-#define PTHREAD_COND_INITIALIZER   { 0, 0 }
-#define PTHREAD_RWLOCK_INITIALIZER { 0, 0, 0, 0 }
-#define PTHREAD_ONCE_INIT          0
+#define PTHREAD_MUTEX_INITIALIZER {0, PTHREAD_MUTEX_NORMAL, 0, 0}
+#define PTHREAD_COND_INITIALIZER {0, 0}
+#define PTHREAD_RWLOCK_INITIALIZER {0, 0, 0, 0}
+#define PTHREAD_ONCE_INIT 0
 
 /* Thread Management */
 int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_routine)(void *), void *arg);

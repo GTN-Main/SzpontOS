@@ -7,9 +7,9 @@
 
 typedef struct block_device {
     char name[BLOCK_DEV_NAME_LEN];
-    size_t sector_size;      /* Standard 512 bytes */
-    uint64_t sector_count;    /* Total sectors on device */
-    void *driver_data;        /* Driver private context */
+    size_t sector_size;    /* Standard 512 bytes */
+    uint64_t sector_count; /* Total sectors on device */
+    void *driver_data;     /* Driver private context */
 
     int (*read_blocks)(struct block_device *dev, uint64_t lba, uint32_t count, void *buffer);
     int (*write_blocks)(struct block_device *dev, uint64_t lba, uint32_t count, const void *buffer);

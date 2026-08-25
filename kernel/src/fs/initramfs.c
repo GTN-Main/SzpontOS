@@ -27,9 +27,11 @@ static size_t parse_octal(const char *str, size_t max_len) {
 
 static ssize_t initramfs_read(vfs_node_t *node, off_t offset, size_t size, void *buffer) {
     initramfs_entry_t *entry = (initramfs_entry_t *)node;
-    if (!entry || !entry->data || !buffer) return 0;
+    if (!entry || !entry->data || !buffer)
+        return 0;
 
-    if (offset >= (off_t)node->length) return 0;
+    if (offset >= (off_t)node->length)
+        return 0;
     if (offset + size > node->length) {
         size = node->length - offset;
     }
@@ -40,13 +42,15 @@ static ssize_t initramfs_read(vfs_node_t *node, off_t offset, size_t size, void 
 
 static ssize_t initramfs_write(vfs_node_t *node, off_t offset, size_t size, const void *buffer) {
     initramfs_entry_t *entry = (initramfs_entry_t *)node;
-    if (!entry || !buffer) return -1;
+    if (!entry || !buffer)
+        return -1;
 
     size_t required = offset + size;
     if (!entry->is_dynamic_data || required > entry->capacity) {
         size_t new_cap = (required > entry->capacity * 2) ? required + 512 : (entry->capacity * 2 + 512);
         void *new_data = kmalloc(new_cap);
-        if (!new_data) return -1;
+        if (!new_data)
+            return -1;
 
         if (entry->data && node->length > 0) {
             memcpy(new_data, entry->data, node->length);
@@ -70,7 +74,8 @@ static ssize_t initramfs_write(vfs_node_t *node, off_t offset, size_t size, cons
 
 static struct vfs_dirent *initramfs_readdir(vfs_node_t *node, uint32_t index) {
     initramfs_entry_t *entry = (initramfs_entry_t *)node;
-    if (!entry || index >= entry->child_count) return NULL;
+    if (!entry || index >= entry->child_count)
+        return NULL;
 
     static vfs_dirent_t dirent;
     memset(&dirent, 0, sizeof(dirent));
@@ -83,7 +88,8 @@ static struct vfs_dirent *initramfs_readdir(vfs_node_t *node, uint32_t index) {
 
 static vfs_node_t *initramfs_finddir(vfs_node_t *node, const char *name) {
     initramfs_entry_t *entry = (initramfs_entry_t *)node;
-    if (!entry || !name) return NULL;
+    if (!entry || !name)
+        return NULL;
 
     for (size_t i = 0; i < entry->child_count; i++) {
         if (strcmp(entry->children[i]->node.name, name) == 0) {
@@ -93,7 +99,8 @@ static vfs_node_t *initramfs_finddir(vfs_node_t *node, const char *name) {
     return NULL;
 }
 
-static initramfs_entry_t *create_entry(const char *name, uint32_t flags, size_t size, void *data, mode_t mode, uid_t uid, gid_t gid) {
+static initramfs_entry_t *create_entry(const char *name, uint32_t flags, size_t size, void *data, mode_t mode,
+                                       uid_t uid, gid_t gid) {
     initramfs_entry_t *entry = (initramfs_entry_t *)kzalloc(sizeof(initramfs_entry_t));
     strncpy(entry->node.name, name, sizeof(entry->node.name) - 1);
     entry->node.flags = flags;
@@ -110,7 +117,8 @@ static initramfs_entry_t *create_entry(const char *name, uint32_t flags, size_t 
 
 static int initramfs_create(vfs_node_t *parent, const char *name, mode_t mode) {
     initramfs_entry_t *p = (initramfs_entry_t *)parent;
-    if (!p || p->node.flags != VFS_TYPE_DIRECTORY || p->child_count >= 128) return -1;
+    if (!p || p->node.flags != VFS_TYPE_DIRECTORY || p->child_count >= 128)
+        return -1;
 
     /* Check if already exists */
     for (size_t i = 0; i < p->child_count; i++) {
@@ -132,7 +140,8 @@ static int initramfs_create(vfs_node_t *parent, const char *name, mode_t mode) {
 
 static int initramfs_mkdir(vfs_node_t *parent, const char *name, mode_t mode) {
     initramfs_entry_t *p = (initramfs_entry_t *)parent;
-    if (!p || p->node.flags != VFS_TYPE_DIRECTORY || p->child_count >= 128) return -1;
+    if (!p || p->node.flags != VFS_TYPE_DIRECTORY || p->child_count >= 128)
+        return -1;
 
     /* Check if already exists */
     for (size_t i = 0; i < p->child_count; i++) {
@@ -152,21 +161,26 @@ static int initramfs_mkdir(vfs_node_t *parent, const char *name, mode_t mode) {
 }
 
 static int initramfs_chmod(vfs_node_t *node, mode_t mode) {
-    if (!node) return -1;
+    if (!node)
+        return -1;
     node->permissions = (mode & 07777);
     return 0;
 }
 
 static int initramfs_chown(vfs_node_t *node, uid_t uid, gid_t gid) {
-    if (!node) return -1;
-    if (uid != (uid_t)-1) node->uid = uid;
-    if (gid != (gid_t)-1) node->gid = gid;
+    if (!node)
+        return -1;
+    if (uid != (uid_t)-1)
+        node->uid = uid;
+    if (gid != (gid_t)-1)
+        node->gid = gid;
     return 0;
 }
 
 static int initramfs_unlink(vfs_node_t *parent, const char *name) {
     initramfs_entry_t *p = (initramfs_entry_t *)parent;
-    if (!p || p->node.flags != VFS_TYPE_DIRECTORY || !name) return -1;
+    if (!p || p->node.flags != VFS_TYPE_DIRECTORY || !name)
+        return -1;
 
     for (size_t i = 0; i < p->child_count; i++) {
         if (strcmp(p->children[i]->node.name, name) == 0) {
@@ -194,14 +208,16 @@ static int initramfs_unlink(vfs_node_t *parent, const char *name) {
     return -1; /* No such file or directory */
 }
 
-static initramfs_entry_t *add_path_to_tree(initramfs_entry_t *root, const char *path, uint32_t flags, size_t size, void *data, mode_t mode, uid_t uid, gid_t gid) {
+static initramfs_entry_t *add_path_to_tree(initramfs_entry_t *root, const char *path, uint32_t flags, size_t size,
+                                           void *data, mode_t mode, uid_t uid, gid_t gid) {
     char clean_path[256];
     strncpy(clean_path, path, sizeof(clean_path) - 1);
     clean_path[sizeof(clean_path) - 1] = '\0';
 
     /* Strip leading slashes */
     char *p = clean_path;
-    while (*p == '/') p++;
+    while (*p == '/')
+        p++;
 
     /* Strip trailing slashes */
     size_t len = strlen(p);
@@ -209,7 +225,8 @@ static initramfs_entry_t *add_path_to_tree(initramfs_entry_t *root, const char *
         p[--len] = '\0';
     }
 
-    if (len == 0) return root;
+    if (len == 0)
+        return root;
 
     initramfs_entry_t *curr = root;
     char *token = p;
@@ -254,7 +271,8 @@ static initramfs_entry_t *add_path_to_tree(initramfs_entry_t *root, const char *
 }
 
 vfs_node_t *initramfs_init(void *archive_ptr, size_t archive_size) {
-    if (!archive_ptr || archive_size < 512) return NULL;
+    if (!archive_ptr || archive_size < 512)
+        return NULL;
 
     g_initramfs_file_ops.read = initramfs_read;
     g_initramfs_file_ops.write = initramfs_write;

@@ -8,18 +8,30 @@
 #include <kernel/spinlock.h>
 
 pagemap_t g_kernel_pagemap;
-uint64_t  g_hhdm_base = 0;
+uint64_t g_hhdm_base = 0;
 static spinlock_t g_vmm_lock = SPINLOCK_INIT;
 
-static inline size_t pml4_index(uintptr_t v) { return (v >> 39) & 0x1FF; }
-static inline size_t pdpt_index(uintptr_t v) { return (v >> 30) & 0x1FF; }
-static inline size_t pd_index(uintptr_t v)   { return (v >> 21) & 0x1FF; }
-static inline size_t pt_index(uintptr_t v)   { return (v >> 12) & 0x1FF; }
+static inline size_t pml4_index(uintptr_t v) {
+    return (v >> 39) & 0x1FF;
+}
+static inline size_t pdpt_index(uintptr_t v) {
+    return (v >> 30) & 0x1FF;
+}
+static inline size_t pd_index(uintptr_t v) {
+    return (v >> 21) & 0x1FF;
+}
+static inline size_t pt_index(uintptr_t v) {
+    return (v >> 12) & 0x1FF;
+}
 
 static page_table_t *get_next_level(page_table_t *current, size_t index, bool allocate, uint64_t flags) {
     uint64_t entry = current->entries[index];
 
     if (entry & VMM_FLAG_PRESENT) {
+        if (entry & (1 << 7)) {
+            /* Huge page entry (2 MiB or 1 GiB) - not a next level table pointer */
+            return NULL;
+        }
         uintptr_t phys = entry & PHYS_ADDR_MASK;
         return (page_table_t *)PHYS_TO_VIRT(phys);
     }
@@ -37,7 +49,8 @@ static page_table_t *get_next_level(page_table_t *current, size_t index, bool al
 }
 
 bool vmm_map_page(pagemap_t *map, uintptr_t virt, uintptr_t phys, uint64_t flags) {
-    if (!map || !map->pml4_virt) return false;
+    if (!map || !map->pml4_virt)
+        return false;
 
     virt = ALIGN_DOWN(virt, PAGE_SIZE);
     phys = ALIGN_DOWN(phys, PAGE_SIZE);
@@ -46,13 +59,22 @@ bool vmm_map_page(pagemap_t *map, uintptr_t virt, uintptr_t phys, uint64_t flags
 
     page_table_t *pml4 = map->pml4_virt;
     page_table_t *pdpt = get_next_level(pml4, pml4_index(virt), true, flags & VMM_FLAG_USER);
-    if (!pdpt) { spinlock_release(&g_vmm_lock); return false; }
+    if (!pdpt) {
+        spinlock_release(&g_vmm_lock);
+        return false;
+    }
 
     page_table_t *pd = get_next_level(pdpt, pdpt_index(virt), true, flags & VMM_FLAG_USER);
-    if (!pd) { spinlock_release(&g_vmm_lock); return false; }
+    if (!pd) {
+        spinlock_release(&g_vmm_lock);
+        return false;
+    }
 
     page_table_t *pt = get_next_level(pd, pd_index(virt), true, flags & VMM_FLAG_USER);
-    if (!pt) { spinlock_release(&g_vmm_lock); return false; }
+    if (!pt) {
+        spinlock_release(&g_vmm_lock);
+        return false;
+    }
 
     pt->entries[pt_index(virt)] = phys | flags | VMM_FLAG_PRESENT;
     invlpg(virt);
@@ -62,7 +84,8 @@ bool vmm_map_page(pagemap_t *map, uintptr_t virt, uintptr_t phys, uint64_t flags
 }
 
 bool vmm_unmap_page(pagemap_t *map, uintptr_t virt) {
-    if (!map || !map->pml4_virt) return false;
+    if (!map || !map->pml4_virt)
+        return false;
 
     virt = ALIGN_DOWN(virt, PAGE_SIZE);
 
@@ -70,13 +93,22 @@ bool vmm_unmap_page(pagemap_t *map, uintptr_t virt) {
 
     page_table_t *pml4 = map->pml4_virt;
     page_table_t *pdpt = get_next_level(pml4, pml4_index(virt), false, 0);
-    if (!pdpt) { spinlock_release(&g_vmm_lock); return false; }
+    if (!pdpt) {
+        spinlock_release(&g_vmm_lock);
+        return false;
+    }
 
     page_table_t *pd = get_next_level(pdpt, pdpt_index(virt), false, 0);
-    if (!pd) { spinlock_release(&g_vmm_lock); return false; }
+    if (!pd) {
+        spinlock_release(&g_vmm_lock);
+        return false;
+    }
 
     page_table_t *pt = get_next_level(pd, pd_index(virt), false, 0);
-    if (!pt) { spinlock_release(&g_vmm_lock); return false; }
+    if (!pt) {
+        spinlock_release(&g_vmm_lock);
+        return false;
+    }
 
     pt->entries[pt_index(virt)] = 0;
     invlpg(virt);
@@ -86,20 +118,25 @@ bool vmm_unmap_page(pagemap_t *map, uintptr_t virt) {
 }
 
 uintptr_t vmm_virt_to_phys(pagemap_t *map, uintptr_t virt) {
-    if (!map || !map->pml4_virt) return 0;
+    if (!map || !map->pml4_virt)
+        return 0;
 
     page_table_t *pml4 = map->pml4_virt;
     page_table_t *pdpt = get_next_level(pml4, pml4_index(virt), false, 0);
-    if (!pdpt) return 0;
+    if (!pdpt)
+        return 0;
 
     page_table_t *pd = get_next_level(pdpt, pdpt_index(virt), false, 0);
-    if (!pd) return 0;
+    if (!pd)
+        return 0;
 
     page_table_t *pt = get_next_level(pd, pd_index(virt), false, 0);
-    if (!pt) return 0;
+    if (!pt)
+        return 0;
 
     uint64_t entry = pt->entries[pt_index(virt)];
-    if (!(entry & VMM_FLAG_PRESENT)) return 0;
+    if (!(entry & VMM_FLAG_PRESENT))
+        return 0;
 
     return (entry & PHYS_ADDR_MASK) | (virt & 0xFFF);
 }
@@ -109,7 +146,8 @@ pagemap_t *vmm_get_kernel_pagemap(void) {
 }
 
 void vmm_switch_address_space(pagemap_t *map) {
-    if (!map || map->pml4_phys == 0) return;
+    if (!map || map->pml4_phys == 0)
+        return;
     write_cr3(map->pml4_phys);
 }
 
@@ -119,7 +157,8 @@ bool vmm_alloc_user_page(pagemap_t *map, uintptr_t virt, uint64_t flags) {
     }
 
     uintptr_t phys = pmm_alloc_page();
-    if (!phys) return false;
+    if (!phys)
+        return false;
 
     void *ptr = PHYS_TO_VIRT(phys);
     memset(ptr, 0, PAGE_SIZE);
@@ -129,7 +168,8 @@ bool vmm_alloc_user_page(pagemap_t *map, uintptr_t virt, uint64_t flags) {
 
 pagemap_t *vmm_create_address_space(void) {
     uintptr_t pml4_phys = pmm_alloc_page();
-    if (!pml4_phys) return NULL;
+    if (!pml4_phys)
+        return NULL;
 
     page_table_t *pml4_virt = (page_table_t *)PHYS_TO_VIRT(pml4_phys);
     memset(pml4_virt, 0, sizeof(page_table_t));
@@ -146,7 +186,8 @@ pagemap_t *vmm_create_address_space(void) {
 }
 
 void vmm_destroy_address_space(pagemap_t *map) {
-    if (!map || map == &g_kernel_pagemap) return;
+    if (!map || map == &g_kernel_pagemap)
+        return;
 
     /* Free user space pages (entries 0..255) */
     for (size_t i = 0; i < 256; i++) {
@@ -185,10 +226,12 @@ void vmm_destroy_address_space(pagemap_t *map) {
 }
 
 pagemap_t *vmm_clone_address_space(pagemap_t *src) {
-    if (!src) return NULL;
+    if (!src)
+        return NULL;
 
     pagemap_t *dst = vmm_create_address_space();
-    if (!dst) return NULL;
+    if (!dst)
+        return NULL;
 
     /* Copy user pages */
     for (size_t i = 0; i < 256; i++) {
@@ -229,7 +272,8 @@ pagemap_t *vmm_clone_address_space(pagemap_t *src) {
 }
 
 bool vmm_set_range_flags(pagemap_t *map, uintptr_t virt, size_t size, uint64_t flags) {
-    if (!map || !map->pml4_virt || size == 0) return false;
+    if (!map || !map->pml4_virt || size == 0)
+        return false;
 
     uintptr_t start = ALIGN_DOWN(virt, PAGE_SIZE);
     uintptr_t end = ALIGN_UP(virt + size, PAGE_SIZE);
@@ -239,13 +283,16 @@ bool vmm_set_range_flags(pagemap_t *map, uintptr_t virt, size_t size, uint64_t f
     for (uintptr_t v = start; v < end; v += PAGE_SIZE) {
         page_table_t *pml4 = map->pml4_virt;
         page_table_t *pdpt = get_next_level(pml4, pml4_index(v), false, 0);
-        if (!pdpt) continue;
+        if (!pdpt)
+            continue;
 
         page_table_t *pd = get_next_level(pdpt, pdpt_index(v), false, 0);
-        if (!pd) continue;
+        if (!pd)
+            continue;
 
         page_table_t *pt = get_next_level(pd, pd_index(v), false, 0);
-        if (!pt) continue;
+        if (!pt)
+            continue;
 
         uint64_t entry = pt->entries[pt_index(v)];
         if (entry & VMM_FLAG_PRESENT) {
@@ -271,6 +318,6 @@ void vmm_init(uint64_t hhdm_offset) {
     g_kernel_pagemap.pml4_phys = cr3;
     g_kernel_pagemap.pml4_virt = (page_table_t *)PHYS_TO_VIRT(cr3);
 
-    klog_info("VMM initialized (PML4 phys: 0x%016lx, HHDM base: 0x%016lx, PAT: WC enabled)",
-              g_kernel_pagemap.pml4_phys, g_hhdm_base);
+    klog_info("VMM initialized (PML4 phys: 0x%016lx, HHDM base: 0x%016lx, PAT: WC enabled)", g_kernel_pagemap.pml4_phys,
+              g_hhdm_base);
 }

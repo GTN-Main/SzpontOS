@@ -64,7 +64,8 @@ int main(int argc, char *argv[]) {
     char args[256] = {0};
     if (argc > 2) {
         for (int i = 2; i < argc; i++) {
-            if (i > 2) strncat(args, " ", sizeof(args) - strlen(args) - 1);
+            if (i > 2)
+                strncat(args, " ", sizeof(args) - strlen(args) - 1);
             strncat(args, argv[i], sizeof(args) - strlen(args) - 1);
         }
     } else {
@@ -72,7 +73,8 @@ int main(int argc, char *argv[]) {
         base = base ? base + 1 : path;
         strncpy(args, base, sizeof(args) - 1);
         char *dot = strstr(args, ".sko");
-        if (dot) *dot = '\0';
+        if (dot)
+            *dot = '\0';
     }
 
     int ret = init_module(buf, size, args);

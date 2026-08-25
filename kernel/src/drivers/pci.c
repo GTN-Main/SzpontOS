@@ -37,21 +37,18 @@ void pci_write32(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset, uint32
 }
 
 void pci_write16(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset, uint16_t val) {
-    uint32_t current = pci_read32(bus, slot, func, offset & ~3);
-    uint32_t shift = (offset & 2) * 8;
-    current = (current & ~(0xFFFF << shift)) | ((uint32_t)val << shift);
-    pci_write32(bus, slot, func, offset & ~3, current);
+    outl(PCI_CONFIG_ADDRESS, pci_config_addr(bus, slot, func, offset));
+    outw((uint16_t)(PCI_CONFIG_DATA + (offset & 2)), val);
 }
 
 void pci_write8(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset, uint8_t val) {
-    uint32_t current = pci_read32(bus, slot, func, offset & ~3);
-    uint32_t shift = (offset & 3) * 8;
-    current = (current & ~(0xFF << shift)) | ((uint32_t)val << shift);
-    pci_write32(bus, slot, func, offset & ~3, current);
+    outl(PCI_CONFIG_ADDRESS, pci_config_addr(bus, slot, func, offset));
+    outb((uint16_t)(PCI_CONFIG_DATA + (offset & 3)), val);
 }
 
 void pci_enable_bus_mastering(pci_device_t *dev) {
-    if (!dev) return;
+    if (!dev)
+        return;
     uint16_t cmd = pci_read16(dev->bus, dev->slot, dev->func, PCI_COMMAND);
     cmd |= (PCI_COMMAND_MASTER | PCI_COMMAND_MMIO | PCI_COMMAND_IO);
     pci_write16(dev->bus, dev->slot, dev->func, PCI_COMMAND, cmd);
@@ -59,7 +56,8 @@ void pci_enable_bus_mastering(pci_device_t *dev) {
 
 static void pci_scan_function(uint8_t bus, uint8_t slot, uint8_t func) {
     uint16_t vendor_id = pci_read16(bus, slot, func, PCI_VENDOR_ID);
-    if (vendor_id == 0xFFFF || vendor_id == 0x0000) return;
+    if (vendor_id == 0xFFFF || vendor_id == 0x0000)
+        return;
 
     uint16_t device_id = pci_read16(bus, slot, func, PCI_DEVICE_ID);
     uint8_t class_code = pci_read8(bus, slot, func, PCI_CLASS);
@@ -68,7 +66,8 @@ static void pci_scan_function(uint8_t bus, uint8_t slot, uint8_t func) {
     uint8_t irq = pci_read8(bus, slot, func, PCI_INTERRUPT_LINE);
 
     pci_device_t *dev = (pci_device_t *)kmalloc(sizeof(pci_device_t));
-    if (!dev) return;
+    if (!dev)
+        return;
     memset(dev, 0, sizeof(pci_device_t));
 
     dev->bus = bus;
@@ -81,44 +80,55 @@ static void pci_scan_function(uint8_t bus, uint8_t slot, uint8_t func) {
     dev->prog_if = prog_if;
     dev->irq = irq;
 
-    /* Probe BARs */
+    /* Probe BARs (handling 64-bit Memory BARs correctly) */
     for (int b = 0; b < 6; b++) {
         uint8_t bar_offset = (uint8_t)(PCI_BAR0 + b * 4);
         uint32_t bar_val = pci_read32(bus, slot, func, bar_offset);
+        if (!bar_val) {
+            dev->bar[b] = 0;
+            dev->bar_size[b] = 0;
+            dev->bar_is_io[b] = false;
+            continue;
+        }
 
         if (bar_val & 1) {
-            /* I/O Space BAR */
+            /* I/O Space BAR (32-bit) */
             dev->bar[b] = bar_val & ~0x3;
             dev->bar_is_io[b] = true;
         } else {
             /* Memory Space BAR */
-            dev->bar[b] = bar_val & ~0xF;
+            uintptr_t bar_addr = bar_val & ~0xF;
+            if ((bar_val & 0x06) == 0x04 && b < 5) {
+                /* 64-bit Memory BAR */
+                uint32_t bar_high = pci_read32(bus, slot, func, (uint8_t)(PCI_BAR0 + (b + 1) * 4));
+                bar_addr |= ((uint64_t)bar_high << 32);
+                dev->bar[b] = bar_addr;
+                dev->bar_is_io[b] = false;
+                dev->bar_size[b] = 0;
+                b++; /* Consume next 32-bit BAR */
+                dev->bar[b] = 0;
+                dev->bar_is_io[b] = false;
+                dev->bar_size[b] = 0;
+                continue;
+            }
+            dev->bar[b] = bar_addr;
             dev->bar_is_io[b] = false;
         }
-
-        /* Determine BAR size */
-        pci_write32(bus, slot, func, bar_offset, 0xFFFFFFFF);
-        uint32_t size_mask = pci_read32(bus, slot, func, bar_offset);
-        pci_write32(bus, slot, func, bar_offset, bar_val);
-
-        if (dev->bar_is_io[b]) {
-            dev->bar_size[b] = ~(size_mask & ~0x3) + 1;
-        } else {
-            dev->bar_size[b] = ~(size_mask & ~0xF) + 1;
-        }
+        dev->bar_size[b] = 0;
     }
 
     dev->next = g_pci_devices;
     g_pci_devices = dev;
 
-    klog_info("PCI: %02x:%02x.%d [0x%04x:0x%04x] class 0x%02x:0x%02x (IRQ %d, BAR0: 0x%lx)",
-              bus, slot, func, vendor_id, device_id, class_code, subclass, irq, dev->bar[0]);
+    klog_info("PCI: %02x:%02x.%d [0x%04x:0x%04x] class 0x%02x:0x%02x (IRQ %d, BAR0: 0x%lx)", bus, slot, func, vendor_id,
+              device_id, class_code, subclass, irq, dev->bar[0]);
 }
 
 static void pci_scan_bus(uint8_t bus) {
     for (uint8_t slot = 0; slot < 32; slot++) {
         uint16_t vendor_id = pci_read16(bus, slot, 0, PCI_VENDOR_ID);
-        if (vendor_id == 0xFFFF || vendor_id == 0x0000) continue;
+        if (vendor_id == 0xFFFF || vendor_id == 0x0000)
+            continue;
 
         uint8_t header_type = pci_read8(bus, slot, 0, PCI_HEADER_TYPE);
         pci_scan_function(bus, slot, 0);

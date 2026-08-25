@@ -33,7 +33,8 @@ int futex_wait(uintptr_t uaddr, int val, const struct timespec *timeout) {
     (void)timeout;
     process_t *proc = sched_get_current_process();
     thread_t *curr = sched_get_current_thread();
-    if (!proc || !curr || uaddr == 0) return -1;
+    if (!proc || !curr || uaddr == 0)
+        return -1;
 
     /* Verify that uaddr is mapped and accessible in user space */
     if (!vmm_virt_to_phys(proc->pagemap, uaddr)) {
@@ -67,9 +68,11 @@ int futex_wait(uintptr_t uaddr, int val, const struct timespec *timeout) {
 }
 
 int futex_wake(uintptr_t uaddr, int count) {
-    if (uaddr == 0 || count <= 0) return 0;
+    if (uaddr == 0 || count <= 0)
+        return 0;
     process_t *proc = sched_get_current_process();
-    if (!proc) return 0;
+    if (!proc)
+        return 0;
 
     uint32_t bucket_idx = FUTEX_HASH(uaddr);
     futex_bucket_t *bucket = &g_futex_buckets[bucket_idx];
@@ -79,7 +82,8 @@ int futex_wake(uintptr_t uaddr, int count) {
     int woken = 0;
     list_node_t *pos, *n;
     list_for_each_safe(pos, n, &bucket->waiters) {
-        if (woken >= count) break;
+        if (woken >= count)
+            break;
 
         thread_t *t = container_of(pos, thread_t, futex_node);
         if (t->futex_uaddr == uaddr && (t->futex_proc == proc || t->futex_proc->pagemap == proc->pagemap)) {
@@ -97,9 +101,11 @@ int futex_wake(uintptr_t uaddr, int count) {
 }
 
 int futex_requeue(uintptr_t uaddr1, int wake_count, uintptr_t uaddr2, int requeue_count) {
-    if (uaddr1 == 0 || uaddr2 == 0) return -1;
+    if (uaddr1 == 0 || uaddr2 == 0)
+        return -1;
     process_t *proc = sched_get_current_process();
-    if (!proc) return -1;
+    if (!proc)
+        return -1;
 
     uint32_t b1_idx = FUTEX_HASH(uaddr1);
     uint32_t b2_idx = FUTEX_HASH(uaddr2);

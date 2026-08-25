@@ -14,18 +14,21 @@ static vfs_ops_t g_ext2_file_ops;
 static vfs_ops_t g_ext2_dir_ops;
 
 static int ext2_read_inode(ext2_fs_t *fs, uint32_t ino, ext2_inode_t *inode_out) {
-    if (!fs || ino == 0 || !inode_out) return -1;
+    if (!fs || ino == 0 || !inode_out)
+        return -1;
 
     uint32_t group = (ino - 1) / fs->sb.s_inodes_per_group;
     uint32_t index = (ino - 1) % fs->sb.s_inodes_per_group;
 
-    if (group >= fs->group_count) return -1;
+    if (group >= fs->group_count)
+        return -1;
 
     uint32_t block = fs->group_descs[group].bg_inode_table + (index * fs->inode_size) / fs->block_size;
     uint32_t offset = (index * fs->inode_size) % fs->block_size;
 
     buffer_t *buf = bread(fs->dev, block, fs->block_size);
-    if (!buf) return -1;
+    if (!buf)
+        return -1;
 
     memcpy(inode_out, buf->data + offset, sizeof(ext2_inode_t));
     brelse(buf);
@@ -33,18 +36,21 @@ static int ext2_read_inode(ext2_fs_t *fs, uint32_t ino, ext2_inode_t *inode_out)
 }
 
 static int ext2_write_inode(ext2_fs_t *fs, uint32_t ino, const ext2_inode_t *inode_in) {
-    if (!fs || ino == 0 || !inode_in) return -1;
+    if (!fs || ino == 0 || !inode_in)
+        return -1;
 
     uint32_t group = (ino - 1) / fs->sb.s_inodes_per_group;
     uint32_t index = (ino - 1) % fs->sb.s_inodes_per_group;
 
-    if (group >= fs->group_count) return -1;
+    if (group >= fs->group_count)
+        return -1;
 
     uint32_t block = fs->group_descs[group].bg_inode_table + (index * fs->inode_size) / fs->block_size;
     uint32_t offset = (index * fs->inode_size) % fs->block_size;
 
     buffer_t *buf = bread(fs->dev, block, fs->block_size);
-    if (!buf) return -1;
+    if (!buf)
+        return -1;
 
     memcpy(buf->data + offset, inode_in, sizeof(ext2_inode_t));
     buf->dirty = true;
@@ -64,9 +70,11 @@ static uint32_t ext2_get_inode_block(ext2_fs_t *fs, ext2_inode_t *inode, uint32_
 
     /* 2. Singly Indirect Block (12) */
     if (block_idx < ptrs_per_block) {
-        if (inode->i_block[12] == 0) return 0;
+        if (inode->i_block[12] == 0)
+            return 0;
         buffer_t *buf = bread(fs->dev, inode->i_block[12], fs->block_size);
-        if (!buf) return 0;
+        if (!buf)
+            return 0;
         uint32_t ptr = ((uint32_t *)buf->data)[block_idx];
         brelse(buf);
         return ptr;
@@ -76,18 +84,22 @@ static uint32_t ext2_get_inode_block(ext2_fs_t *fs, ext2_inode_t *inode, uint32_
     /* 3. Doubly Indirect Block (13) */
     uint32_t doubly_cap = ptrs_per_block * ptrs_per_block;
     if (block_idx < doubly_cap) {
-        if (inode->i_block[13] == 0) return 0;
+        if (inode->i_block[13] == 0)
+            return 0;
         buffer_t *buf1 = bread(fs->dev, inode->i_block[13], fs->block_size);
-        if (!buf1) return 0;
+        if (!buf1)
+            return 0;
 
         uint32_t idx1 = block_idx / ptrs_per_block;
         uint32_t idx2 = block_idx % ptrs_per_block;
         uint32_t ptr1 = ((uint32_t *)buf1->data)[idx1];
         brelse(buf1);
 
-        if (ptr1 == 0) return 0;
+        if (ptr1 == 0)
+            return 0;
         buffer_t *buf2 = bread(fs->dev, ptr1, fs->block_size);
-        if (!buf2) return 0;
+        if (!buf2)
+            return 0;
         uint32_t ptr2 = ((uint32_t *)buf2->data)[idx2];
         brelse(buf2);
         return ptr2;
@@ -98,10 +110,12 @@ static uint32_t ext2_get_inode_block(ext2_fs_t *fs, ext2_inode_t *inode, uint32_
 
 static ssize_t ext2_read(vfs_node_t *node, off_t offset, size_t size, void *buffer) {
     ext2_node_info_t *info = (ext2_node_info_t *)node->device_data;
-    if (!info || !buffer) return -1;
+    if (!info || !buffer)
+        return -1;
 
     ext2_fs_t *fs = info->fs;
-    if (offset >= (off_t)node->length) return 0;
+    if (offset >= (off_t)node->length)
+        return 0;
     if (offset + size > node->length) {
         size = node->length - offset;
     }
@@ -123,7 +137,8 @@ static ssize_t ext2_read(vfs_node_t *node, off_t offset, size_t size, void *buff
             memset(dest + bytes_read, 0, to_read);
         } else {
             buffer_t *buf = bread(fs->dev, disk_block, fs->block_size);
-            if (!buf) break;
+            if (!buf)
+                break;
             memcpy(dest + bytes_read, buf->data + block_offset, to_read);
             brelse(buf);
         }
@@ -136,7 +151,8 @@ static ssize_t ext2_read(vfs_node_t *node, off_t offset, size_t size, void *buff
 
 static struct vfs_dirent *ext2_readdir(vfs_node_t *node, uint32_t index) {
     ext2_node_info_t *info = (ext2_node_info_t *)node->device_data;
-    if (!info) return NULL;
+    if (!info)
+        return NULL;
 
     ext2_fs_t *fs = info->fs;
     static vfs_dirent_t dirent;
@@ -154,7 +170,8 @@ static struct vfs_dirent *ext2_readdir(vfs_node_t *node, uint32_t index) {
         }
 
         buffer_t *buf = bread(fs->dev, disk_block, fs->block_size);
-        if (!buf) return NULL;
+        if (!buf)
+            return NULL;
 
         while (block_offset < fs->block_size && offset < (off_t)node->length) {
             ext2_dir_entry_t *entry = (ext2_dir_entry_t *)(buf->data + block_offset);
@@ -166,8 +183,8 @@ static struct vfs_dirent *ext2_readdir(vfs_node_t *node, uint32_t index) {
             if (entry->inode != 0) {
                 if (current_idx == index) {
                     memset(&dirent, 0, sizeof(dirent));
-                    size_t name_len = (entry->name_len < sizeof(dirent.name) - 1) ?
-                                      entry->name_len : sizeof(dirent.name) - 1;
+                    size_t name_len =
+                        (entry->name_len < sizeof(dirent.name) - 1) ? entry->name_len : sizeof(dirent.name) - 1;
                     memcpy(dirent.name, entry->name, name_len);
                     dirent.name[name_len] = '\0';
                     dirent.inode = entry->inode;
@@ -190,7 +207,8 @@ static struct vfs_dirent *ext2_readdir(vfs_node_t *node, uint32_t index) {
 
 static vfs_node_t *ext2_create_vfs_node(ext2_fs_t *fs, uint32_t ino, const char *name) {
     ext2_inode_t inode;
-    if (ext2_read_inode(fs, ino, &inode) != 0) return NULL;
+    if (ext2_read_inode(fs, ino, &inode) != 0)
+        return NULL;
 
     vfs_node_t *v_node = (vfs_node_t *)kzalloc(sizeof(vfs_node_t));
     ext2_node_info_t *info = (ext2_node_info_t *)kzalloc(sizeof(ext2_node_info_t));
@@ -220,7 +238,8 @@ static vfs_node_t *ext2_create_vfs_node(ext2_fs_t *fs, uint32_t ino, const char 
 
 static vfs_node_t *ext2_finddir(vfs_node_t *node, const char *name) {
     ext2_node_info_t *info = (ext2_node_info_t *)node->device_data;
-    if (!info || !name) return NULL;
+    if (!info || !name)
+        return NULL;
 
     ext2_fs_t *fs = info->fs;
     off_t offset = 0;
@@ -237,7 +256,8 @@ static vfs_node_t *ext2_finddir(vfs_node_t *node, const char *name) {
         }
 
         buffer_t *buf = bread(fs->dev, disk_block, fs->block_size);
-        if (!buf) return NULL;
+        if (!buf)
+            return NULL;
 
         while (block_offset < fs->block_size && offset < (off_t)node->length) {
             ext2_dir_entry_t *entry = (ext2_dir_entry_t *)(buf->data + block_offset);
@@ -246,8 +266,7 @@ static vfs_node_t *ext2_finddir(vfs_node_t *node, const char *name) {
                 return NULL;
             }
 
-            if (entry->inode != 0 && entry->name_len == search_len &&
-                strncmp(entry->name, name, search_len) == 0) {
+            if (entry->inode != 0 && entry->name_len == search_len && strncmp(entry->name, name, search_len) == 0) {
                 uint32_t child_ino = entry->inode;
                 brelse(buf);
                 return ext2_create_vfs_node(fs, child_ino, name);
@@ -265,7 +284,8 @@ static vfs_node_t *ext2_finddir(vfs_node_t *node, const char *name) {
 
 static int ext2_chmod(vfs_node_t *node, mode_t mode) {
     ext2_node_info_t *info = (ext2_node_info_t *)node->device_data;
-    if (!info) return -1;
+    if (!info)
+        return -1;
 
     info->inode.i_mode = (info->inode.i_mode & ~07777) | (mode & 07777);
     node->permissions = mode & 07777;
@@ -274,17 +294,21 @@ static int ext2_chmod(vfs_node_t *node, mode_t mode) {
 
 static int ext2_chown(vfs_node_t *node, uid_t uid, gid_t gid) {
     ext2_node_info_t *info = (ext2_node_info_t *)node->device_data;
-    if (!info) return -1;
+    if (!info)
+        return -1;
 
-    if (uid != (uid_t)-1) info->inode.i_uid = (uint16_t)uid;
-    if (gid != (gid_t)-1) info->inode.i_gid = (uint16_t)gid;
+    if (uid != (uid_t)-1)
+        info->inode.i_uid = (uint16_t)uid;
+    if (gid != (gid_t)-1)
+        info->inode.i_gid = (uint16_t)gid;
     node->uid = uid;
     node->gid = gid;
     return ext2_write_inode(info->fs, info->ino, &info->inode);
 }
 
 vfs_node_t *ext2_mount(block_device_t *dev) {
-    if (!dev) return NULL;
+    if (!dev)
+        return NULL;
 
     /* 1. Read Superblock at offset 1024 bytes (LBA 2) */
     uint8_t sb_buf[1024];
@@ -306,8 +330,8 @@ vfs_node_t *ext2_mount(block_device_t *dev) {
     fs->group_count = (sb->s_blocks_count + sb->s_blocks_per_group - 1) / sb->s_blocks_per_group;
 
     klog_info("ext2: Valid filesystem found on '%s'", dev->name);
-    klog_info("ext2: Block size: %lu bytes, Inodes: %u, Blocks: %u, Groups: %lu",
-              fs->block_size, sb->s_inodes_count, sb->s_blocks_count, fs->group_count);
+    klog_info("ext2: Block size: %lu bytes, Inodes: %u, Blocks: %u, Groups: %lu", fs->block_size, sb->s_inodes_count,
+              sb->s_blocks_count, fs->group_count);
 
     /* 2. Read Block Group Descriptors */
     size_t bg_table_size = fs->group_count * sizeof(ext2_group_desc_t);
@@ -324,7 +348,8 @@ vfs_node_t *ext2_mount(block_device_t *dev) {
             return NULL;
         }
         size_t copy_len = bg_table_size - i * fs->block_size;
-        if (copy_len > fs->block_size) copy_len = fs->block_size;
+        if (copy_len > fs->block_size)
+            copy_len = fs->block_size;
         memcpy((uint8_t *)fs->group_descs + i * fs->block_size, buf->data, copy_len);
         brelse(buf);
     }

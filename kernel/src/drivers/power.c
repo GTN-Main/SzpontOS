@@ -48,17 +48,20 @@ void power_reboot(void) {
 
     /* 1. 8042 Keyboard Controller reset pulse (outb 0x64, 0xFE) */
     for (int i = 0; i < 1000; i++) {
-        if ((inb(0x64) & 0x02) == 0) break;
+        if ((inb(0x64) & 0x02) == 0)
+            break;
         io_wait();
     }
     outb(0x64, 0xFE);
-    for (volatile int d = 0; d < 5000000; d++) {}  /* delay ~500ms */
+    for (volatile int d = 0; d < 5000000; d++) {
+    } /* delay ~500ms */
 
     /* 2. PCI Reset Control Register (Port 0xCF9) — hard reset */
     outb(0xCF9, 0x02);
     io_wait();
     outb(0xCF9, 0x06);
-    for (volatile int d = 0; d < 5000000; d++) {}
+    for (volatile int d = 0; d < 5000000; d++) {
+    }
 
     /* 3. Fast A20 / Init register (Port 0x92) — assert INIT# */
     {
@@ -69,15 +72,16 @@ void power_reboot(void) {
             outb(0x92, b | 0x01);
         }
     }
-    for (volatile int d = 0; d < 5000000; d++) {}
+    for (volatile int d = 0; d < 5000000; d++) {
+    }
 
     /* 4. Triple Fault — load NULL IDT and trigger undefined instruction */
     struct {
         uint16_t limit;
         uint64_t base;
-    } __attribute__((packed)) null_idt = { 0, 0 };
+    } __attribute__((packed)) null_idt = {0, 0};
 
-    __asm__ volatile ("lidt %0; ud2" :: "m"(null_idt));
+    __asm__ volatile("lidt %0; ud2" ::"m"(null_idt));
 
     /* NOTREACHED */
     while (1) {
@@ -98,14 +102,14 @@ int sys_reboot(int magic1, int magic2, int cmd, void *arg) {
     }
 
     switch ((uint32_t)cmd) {
-        case REBOOT_CMD_POWER_OFF:
-        case REBOOT_CMD_HALT:
-            power_shutdown();
-            return 0;
+    case REBOOT_CMD_POWER_OFF:
+    case REBOOT_CMD_HALT:
+        power_shutdown();
+        return 0;
 
-        case REBOOT_CMD_RESTART:
-        default:
-            power_reboot();
-            return 0;
+    case REBOOT_CMD_RESTART:
+    default:
+        power_reboot();
+        return 0;
     }
 }

@@ -10,11 +10,14 @@ ssize_t sendfile(int out_fd, int in_fd, off_t *offset, size_t count) {
     }
     while (total < count) {
         size_t to_read = count - total;
-        if (to_read > sizeof(buf)) to_read = sizeof(buf);
+        if (to_read > sizeof(buf))
+            to_read = sizeof(buf);
         ssize_t nread = read(in_fd, buf, to_read);
-        if (nread <= 0) break;
+        if (nread <= 0)
+            break;
         ssize_t nwritten = write(out_fd, buf, (size_t)nread);
-        if (nwritten <= 0) break;
+        if (nwritten <= 0)
+            break;
         total += (size_t)nwritten;
     }
     if (offset) {

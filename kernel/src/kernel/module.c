@@ -12,29 +12,29 @@
 #include <mm/vmm.h>
 #include <fs/elf.h>
 
-#define EPERM        1
-#define ENOENT       2
-#define ENOEXEC      8
-#define ENOMEM      12
-#define EBUSY       16
-#define EEXIST      17
-#define EINVAL      22
-#define ENOSYS      38
+#define EPERM 1
+#define ENOENT 2
+#define ENOEXEC 8
+#define ENOMEM 12
+#define EBUSY 16
+#define EEXIST 17
+#define EINVAL 22
+#define ENOSYS 38
 
 #define SHT_PROGBITS 1
-#define SHT_SYMTAB   2
-#define SHT_STRTAB   3
-#define SHT_RELA     4
-#define SHT_NOBITS   8
-#define SHF_WRITE    0x1
-#define SHF_ALLOC    0x2
+#define SHT_SYMTAB 2
+#define SHT_STRTAB 3
+#define SHT_RELA 4
+#define SHT_NOBITS 8
+#define SHF_WRITE 0x1
+#define SHF_ALLOC 0x2
 #define SHF_EXECINSTR 0x4
-#define SHN_UNDEF    0
-#define SHN_ABS      0xFFF1
-#define SHN_COMMON   0xFFF2
+#define SHN_UNDEF 0
+#define SHN_ABS 0xFFF1
+#define SHN_COMMON 0xFFF2
 
 #define MODULE_VADDR_START 0xFFFFFFFFC0000000ULL
-#define MODULE_VADDR_END   0xFFFFFFFFE0000000ULL
+#define MODULE_VADDR_END 0xFFFFFFFFE0000000ULL
 
 static list_node_t g_modules = LIST_HEAD_INIT(g_modules);
 static spinlock_t g_module_lock = SPINLOCK_INIT;
@@ -46,7 +46,8 @@ void module_init_subsystem(void) {
 }
 
 module_t *module_find(const char *name) {
-    if (!name) return NULL;
+    if (!name)
+        return NULL;
     spinlock_acquire(&g_module_lock);
     list_node_t *pos;
     list_for_each(pos, &g_modules) {
@@ -61,7 +62,8 @@ module_t *module_find(const char *name) {
 }
 
 void module_list_for_each(void (*cb)(module_t *mod, void *arg), void *arg) {
-    if (!cb) return;
+    if (!cb)
+        return;
     spinlock_acquire(&g_module_lock);
     list_node_t *pos;
     list_for_each(pos, &g_modules) {
@@ -76,7 +78,10 @@ static void parse_modinfo(module_t *mod, const char *info, size_t len) {
     while (i < len) {
         const char *entry = info + i;
         size_t entry_len = strlen(entry);
-        if (entry_len == 0) { i++; continue; }
+        if (entry_len == 0) {
+            i++;
+            continue;
+        }
 
         if (strncmp(entry, "name=", 5) == 0 && mod->name[0] == '\0') {
             strncpy(mod->name, entry + 5, sizeof(mod->name) - 1);
@@ -101,11 +106,8 @@ int module_load(const void *image, size_t size, const char *args, module_t **out
     const Elf64_Ehdr *ehdr = (const Elf64_Ehdr *)image;
 
     /* Validate ELF-64 relocatable object */
-    if (*(const uint32_t *)ehdr->e_ident != ELF_MAGIC ||
-        ehdr->e_ident[4] != ELFCLASS64 ||
-        ehdr->e_ident[5] != ELFDATA2LSB ||
-        ehdr->e_type != ET_REL ||
-        ehdr->e_machine != EM_X86_64) {
+    if (*(const uint32_t *)ehdr->e_ident != ELF_MAGIC || ehdr->e_ident[4] != ELFCLASS64 ||
+        ehdr->e_ident[5] != ELFDATA2LSB || ehdr->e_type != ET_REL || ehdr->e_machine != EM_X86_64) {
         klog_err("[MODULE] Invalid ELF64 relocatable object format!");
         return -ENOEXEC;
     }
@@ -124,7 +126,8 @@ int module_load(const void *image, size_t size, const char *args, module_t **out
 
     size_t total_size = 0;
     uintptr_t *sec_offsets = (uintptr_t *)kzalloc(ehdr->e_shnum * sizeof(uintptr_t));
-    if (!sec_offsets) return -ENOMEM;
+    if (!sec_offsets)
+        return -ENOMEM;
 
     for (size_t i = 0; i < ehdr->e_shnum; i++) {
         const Elf64_Shdr *sh = &shdrs[i];
@@ -160,7 +163,8 @@ int module_load(const void *image, size_t size, const char *args, module_t **out
 
     /* Allocate higher-half top-2GB kernel pages for module memory */
     size_t aligned_total = ALIGN_UP(total_size, PAGE_SIZE);
-    if (aligned_total == 0) aligned_total = PAGE_SIZE;
+    if (aligned_total == 0)
+        aligned_total = PAGE_SIZE;
     size_t num_pages = aligned_total / PAGE_SIZE;
 
     spinlock_acquire(&g_module_lock);
@@ -216,7 +220,8 @@ int module_load(const void *image, size_t size, const char *args, module_t **out
     int reloc_error = 0;
     for (size_t i = 0; i < ehdr->e_shnum; i++) {
         const Elf64_Shdr *sh = &shdrs[i];
-        if (sh->sh_type != SHT_RELA) continue;
+        if (sh->sh_type != SHT_RELA)
+            continue;
 
         uint32_t target_sec = sh->sh_info;
         if (target_sec >= ehdr->e_shnum || !(shdrs[target_sec].sh_flags & SHF_ALLOC)) {
@@ -230,8 +235,8 @@ int module_load(const void *image, size_t size, const char *args, module_t **out
         for (size_t r = 0; r < rela_count; r++) {
             const Elf64_Rela *rela = &relas[r];
             uint32_t sym_idx = ELF64_R_SYM(rela->r_info);
-            uint32_t r_type  = ELF64_R_TYPE(rela->r_info);
-            int64_t  addend  = rela->r_addend;
+            uint32_t r_type = ELF64_R_TYPE(rela->r_info);
+            int64_t addend = rela->r_addend;
 
             if (sym_idx >= sym_count) {
                 reloc_error = -ENOEXEC;
@@ -259,31 +264,33 @@ int module_load(const void *image, size_t size, const char *args, module_t **out
             void *loc = (void *)P;
 
             switch (r_type) {
-                case R_X86_64_NONE:
-                    break;
-                case R_X86_64_64:
-                    *(uint64_t *)loc = S + addend;
-                    break;
-                case R_X86_64_32:
-                    *(uint32_t *)loc = (uint32_t)(S + addend);
-                    break;
-                case R_X86_64_32S:
-                    *(int32_t *)loc = (int32_t)(S + addend);
-                    break;
-                case R_X86_64_PC32:
-                case R_X86_64_PLT32:
-                    *(int32_t *)loc = (int32_t)(S + addend - P);
-                    break;
-                default:
-                    klog_err("[MODULE] Unsupported relocation type %u at 0x%lx!", r_type, P);
-                    reloc_error = -ENOSYS;
-                    break;
+            case R_X86_64_NONE:
+                break;
+            case R_X86_64_64:
+                *(uint64_t *)loc = S + addend;
+                break;
+            case R_X86_64_32:
+                *(uint32_t *)loc = (uint32_t)(S + addend);
+                break;
+            case R_X86_64_32S:
+                *(int32_t *)loc = (int32_t)(S + addend);
+                break;
+            case R_X86_64_PC32:
+            case R_X86_64_PLT32:
+                *(int32_t *)loc = (int32_t)(S + addend - P);
+                break;
+            default:
+                klog_err("[MODULE] Unsupported relocation type %u at 0x%lx!", r_type, P);
+                reloc_error = -ENOSYS;
+                break;
             }
 
-            if (reloc_error != 0) break;
+            if (reloc_error != 0)
+                break;
         }
 
-        if (reloc_error != 0) break;
+        if (reloc_error != 0)
+            break;
     }
 
     if (reloc_error != 0) {
@@ -303,7 +310,8 @@ int module_load(const void *image, size_t size, const char *args, module_t **out
 
     for (size_t i = 0; i < sym_count; i++) {
         const Elf64_Sym *sym = &symtab[i];
-        if (sym->st_shndx == SHN_UNDEF || sym->st_shndx >= ehdr->e_shnum) continue;
+        if (sym->st_shndx == SHN_UNDEF || sym->st_shndx >= ehdr->e_shnum)
+            continue;
 
         const char *name = strtab + sym->st_name;
         uintptr_t sym_addr = sec_vaddrs[sym->st_shndx] + sym->st_value;
@@ -410,13 +418,15 @@ int module_load(const void *image, size_t size, const char *args, module_t **out
     kfree(sec_offsets);
     kfree(sec_vaddrs);
 
-    if (out_mod) *out_mod = mod;
+    if (out_mod)
+        *out_mod = mod;
     return 0;
 }
 
 int module_unload(const char *name, unsigned int flags) {
     (void)flags;
-    if (!name) return -EINVAL;
+    if (!name)
+        return -EINVAL;
 
     spinlock_acquire(&g_module_lock);
     module_t *mod = NULL;

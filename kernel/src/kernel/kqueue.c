@@ -28,7 +28,8 @@ typedef struct pipe_chan_kq {
 static vfs_ops_t g_kqueue_ops;
 
 static int kqueue_vfs_close(vfs_node_t *node) {
-    if (!node) return 0;
+    if (!node)
+        return 0;
     kqueue_t *kq = (kqueue_t *)node->device_data;
     if (kq) {
         kfree(kq);
@@ -48,7 +49,8 @@ static void kqueue_ops_init(void) {
 
 int sys_kqueue(void) {
     process_t *proc = sched_get_current_process();
-    if (!proc) return -1;
+    if (!proc)
+        return -1;
 
     kqueue_ops_init();
 
@@ -60,10 +62,12 @@ int sys_kqueue(void) {
             break;
         }
     }
-    if (fd == -1) return -1;
+    if (fd == -1)
+        return -1;
 
     kqueue_t *kq = (kqueue_t *)kzalloc(sizeof(kqueue_t));
-    if (!kq) return -1;
+    if (!kq)
+        return -1;
 
     kq->lock = SPINLOCK_INIT;
 
@@ -96,102 +100,110 @@ int sys_kqueue(void) {
 
 static kqueue_t *get_kqueue_from_fd(int fd) {
     process_t *proc = sched_get_current_process();
-    if (!proc || fd < 0 || fd >= MAX_FD || !proc->fds[fd]) return NULL;
+    if (!proc || fd < 0 || fd >= MAX_FD || !proc->fds[fd])
+        return NULL;
     file_descriptor_t *fdesc = proc->fds[fd];
-    if (!fdesc->node || fdesc->node->ops != &g_kqueue_ops) return NULL;
+    if (!fdesc->node || fdesc->node->ops != &g_kqueue_ops)
+        return NULL;
     return (kqueue_t *)fdesc->node->device_data;
 }
 
 static bool check_event_ready(process_t *proc, kqueue_entry_t *entry) {
-    if (!entry || !entry->active) return false;
+    if (!entry || !entry->active)
+        return false;
 
     struct kevent *ev = &entry->ev;
 
     switch (ev->filter) {
-        case EVFILT_READ: {
-            int fd = (int)ev->ident;
-            if (fd < 0 || fd >= MAX_FD || !proc->fds[fd]) return false;
-            file_descriptor_t *fdesc = proc->fds[fd];
-
-            if (fd == 0) {
-                if (keyboard_has_char() || serial_received()) {
-                    ev->data = 1;
-                    return true;
-                }
-                return false;
-            }
-
-            if (fdesc->node && fdesc->node->flags == VFS_TYPE_SOCKET) {
-                socket_t *sock = (socket_t *)fdesc->node->device_data;
-                if (sock && sock->rx_len > 0) {
-                    ev->data = (int64_t)sock->rx_len;
-                    return true;
-                }
-                return false;
-            }
-
-            if (fdesc->node && fdesc->node->flags == VFS_TYPE_PIPE) {
-                pipe_chan_kq_t *p = (pipe_chan_kq_t *)fdesc->node->device_data;
-                if (p && p->count > 0) {
-                    ev->data = (int64_t)p->count;
-                    return true;
-                }
-                return false;
-            }
-
-            /* Regular files or devices */
-            ev->data = 1;
-            return true;
-        }
-
-        case EVFILT_WRITE: {
-            int fd = (int)ev->ident;
-            if (fd < 0 || fd >= MAX_FD || !proc->fds[fd]) return false;
-            ev->data = 4096;
-            return true;
-        }
-
-        case EVFILT_TIMER: {
-            uint64_t now_ticks = (uint64_t)pit_get_ticks();
-            if (now_ticks >= entry->target_tick) {
-                uint64_t interval_ms = (uint64_t)ev->data;
-                uint64_t interval_ticks = (interval_ms > 0) ? (interval_ms / 10) : 1;
-                if (interval_ticks == 0) interval_ticks = 1;
-                entry->target_tick = now_ticks + interval_ticks;
-                ev->data = 1; /* Number of timer expirations */
-                return true;
-            }
+    case EVFILT_READ: {
+        int fd = (int)ev->ident;
+        if (fd < 0 || fd >= MAX_FD || !proc->fds[fd])
             return false;
-        }
+        file_descriptor_t *fdesc = proc->fds[fd];
 
-        case EVFILT_SIGNAL: {
-            int sig = (int)ev->ident;
-            if (sig > 0 && sig < 32 && (proc->pending_signals & (1U << sig))) {
+        if (fd == 0) {
+            if (keyboard_has_char() || serial_received()) {
                 ev->data = 1;
                 return true;
             }
             return false;
         }
 
-        case EVFILT_USER: {
-            if (ev->fflags & 0x0001) { /* Triggered */
+        if (fdesc->node && fdesc->node->flags == VFS_TYPE_SOCKET) {
+            socket_t *sock = (socket_t *)fdesc->node->device_data;
+            if (sock && sock->rx_len > 0) {
+                ev->data = (int64_t)sock->rx_len;
                 return true;
             }
             return false;
         }
 
-        default:
+        if (fdesc->node && fdesc->node->flags == VFS_TYPE_PIPE) {
+            pipe_chan_kq_t *p = (pipe_chan_kq_t *)fdesc->node->device_data;
+            if (p && p->count > 0) {
+                ev->data = (int64_t)p->count;
+                return true;
+            }
             return false;
+        }
+
+        /* Regular files or devices */
+        ev->data = 1;
+        return true;
+    }
+
+    case EVFILT_WRITE: {
+        int fd = (int)ev->ident;
+        if (fd < 0 || fd >= MAX_FD || !proc->fds[fd])
+            return false;
+        ev->data = 4096;
+        return true;
+    }
+
+    case EVFILT_TIMER: {
+        uint64_t now_ticks = (uint64_t)pit_get_ticks();
+        if (now_ticks >= entry->target_tick) {
+            uint64_t interval_ms = (uint64_t)ev->data;
+            uint64_t interval_ticks = (interval_ms > 0) ? (interval_ms / 10) : 1;
+            if (interval_ticks == 0)
+                interval_ticks = 1;
+            entry->target_tick = now_ticks + interval_ticks;
+            ev->data = 1; /* Number of timer expirations */
+            return true;
+        }
+        return false;
+    }
+
+    case EVFILT_SIGNAL: {
+        int sig = (int)ev->ident;
+        if (sig > 0 && sig < 32 && (proc->pending_signals & (1U << sig))) {
+            ev->data = 1;
+            return true;
+        }
+        return false;
+    }
+
+    case EVFILT_USER: {
+        if (ev->fflags & 0x0001) { /* Triggered */
+            return true;
+        }
+        return false;
+    }
+
+    default:
+        return false;
     }
 }
 
-int sys_kevent(int kq_fd, const struct kevent *changelist, int nchanges,
-               struct kevent *eventlist, int nevents, const struct timespec_kernel *timeout) {
+int sys_kevent(int kq_fd, const struct kevent *changelist, int nchanges, struct kevent *eventlist, int nevents,
+               const struct timespec_kernel *timeout) {
     kqueue_t *kq = get_kqueue_from_fd(kq_fd);
-    if (!kq) return -1;
+    if (!kq)
+        return -1;
 
     process_t *proc = sched_get_current_process();
-    if (!proc) return -1;
+    if (!proc)
+        return -1;
 
     spinlock_acquire(&kq->lock);
 
@@ -282,12 +294,15 @@ int sys_kevent(int kq_fd, const struct kevent *changelist, int nchanges,
                     kq->entries[i].active = false;
                 }
 
-                if (ready_events >= nevents) break;
+                if (ready_events >= nevents)
+                    break;
             }
         }
 
-        if (ready_events > 0) break;
-        if (has_timeout && (uint64_t)pit_get_ticks() >= timeout_ticks) break;
+        if (ready_events > 0)
+            break;
+        if (has_timeout && (uint64_t)pit_get_ticks() >= timeout_ticks)
+            break;
 
         spinlock_release(&kq->lock);
         thread_sleep(10);

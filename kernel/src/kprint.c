@@ -25,7 +25,8 @@ static int format_uint(char *buf, size_t size, uint64_t val, int base, bool uppe
 
     int written = 0;
     int pad_len = width - pos;
-    if (pad_len < 0) pad_len = 0;
+    if (pad_len < 0)
+        pad_len = 0;
 
     for (int i = 0; i < pad_len && written + 1 < (int)size; i++) {
         buf[written++] = pad;
@@ -42,16 +43,19 @@ static int format_uint(char *buf, size_t size, uint64_t val, int base, bool uppe
 static int format_int(char *buf, size_t size, int64_t val, int width, char pad) {
     int written = 0;
     if (val < 0) {
-        if (written + 1 < (int)size) buf[written++] = '-';
+        if (written + 1 < (int)size)
+            buf[written++] = '-';
         val = -val;
-        if (width > 0) width--;
+        if (width > 0)
+            width--;
     }
     written += format_uint(buf + written, size - written, (uint64_t)val, 10, false, width, pad);
     return written;
 }
 
 int kvsnprintf(char *buf, size_t size, const char *fmt, va_list args) {
-    if (!buf || size == 0) return 0;
+    if (!buf || size == 0)
+        return 0;
 
     size_t out = 0;
     const char *p = fmt;
@@ -93,57 +97,61 @@ int kvsnprintf(char *buf, size_t size, const char *fmt, va_list args) {
         }
 
         switch (*p) {
-            case 'c': {
-                char c = (char)va_arg(args, int);
-                if (out + 1 < size) buf[out++] = c;
-                break;
+        case 'c': {
+            char c = (char)va_arg(args, int);
+            if (out + 1 < size)
+                buf[out++] = c;
+            break;
+        }
+        case 's': {
+            const char *s = va_arg(args, const char *);
+            if (!s)
+                s = "(null)";
+            while (*s && out + 1 < size) {
+                buf[out++] = *s++;
             }
-            case 's': {
-                const char *s = va_arg(args, const char *);
-                if (!s) s = "(null)";
-                while (*s && out + 1 < size) {
-                    buf[out++] = *s++;
-                }
-                break;
+            break;
+        }
+        case 'd':
+        case 'i': {
+            int64_t val = (is_long || is_long_long) ? va_arg(args, int64_t) : (int64_t)va_arg(args, int);
+            out += format_int(buf + out, size - out, val, width, pad);
+            break;
+        }
+        case 'u': {
+            uint64_t val = (is_long || is_long_long) ? va_arg(args, uint64_t) : (uint64_t)va_arg(args, unsigned int);
+            out += format_uint(buf + out, size - out, val, 10, false, width, pad);
+            break;
+        }
+        case 'x': {
+            uint64_t val = (is_long || is_long_long) ? va_arg(args, uint64_t) : (uint64_t)va_arg(args, unsigned int);
+            out += format_uint(buf + out, size - out, val, 16, false, width, pad);
+            break;
+        }
+        case 'X': {
+            uint64_t val = (is_long || is_long_long) ? va_arg(args, uint64_t) : (uint64_t)va_arg(args, unsigned int);
+            out += format_uint(buf + out, size - out, val, 16, true, width, pad);
+            break;
+        }
+        case 'p': {
+            uintptr_t ptr = (uintptr_t)va_arg(args, void *);
+            if (out + 2 < size) {
+                buf[out++] = '0';
+                buf[out++] = 'x';
             }
-            case 'd':
-            case 'i': {
-                int64_t val = (is_long || is_long_long) ? va_arg(args, int64_t) : (int64_t)va_arg(args, int);
-                out += format_int(buf + out, size - out, val, width, pad);
-                break;
-            }
-            case 'u': {
-                uint64_t val = (is_long || is_long_long) ? va_arg(args, uint64_t) : (uint64_t)va_arg(args, unsigned int);
-                out += format_uint(buf + out, size - out, val, 10, false, width, pad);
-                break;
-            }
-            case 'x': {
-                uint64_t val = (is_long || is_long_long) ? va_arg(args, uint64_t) : (uint64_t)va_arg(args, unsigned int);
-                out += format_uint(buf + out, size - out, val, 16, false, width, pad);
-                break;
-            }
-            case 'X': {
-                uint64_t val = (is_long || is_long_long) ? va_arg(args, uint64_t) : (uint64_t)va_arg(args, unsigned int);
-                out += format_uint(buf + out, size - out, val, 16, true, width, pad);
-                break;
-            }
-            case 'p': {
-                uintptr_t ptr = (uintptr_t)va_arg(args, void *);
-                if (out + 2 < size) {
-                    buf[out++] = '0';
-                    buf[out++] = 'x';
-                }
-                out += format_uint(buf + out, size - out, ptr, 16, false, sizeof(uintptr_t) * 2, '0');
-                break;
-            }
-            case '%': {
-                if (out + 1 < size) buf[out++] = '%';
-                break;
-            }
-            default: {
-                if (out + 1 < size) buf[out++] = *p;
-                break;
-            }
+            out += format_uint(buf + out, size - out, ptr, 16, false, sizeof(uintptr_t) * 2, '0');
+            break;
+        }
+        case '%': {
+            if (out + 1 < size)
+                buf[out++] = '%';
+            break;
+        }
+        default: {
+            if (out + 1 < size)
+                buf[out++] = *p;
+            break;
+        }
         }
         p++;
     }
@@ -163,7 +171,7 @@ int ksnprintf(char *buf, size_t size, const char *fmt, ...) {
 int kvprintf(const char *fmt, va_list args) {
     char buf[1024];
     int len = kvsnprintf(buf, sizeof(buf), fmt, args);
-    
+
     spinlock_acquire(&g_kprint_lock);
     serial_write(buf, len);
     fb_console_write(buf, len);
@@ -188,26 +196,26 @@ void klog(log_level_t level, const char *fmt, ...) {
     uint32_t fg_color = FB_COLOR_WHITE;
 
     switch (level) {
-        case LOG_LEVEL_DEBUG:
-            tag = "[DEBUG] ";
-            fg_color = FB_COLOR_GRAY;
-            break;
-        case LOG_LEVEL_INFO:
-            tag = "[INFO]  ";
-            fg_color = FB_COLOR_CYAN;
-            break;
-        case LOG_LEVEL_WARN:
-            tag = "[WARN]  ";
-            fg_color = FB_COLOR_YELLOW;
-            break;
-        case LOG_LEVEL_ERROR:
-            tag = "[ERROR] ";
-            fg_color = FB_COLOR_RED;
-            break;
-        case LOG_LEVEL_PANIC:
-            tag = "[PANIC] ";
-            fg_color = FB_COLOR_MAGENTA;
-            break;
+    case LOG_LEVEL_DEBUG:
+        tag = "[DEBUG] ";
+        fg_color = FB_COLOR_GRAY;
+        break;
+    case LOG_LEVEL_INFO:
+        tag = "[INFO]  ";
+        fg_color = FB_COLOR_CYAN;
+        break;
+    case LOG_LEVEL_WARN:
+        tag = "[WARN]  ";
+        fg_color = FB_COLOR_YELLOW;
+        break;
+    case LOG_LEVEL_ERROR:
+        tag = "[ERROR] ";
+        fg_color = FB_COLOR_RED;
+        break;
+    case LOG_LEVEL_PANIC:
+        tag = "[PANIC] ";
+        fg_color = FB_COLOR_MAGENTA;
+        break;
     }
 
     char msg_buf[1024];
@@ -219,7 +227,7 @@ void klog(log_level_t level, const char *fmt, ...) {
     spinlock_acquire(&g_kprint_lock);
 
     /* Store in kernel log ring buffer */
-    const char *parts[] = { tag, msg_buf, "\n" };
+    const char *parts[] = {tag, msg_buf, "\n"};
     for (int p = 0; p < 3; p++) {
         const char *s = parts[p];
         while (*s) {
@@ -252,7 +260,8 @@ void klog(log_level_t level, const char *fmt, ...) {
 }
 
 size_t klog_read_ring(char *dst, size_t max_len, size_t offset) {
-    if (!dst || max_len == 0) return 0;
+    if (!dst || max_len == 0)
+        return 0;
     spinlock_acquire(&g_kprint_lock);
     if (offset >= g_klog_len) {
         spinlock_release(&g_kprint_lock);

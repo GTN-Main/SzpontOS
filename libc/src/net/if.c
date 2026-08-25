@@ -9,11 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static struct if_nameindex g_interfaces[] = {
-    { 1, "lo" },
-    { 2, "eth0" },
-    { 0, NULL }
-};
+static struct if_nameindex g_interfaces[] = {{1, "lo"}, {2, "eth0"}, {0, NULL}};
 
 struct if_nameindex *if_nameindex(void) {
     return g_interfaces;
@@ -24,14 +20,18 @@ void if_freenameindex(struct if_nameindex *ptr) {
 }
 
 unsigned int if_nametoindex(const char *ifname) {
-    if (!ifname) return 0;
-    if (strcmp(ifname, "lo") == 0) return 1;
-    if (strcmp(ifname, "eth0") == 0) return 2;
+    if (!ifname)
+        return 0;
+    if (strcmp(ifname, "lo") == 0)
+        return 1;
+    if (strcmp(ifname, "eth0") == 0)
+        return 2;
     return 0;
 }
 
 char *if_indextoname(unsigned int ifindex, char *ifname) {
-    if (!ifname) return NULL;
+    if (!ifname)
+        return NULL;
     if (ifindex == 1) {
         strcpy(ifname, "lo");
         return ifname;
@@ -44,11 +44,13 @@ char *if_indextoname(unsigned int ifindex, char *ifname) {
 }
 
 int getifaddrs(struct ifaddrs **ifap) {
-    if (!ifap) return -1;
+    if (!ifap)
+        return -1;
 
     /* 1. Loopback (lo) */
     struct ifaddrs *lo = (struct ifaddrs *)malloc(sizeof(struct ifaddrs));
-    if (!lo) return -1;
+    if (!lo)
+        return -1;
     memset(lo, 0, sizeof(struct ifaddrs));
     lo->ifa_name = "lo";
     lo->ifa_flags = IFF_UP | IFF_LOOPBACK | IFF_RUNNING;
@@ -103,8 +105,10 @@ int getifaddrs(struct ifaddrs **ifap) {
 void freeifaddrs(struct ifaddrs *ifa) {
     while (ifa) {
         struct ifaddrs *next = ifa->ifa_next;
-        if (ifa->ifa_addr) free(ifa->ifa_addr);
-        if (ifa->ifa_netmask) free(ifa->ifa_netmask);
+        if (ifa->ifa_addr)
+            free(ifa->ifa_addr);
+        if (ifa->ifa_netmask)
+            free(ifa->ifa_netmask);
         free(ifa);
         ifa = next;
     }

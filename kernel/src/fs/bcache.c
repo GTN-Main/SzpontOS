@@ -16,14 +16,15 @@ void bcache_init(void) {
 }
 
 buffer_t *bread(block_device_t *dev, uint32_t block_no, size_t block_size) {
-    if (!dev || block_size > BCACHE_MAX_BLOCK_SIZE || block_size == 0) return NULL;
+    if (!dev || block_size > BCACHE_MAX_BLOCK_SIZE || block_size == 0)
+        return NULL;
 
     spinlock_acquire(&g_bcache_lock);
 
     /* 1. Look for existing cached buffer */
     for (size_t i = 0; i < BCACHE_ENTRIES; i++) {
-        if (g_bcache_pool[i].valid && g_bcache_pool[i].dev == dev &&
-            g_bcache_pool[i].block_no == block_no && g_bcache_pool[i].block_size == block_size) {
+        if (g_bcache_pool[i].valid && g_bcache_pool[i].dev == dev && g_bcache_pool[i].block_no == block_no &&
+            g_bcache_pool[i].block_size == block_size) {
             g_bcache_pool[i].refcount++;
             spinlock_release(&g_bcache_lock);
             return &g_bcache_pool[i];
@@ -77,7 +78,8 @@ buffer_t *bread(block_device_t *dev, uint32_t block_no, size_t block_size) {
 }
 
 int bwrite(buffer_t *buf) {
-    if (!buf || !buf->dev) return -1;
+    if (!buf || !buf->dev)
+        return -1;
 
     spinlock_acquire(&g_bcache_lock);
     uint64_t lba = (uint64_t)buf->block_no * (buf->block_size / buf->dev->sector_size);
@@ -92,7 +94,8 @@ int bwrite(buffer_t *buf) {
 }
 
 void brelse(buffer_t *buf) {
-    if (!buf) return;
+    if (!buf)
+        return;
     spinlock_acquire(&g_bcache_lock);
     if (buf->refcount > 0) {
         buf->refcount--;
@@ -103,10 +106,9 @@ void brelse(buffer_t *buf) {
 void bflush(block_device_t *dev) {
     spinlock_acquire(&g_bcache_lock);
     for (size_t i = 0; i < BCACHE_ENTRIES; i++) {
-        if (g_bcache_pool[i].valid && g_bcache_pool[i].dirty &&
-            (!dev || g_bcache_pool[i].dev == dev)) {
-            uint64_t lba = (uint64_t)g_bcache_pool[i].block_no *
-                           (g_bcache_pool[i].block_size / g_bcache_pool[i].dev->sector_size);
+        if (g_bcache_pool[i].valid && g_bcache_pool[i].dirty && (!dev || g_bcache_pool[i].dev == dev)) {
+            uint64_t lba =
+                (uint64_t)g_bcache_pool[i].block_no * (g_bcache_pool[i].block_size / g_bcache_pool[i].dev->sector_size);
             uint32_t count = (uint32_t)(g_bcache_pool[i].block_size / g_bcache_pool[i].dev->sector_size);
             g_bcache_pool[i].dev->write_blocks(g_bcache_pool[i].dev, lba, count, g_bcache_pool[i].data);
             g_bcache_pool[i].dirty = false;

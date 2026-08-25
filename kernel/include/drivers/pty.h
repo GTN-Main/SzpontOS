@@ -14,24 +14,27 @@
 
 /* POSIX / Linux PTY ioctls */
 #ifndef TIOCGPTN
-#define TIOCGPTN    0x80045430
+#define TIOCGPTN 0x80045430
 #endif
 #ifndef TIOCSPTLCK
-#define TIOCSPTLCK  0x40045431
+#define TIOCSPTLCK 0x40045431
 #endif
 #ifndef TIOCGWINSZ
-#define TIOCGWINSZ  0x5413
+#define TIOCGWINSZ 0x5413
 #endif
 #ifndef TIOCSWINSZ
-#define TIOCSWINSZ  0x5414
+#define TIOCSWINSZ 0x5414
 #endif
 
+#ifndef _STRUCT_WINSIZE_DEFINED
+#define _STRUCT_WINSIZE_DEFINED
 struct winsize {
     unsigned short ws_row;
     unsigned short ws_col;
     unsigned short ws_xpixel;
     unsigned short ws_ypixel;
 };
+#endif
 
 void pty_init(void);
 

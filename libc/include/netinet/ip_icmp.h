@@ -11,8 +11,8 @@
 #include <netinet/in.h>
 
 struct icmphdr {
-    uint8_t  icmp_type;
-    uint8_t  icmp_code;
+    uint8_t icmp_type;
+    uint8_t icmp_code;
     uint16_t icmp_cksum;
     union {
         struct {
@@ -27,9 +27,9 @@ struct icmphdr {
     } un;
 };
 
-#define ICMP_ECHOREPLY      0
-#define ICMP_UNREACH        3
-#define ICMP_ECHO           8
-#define ICMP_TIMXCEED       11
+#define ICMP_ECHOREPLY 0
+#define ICMP_UNREACH 3
+#define ICMP_ECHO 8
+#define ICMP_TIMXCEED 11
 
 #endif /* _NETINET_IP_ICMP_H_ */

@@ -13,8 +13,8 @@
 #include <errno.h>
 
 static struct hostent g_static_hostent;
-static char *g_static_aliases[2] = { NULL, NULL };
-static char *g_static_addr_list[2] = { NULL, NULL };
+static char *g_static_aliases[2] = {NULL, NULL};
+static char *g_static_addr_list[2] = {NULL, NULL};
 static uint32_t g_static_addr = 0;
 
 static int inet_pton4_bsd(const char *src, unsigned char *dst) {
@@ -31,22 +31,27 @@ static int inet_pton4_bsd(const char *src, unsigned char *dst) {
         const char *pch;
         if ((pch = strchr(digits, ch)) != NULL) {
             unsigned int new_val = (unsigned int)(*tp * 10 + (pch - digits));
-            if (saw_digit && *tp == 0) return 0;
-            if (new_val > 255) return 0;
+            if (saw_digit && *tp == 0)
+                return 0;
+            if (new_val > 255)
+                return 0;
             *tp = (unsigned char)new_val;
             if (!saw_digit) {
-                if (++octets > 4) return 0;
+                if (++octets > 4)
+                    return 0;
                 saw_digit = 1;
             }
         } else if (ch == '.' && saw_digit) {
-            if (octets == 4) return 0;
+            if (octets == 4)
+                return 0;
             *++tp = 0;
             saw_digit = 0;
         } else {
             return 0;
         }
     }
-    if (octets < 4) return 0;
+    if (octets < 4)
+        return 0;
     memcpy(dst, tmp, 4);
     return 1;
 }
@@ -115,7 +120,8 @@ in_addr_t inet_addr(const char *cp) {
 }
 
 struct hostent *gethostbyname(const char *name) {
-    if (!name) return NULL;
+    if (!name)
+        return NULL;
 
     if (strcmp(name, "localhost") == 0) {
         g_static_addr = 0x0100007F; /* 127.0.0.1 */
@@ -143,11 +149,11 @@ struct hostent *gethostbyname(const char *name) {
     return &g_static_hostent;
 }
 
-int getaddrinfo(const char *node, const char *service,
-                const struct addrinfo *hints,
-                struct addrinfo **res) {
-    if (!res) return EAI_NONAME;
-    if (!node && !service) return EAI_NONAME;
+int getaddrinfo(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res) {
+    if (!res)
+        return EAI_NONAME;
+    if (!node && !service)
+        return EAI_NONAME;
 
     uint32_t ip = 0;
     uint16_t port = 0;
@@ -195,7 +201,8 @@ int getaddrinfo(const char *node, const char *service,
     }
 
     struct addrinfo *ai = (struct addrinfo *)malloc(sizeof(struct addrinfo));
-    if (!ai) return EAI_MEMORY;
+    if (!ai)
+        return EAI_MEMORY;
     memset(ai, 0, sizeof(struct addrinfo));
 
     ai->ai_family = AF_INET;
@@ -222,8 +229,10 @@ int getaddrinfo(const char *node, const char *service,
 void freeaddrinfo(struct addrinfo *res) {
     while (res) {
         struct addrinfo *next = res->ai_next;
-        if (res->ai_addr) free(res->ai_addr);
-        if (res->ai_canonname) free(res->ai_canonname);
+        if (res->ai_addr)
+            free(res->ai_addr);
+        if (res->ai_canonname)
+            free(res->ai_canonname);
         free(res);
         res = next;
     }
@@ -231,13 +240,21 @@ void freeaddrinfo(struct addrinfo *res) {
 
 const char *gai_strerror(int errcode) {
     switch (errcode) {
-        case 0: return "Success";
-        case EAI_BADFLAGS: return "Invalid value for ai_flags";
-        case EAI_NONAME: return "Name or service not known";
-        case EAI_FAMILY: return "ai_family not supported";
-        case EAI_SOCKTYPE: return "ai_socktype not supported";
-        case EAI_MEMORY: return "Memory allocation failure";
-        case EAI_SYSTEM: return "System error";
-        default: return "Unknown resolver error";
+    case 0:
+        return "Success";
+    case EAI_BADFLAGS:
+        return "Invalid value for ai_flags";
+    case EAI_NONAME:
+        return "Name or service not known";
+    case EAI_FAMILY:
+        return "ai_family not supported";
+    case EAI_SOCKTYPE:
+        return "ai_socktype not supported";
+    case EAI_MEMORY:
+        return "Memory allocation failure";
+    case EAI_SYSTEM:
+        return "System error";
+    default:
+        return "Unknown resolver error";
     }
 }

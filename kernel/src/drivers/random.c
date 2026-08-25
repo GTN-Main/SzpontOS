@@ -24,7 +24,7 @@ static inline uint64_t rotl(const uint64_t x, int k) {
 
 static inline uint64_t rdtsc_pure(void) {
     uint32_t lo, hi;
-    __asm__ volatile ("rdtsc" : "=a"(lo), "=d"(hi));
+    __asm__ volatile("rdtsc" : "=a"(lo), "=d"(hi));
     return ((uint64_t)hi << 32) | lo;
 }
 
@@ -67,7 +67,8 @@ uint32_t random_get_u32(void) {
 }
 
 size_t random_get_bytes(void *buf, size_t len) {
-    if (!buf || len == 0) return 0;
+    if (!buf || len == 0)
+        return 0;
     uint8_t *p = (uint8_t *)buf;
     size_t i = 0;
 
@@ -107,13 +108,11 @@ static ssize_t dev_random_write(vfs_node_t *node, off_t offset, size_t size, con
     return (ssize_t)size;
 }
 
-static vfs_ops_t g_random_ops = {
-    .read  = dev_random_read,
-    .write = dev_random_write
-};
+static vfs_ops_t g_random_ops = {.read = dev_random_read, .write = dev_random_write};
 
 void random_init(void) {
-    if (g_random_initialized) return;
+    if (g_random_initialized)
+        return;
 
     uint64_t seed = rdtsc_pure() ^ ((uint64_t)rtc_get_current_epoch() << 32) ^ (uint64_t)&g_random_ops;
     s[0] = splitmix64(&seed);

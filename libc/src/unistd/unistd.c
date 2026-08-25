@@ -1,4 +1,5 @@
 #include <unistd.h>
+#include <sched.h>
 #include <fcntl.h>
 #include <stdarg.h>
 #include <signal.h>
@@ -20,14 +21,8 @@
 
 int errno = 0;
 
-static char *g_default_environ[] = {
-    "PATH=/bin:/usr/bin",
-    "USER=root",
-    "HOME=/root",
-    "TERM=xterm-256color",
-    "SHELL=/bin/sh",
-    NULL
-};
+static char *g_default_environ[] = {"PATH=/bin:/usr/bin",  "USER=root",     "HOME=/root",
+                                    "TERM=xterm-256color", "SHELL=/bin/sh", NULL};
 
 char **environ = g_default_environ;
 
@@ -76,7 +71,9 @@ off_t lseek(int fd, off_t offset, int whence) {
 }
 
 ssize_t readlink(const char *pathname, char *buf, size_t bufsiz) {
-    (void)pathname; (void)buf; (void)bufsiz;
+    (void)pathname;
+    (void)buf;
+    (void)bufsiz;
     return -1;
 }
 
@@ -212,7 +209,8 @@ int execve(const char *pathname, char *const argv[], char *const envp[]) {
 }
 
 int execvp(const char *file, char *const argv[]) {
-    if (!file) return -1;
+    if (!file)
+        return -1;
     if (strchr(file, '/')) {
         return execve(file, argv, NULL);
     }
@@ -235,7 +233,8 @@ int execl(const char *path, const char *arg0, ...) {
     va_end(ap);
 
     char **argv = (char **)malloc(sizeof(char *) * (argc + 1));
-    if (!argv) return -1;
+    if (!argv)
+        return -1;
     argv[0] = (char *)arg0;
 
     va_start(ap, arg0);
@@ -260,7 +259,8 @@ int execlp(const char *file, const char *arg0, ...) {
     va_end(ap);
 
     char **argv = (char **)malloc(sizeof(char *) * (argc + 1));
-    if (!argv) return -1;
+    if (!argv)
+        return -1;
     argv[0] = (char *)arg0;
 
     va_start(ap, arg0);
@@ -278,10 +278,14 @@ int execlp(const char *file, const char *arg0, ...) {
 long fpathconf(int fd, int name) {
     (void)fd;
     switch (name) {
-        case _PC_PIPE_BUF: return 4096;
-        case _PC_PATH_MAX: return 4096;
-        case _PC_NAME_MAX: return 255;
-        default: return 4096;
+    case _PC_PIPE_BUF:
+        return 4096;
+    case _PC_PATH_MAX:
+        return 4096;
+    case _PC_NAME_MAX:
+        return 255;
+    default:
+        return 4096;
     }
 }
 
@@ -299,7 +303,8 @@ int usleep(unsigned long usec) {
 
 void _exit(int status) {
     __syscall1(SYS_exit_group, status);
-    while (1) {}
+    while (1) {
+    }
 }
 
 int brk(void *addr) {
@@ -356,10 +361,6 @@ int chdir(const char *path) {
     return (int)__syscall1(SYS_chdir, (int64_t)path);
 }
 
-int sched_yield(void) {
-    return (int)__syscall0(SYS_yield);
-}
-
 unsigned int sleep(unsigned int seconds) {
     struct timespec req, rem;
     req.tv_sec = (time_t)seconds;
@@ -401,37 +402,44 @@ sighandler_t signal(int signum, sighandler_t handler) {
 }
 
 int sigemptyset(sigset_t *set) {
-    if (!set) return -1;
+    if (!set)
+        return -1;
     *set = 0;
     return 0;
 }
 
 int sigfillset(sigset_t *set) {
-    if (!set) return -1;
+    if (!set)
+        return -1;
     *set = ~((sigset_t)0);
     return 0;
 }
 
 int sigaddset(sigset_t *set, int signum) {
-    if (!set || signum < 1 || signum > 64) return -1;
+    if (!set || signum < 1 || signum > 64)
+        return -1;
     *set |= ((sigset_t)1 << (signum - 1));
     return 0;
 }
 
 int sigdelset(sigset_t *set, int signum) {
-    if (!set || signum < 1 || signum > 64) return -1;
+    if (!set || signum < 1 || signum > 64)
+        return -1;
     *set &= ~((sigset_t)1 << (signum - 1));
     return 0;
 }
 
 int sigismember(const sigset_t *set, int signum) {
-    if (!set || signum < 1 || signum > 64) return -1;
+    if (!set || signum < 1 || signum > 64)
+        return -1;
     return (*set & ((sigset_t)1 << (signum - 1))) ? 1 : 0;
 }
 
 int sigprocmask(int how, const sigset_t *set, sigset_t *oldset) {
-    (void)how; (void)set;
-    if (oldset) *oldset = 0;
+    (void)how;
+    (void)set;
+    if (oldset)
+        *oldset = 0;
     return 0;
 }
 
@@ -474,7 +482,8 @@ int statfs(const char *path, struct statfs *buf) {
 int statvfs(const char *path, struct statvfs *buf) {
     struct statfs s;
     int ret = statfs(path, &s);
-    if (ret != 0) return ret;
+    if (ret != 0)
+        return ret;
 
     buf->f_bsize = s.f_bsize;
     buf->f_frsize = s.f_frsize ? s.f_frsize : s.f_bsize;
@@ -502,7 +511,8 @@ mode_t umask(mode_t mask) {
 }
 
 int futimens(int fd, const struct timespec times[2]) {
-    (void)fd; (void)times;
+    (void)fd;
+    (void)times;
     return 0;
 }
 
@@ -521,19 +531,22 @@ int select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struc
                 }
             }
         }
-        if (count > 0) return count;
-        if (timeout && timeout->tv_sec == 0 && timeout->tv_usec == 0) return 0;
+        if (count > 0)
+            return count;
+        if (timeout && timeout->tv_sec == 0 && timeout->tv_usec == 0)
+            return 0;
         if (timeout) {
             long us = timeout->tv_sec * 1000000L + timeout->tv_usec;
-            if (us > 0) usleep(us > 50000 ? 50000 : us);
+            if (us > 0)
+                usleep(us > 50000 ? 50000 : us);
         }
         return 0;
     }
     return 0;
 }
 
-int pselect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
-            const struct timespec *timeout, const sigset_t *sigmask) {
+int pselect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, const struct timespec *timeout,
+            const sigset_t *sigmask) {
     (void)sigmask;
     struct timeval tv;
     if (timeout) {
@@ -557,7 +570,8 @@ int gethostname(char *name, size_t len) {
         close(fd);
         if (bytes > 0) {
             buf[bytes] = '\0';
-            while (bytes > 0 && (buf[bytes - 1] == '\n' || buf[bytes - 1] == '\r' || buf[bytes - 1] == ' ' || buf[bytes - 1] == '\t')) {
+            while (bytes > 0 && (buf[bytes - 1] == '\n' || buf[bytes - 1] == '\r' || buf[bytes - 1] == ' ' ||
+                                 buf[bytes - 1] == '\t')) {
                 buf[bytes - 1] = '\0';
                 bytes--;
             }
@@ -600,7 +614,8 @@ int sethostname(const char *name, size_t len) {
     ssize_t written = write(fd, name, len);
     write(fd, "\n", 1);
     close(fd);
-    if (written < 0) return -1;
+    if (written < 0)
+        return -1;
     return 0;
 }
 
@@ -642,9 +657,11 @@ int getrusage(int who, struct rusage *usage) {
 
 char *getlogin(void) {
     char *user = getenv("LOGNAME");
-    if (user && *user) return user;
+    if (user && *user)
+        return user;
     user = getenv("USER");
-    if (user && *user) return user;
+    if (user && *user)
+        return user;
 
     struct passwd *pw = getpwuid(getuid());
     if (pw && pw->pw_name && pw->pw_name[0]) {
@@ -714,7 +731,8 @@ int setpgrp(void) {
 }
 
 int setpgid(pid_t pid, pid_t pgid) {
-    (void)pid; (void)pgid;
+    (void)pid;
+    (void)pgid;
     return 0;
 }
 
@@ -728,18 +746,21 @@ pid_t tcgetpgrp(int fd) {
 }
 
 int tcsetpgrp(int fd, pid_t pgrp) {
-    (void)fd; (void)pgrp;
+    (void)fd;
+    (void)pgrp;
     return 0;
 }
 
 int link(const char *oldpath, const char *newpath) {
-    (void)oldpath; (void)newpath;
+    (void)oldpath;
+    (void)newpath;
     errno = EOPNOTSUPP;
     return -1;
 }
 
 int symlink(const char *target, const char *linkpath) {
-    (void)target; (void)linkpath;
+    (void)target;
+    (void)linkpath;
     errno = EOPNOTSUPP;
     return -1;
 }
@@ -753,7 +774,8 @@ int getgroups(int size, gid_t list[]) {
 }
 
 int setgroups(size_t size, const gid_t *list) {
-    (void)size; (void)list;
+    (void)size;
+    (void)list;
     return 0;
 }
 
@@ -776,7 +798,8 @@ int sigsuspend(const sigset_t *mask) {
 }
 
 int sigpending(sigset_t *set) {
-    if (set) *set = 0;
+    if (set)
+        *set = 0;
     return 0;
 }
 
@@ -793,7 +816,8 @@ int openat(int dirfd, const char *pathname, int flags, ...) {
 }
 
 int faccessat(int dirfd, const char *pathname, int mode, int flags) {
-    (void)dirfd; (void)flags;
+    (void)dirfd;
+    (void)flags;
     return access(pathname, mode);
 }
 
@@ -809,10 +833,10 @@ int kqueue(void) {
     return (int)__syscall0(SYS_kqueue);
 }
 
-int kevent(int kq, const struct kevent *changelist, int nchanges,
-           struct kevent *eventlist, int nevents, const struct timespec *timeout) {
-    return (int)__syscall6(SYS_kevent, kq, (int64_t)changelist, nchanges,
-                          (int64_t)eventlist, nevents, (int64_t)timeout);
+int kevent(int kq, const struct kevent *changelist, int nchanges, struct kevent *eventlist, int nevents,
+           const struct timespec *timeout) {
+    return (int)__syscall6(SYS_kevent, kq, (int64_t)changelist, nchanges, (int64_t)eventlist, nevents,
+                           (int64_t)timeout);
 }
 
 int reboot(int cmd) {
@@ -827,4 +851,3 @@ int fsync(int fd) {
     (void)fd;
     return (int)__syscall0(SYS_sync);
 }
-

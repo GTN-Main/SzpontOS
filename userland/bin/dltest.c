@@ -5,7 +5,8 @@ typedef int (*calc_func_t)(int, int);
 typedef const char *(*version_func_t)(void);
 
 int main(int argc, char *argv[]) {
-    (void)argc; (void)argv;
+    (void)argc;
+    (void)argv;
 
     printf("[DLTEST] Testing dynamic shared library loading (dlopen/dlsym)...\n");
 

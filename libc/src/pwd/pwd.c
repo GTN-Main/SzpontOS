@@ -26,7 +26,8 @@ void endpwent(void) {
 struct passwd *getpwent(void) {
     if (g_passwd_fd < 0) {
         setpwent();
-        if (g_passwd_fd < 0) return NULL;
+        if (g_passwd_fd < 0)
+            return NULL;
     }
 
     size_t pos = 0;
@@ -34,14 +35,17 @@ struct passwd *getpwent(void) {
         char c;
         ssize_t bytes = read(g_passwd_fd, &c, 1);
         if (bytes <= 0) {
-            if (pos == 0) return NULL;
+            if (pos == 0)
+                return NULL;
             break;
         }
-        if (c == '\n') break;
+        if (c == '\n')
+            break;
         g_passwd_buf[pos++] = c;
     }
     g_passwd_buf[pos] = '\0';
-    if (pos == 0) return NULL;
+    if (pos == 0)
+        return NULL;
 
     /* Parse: name:password:uid:gid:gecos:homedir:shell */
     char *fields[7];
@@ -53,7 +57,8 @@ struct passwd *getpwent(void) {
             *colon = '\0';
             p = colon + 1;
         } else {
-            if (i < 6) return NULL; /* Malformed */
+            if (i < 6)
+                return NULL; /* Malformed */
             break;
         }
     }
@@ -70,7 +75,8 @@ struct passwd *getpwent(void) {
 }
 
 struct passwd *getpwnam(const char *name) {
-    if (!name) return NULL;
+    if (!name)
+        return NULL;
     setpwent();
     struct passwd *pw;
     while ((pw = getpwent()) != NULL) {

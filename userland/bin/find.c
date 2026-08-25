@@ -22,14 +22,18 @@ static void find_recurse(const char *path, const char *name_pattern, char type_f
     bool matches = true;
 
     /* Check type filter */
-    if (type_filter == 'f' && !S_ISREG(st.st_mode)) matches = false;
-    else if (type_filter == 'd' && !S_ISDIR(st.st_mode)) matches = false;
+    if (type_filter == 'f' && !S_ISREG(st.st_mode))
+        matches = false;
+    else if (type_filter == 'd' && !S_ISDIR(st.st_mode))
+        matches = false;
 
     /* Check name pattern */
     if (name_pattern && matches) {
         const char *basename = strrchr(path, '/');
-        if (basename) basename++;
-        else basename = path;
+        if (basename)
+            basename++;
+        else
+            basename = path;
 
         if (fnmatch(name_pattern, basename, 0) != 0) {
             matches = false;
@@ -42,7 +46,8 @@ static void find_recurse(const char *path, const char *name_pattern, char type_f
 
     if (S_ISDIR(st.st_mode)) {
         DIR *d = opendir(path);
-        if (!d) return;
+        if (!d)
+            return;
 
         struct dirent *ent;
         while ((ent = readdir(d)) != NULL) {

@@ -12,8 +12,8 @@
 
 typedef struct {
     uint32_t ip;
-    uint8_t  mac[ETH_ALEN];
-    bool     valid;
+    uint8_t mac[ETH_ALEN];
+    bool valid;
 } arp_entry_t;
 
 static arp_entry_t g_arp_cache[ARP_CACHE_SIZE];
@@ -67,10 +67,12 @@ bool arp_lookup(uint32_t ip, uint8_t mac_out[ETH_ALEN]) {
 }
 
 void arp_send_request(netif_t *netif, uint32_t target_ip) {
-    if (!netif || !netif->send) return;
+    if (!netif || !netif->send)
+        return;
 
     net_buf_t *buf = net_buf_alloc();
-    if (!buf) return;
+    if (!buf)
+        return;
 
     eth_hdr_t *eth = (eth_hdr_t *)buf->data;
     memset(eth->dest, 0xFF, ETH_ALEN); /* Broadcast */
@@ -78,7 +80,7 @@ void arp_send_request(netif_t *netif, uint32_t target_ip) {
     eth->type = htons(ETH_P_ARP);
 
     arp_hdr_t *arp = (arp_hdr_t *)(buf->data + sizeof(eth_hdr_t));
-    arp->hw_type = htons(1);       /* Ethernet */
+    arp->hw_type = htons(1); /* Ethernet */
     arp->proto_type = htons(ETH_P_IP);
     arp->hw_len = ETH_ALEN;
     arp->proto_len = 4;
@@ -95,10 +97,12 @@ void arp_send_request(netif_t *netif, uint32_t target_ip) {
 }
 
 static void arp_send_reply(netif_t *netif, uint32_t target_ip, const uint8_t *target_mac) {
-    if (!netif || !netif->send) return;
+    if (!netif || !netif->send)
+        return;
 
     net_buf_t *buf = net_buf_alloc();
-    if (!buf) return;
+    if (!buf)
+        return;
 
     eth_hdr_t *eth = (eth_hdr_t *)buf->data;
     memcpy(eth->dest, target_mac, ETH_ALEN);
@@ -124,7 +128,8 @@ static void arp_send_reply(netif_t *netif, uint32_t target_ip, const uint8_t *ta
 
 void arp_input(netif_t *netif, net_buf_t *buf) {
     if (!netif || !buf || buf->len < sizeof(arp_hdr_t)) {
-        if (buf) net_buf_free(buf);
+        if (buf)
+            net_buf_free(buf);
         return;
     }
 

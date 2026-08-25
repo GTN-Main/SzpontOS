@@ -20,10 +20,12 @@ static char g_device_msg[] = "SzpontOS Dynamic Character Device (.sko driver act
 
 static ssize_t szpont_dev_read(vfs_node_t *node, off_t offset, size_t size, void *buffer) {
     (void)node;
-    if (!buffer || size == 0) return 0;
+    if (!buffer || size == 0)
+        return 0;
 
     size_t msg_len = strlen(g_device_msg);
-    if (offset >= (off_t)msg_len) return 0; /* EOF */
+    if (offset >= (off_t)msg_len)
+        return 0; /* EOF */
 
     size_t available = msg_len - offset;
     size_t to_copy = (size < available) ? size : available;
@@ -32,15 +34,18 @@ static ssize_t szpont_dev_read(vfs_node_t *node, off_t offset, size_t size, void
 }
 
 static ssize_t szpont_dev_write(vfs_node_t *node, off_t offset, size_t size, const void *buffer) {
-    (void)node; (void)offset;
-    if (!buffer || size == 0) return 0;
+    (void)node;
+    (void)offset;
+    if (!buffer || size == 0)
+        return 0;
 
     kprintf("[szpont_device.sko] Received %lu bytes write: ", size);
     const char *str = (const char *)buffer;
     for (size_t i = 0; i < size && i < 64; i++) {
         kprintf("%c", str[i]);
     }
-    if (size > 64) kprintf("...");
+    if (size > 64)
+        kprintf("...");
     kprintf("\n");
 
     return (ssize_t)size;
@@ -54,7 +59,8 @@ static int __init_dummy_dev(void) {
     g_szpont_dev_ops.write = szpont_dev_write;
 
     vfs_node_t *dev_node = (vfs_node_t *)kzalloc(sizeof(vfs_node_t));
-    if (!dev_node) return -1;
+    if (!dev_node)
+        return -1;
 
     dev_node->flags = VFS_TYPE_CHARDEVICE;
     dev_node->permissions = 0666;

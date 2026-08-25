@@ -5,7 +5,8 @@
 
 static int make_path(char *path, mode_t mode) {
     char *p = path;
-    if (*p == '/') p++;
+    if (*p == '/')
+        p++;
 
     while (*p) {
         if (*p == '/') {

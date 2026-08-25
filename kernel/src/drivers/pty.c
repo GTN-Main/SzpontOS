@@ -53,7 +53,8 @@ static vfs_ops_t g_pty_slave_ops;
 static ssize_t pty_master_read(vfs_node_t *node, off_t offset, size_t size, void *buffer) {
     (void)offset;
     pty_pair_t *pty = (pty_pair_t *)node->device_data;
-    if (!pty || !buffer || size == 0) return 0;
+    if (!pty || !buffer || size == 0)
+        return 0;
 
     char *dst = (char *)buffer;
     size_t read_bytes = 0;
@@ -72,7 +73,8 @@ static ssize_t pty_master_read(vfs_node_t *node, off_t offset, size_t size, void
 static ssize_t pty_master_write(vfs_node_t *node, off_t offset, size_t size, const void *buffer) {
     (void)offset;
     pty_pair_t *pty = (pty_pair_t *)node->device_data;
-    if (!pty || !buffer || size == 0) return 0;
+    if (!pty || !buffer || size == 0)
+        return 0;
 
     const char *src = (const char *)buffer;
     size_t written = 0;
@@ -95,7 +97,8 @@ static ssize_t pty_master_write(vfs_node_t *node, off_t offset, size_t size, con
 static ssize_t pty_slave_read(vfs_node_t *node, off_t offset, size_t size, void *buffer) {
     (void)offset;
     pty_pair_t *pty = (pty_pair_t *)node->device_data;
-    if (!pty || !buffer || size == 0) return 0;
+    if (!pty || !buffer || size == 0)
+        return 0;
 
     char *dst = (char *)buffer;
     size_t read_bytes = 0;
@@ -114,7 +117,8 @@ static ssize_t pty_slave_read(vfs_node_t *node, off_t offset, size_t size, void 
 static ssize_t pty_slave_write(vfs_node_t *node, off_t offset, size_t size, const void *buffer) {
     (void)offset;
     pty_pair_t *pty = (pty_pair_t *)node->device_data;
-    if (!pty || !buffer || size == 0) return 0;
+    if (!pty || !buffer || size == 0)
+        return 0;
 
     const char *src = (const char *)buffer;
     size_t written = 0;
@@ -188,19 +192,11 @@ static int ptmx_open(vfs_node_t *node, uint32_t flags) {
     return 0;
 }
 
-static vfs_ops_t g_ptmx_ops = {
-    .open = ptmx_open
-};
+static vfs_ops_t g_ptmx_ops = {.open = ptmx_open};
 
-static vfs_ops_t g_pty_master_ops = {
-    .read  = pty_master_read,
-    .write = pty_master_write
-};
+static vfs_ops_t g_pty_master_ops = {.read = pty_master_read, .write = pty_master_write};
 
-static vfs_ops_t g_pty_slave_ops = {
-    .read  = pty_slave_read,
-    .write = pty_slave_write
-};
+static vfs_ops_t g_pty_slave_ops = {.read = pty_slave_read, .write = pty_slave_write};
 
 void pty_init(void) {
     memset(g_ptys, 0, sizeof(g_ptys));

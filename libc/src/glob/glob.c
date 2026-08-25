@@ -13,7 +13,8 @@
 
 static void glob_add_path(glob_t *pglob, const char *path) {
     char **new_pathv = (char **)realloc(pglob->gl_pathv, sizeof(char *) * (pglob->gl_pathc + 2));
-    if (!new_pathv) return;
+    if (!new_pathv)
+        return;
 
     pglob->gl_pathv = new_pathv;
     pglob->gl_pathv[pglob->gl_pathc] = strdup(path);
@@ -23,7 +24,8 @@ static void glob_add_path(glob_t *pglob, const char *path) {
 
 int glob(const char *pattern, int flags, int (*errfunc)(const char *epath, int eerrno), glob_t *pglob) {
     (void)errfunc;
-    if (!pattern || !pglob) return GLOB_ABORTED;
+    if (!pattern || !pglob)
+        return GLOB_ABORTED;
 
     pglob->gl_pathc = 0;
     pglob->gl_pathv = NULL;
@@ -100,7 +102,8 @@ int glob(const char *pattern, int flags, int (*errfunc)(const char *epath, int e
 }
 
 void globfree(glob_t *pglob) {
-    if (!pglob || !pglob->gl_pathv) return;
+    if (!pglob || !pglob->gl_pathv)
+        return;
     for (size_t i = 0; i < pglob->gl_pathc; i++) {
         if (pglob->gl_pathv[i]) {
             free(pglob->gl_pathv[i]);

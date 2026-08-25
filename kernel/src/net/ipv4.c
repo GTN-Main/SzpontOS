@@ -35,7 +35,8 @@ void ipv4_init(void) {
 
 void ipv4_input(netif_t *netif, net_buf_t *buf) {
     if (!netif || !buf || buf->len < sizeof(ipv4_hdr_t)) {
-        if (buf) net_buf_free(buf);
+        if (buf)
+            net_buf_free(buf);
         return;
     }
 
@@ -78,7 +79,8 @@ void ipv4_input(netif_t *netif, net_buf_t *buf) {
 }
 
 int ipv4_output(netif_t *netif, uint32_t dest_ip, uint8_t proto, net_buf_t *payload) {
-    if (!payload) return -1;
+    if (!payload)
+        return -1;
 
     /* If netif not provided, determine by routing */
     if (!netif) {
@@ -147,8 +149,7 @@ int ipv4_output(netif_t *netif, uint32_t dest_ip, uint8_t proto, net_buf_t *payl
     ip->checksum = ipv4_checksum(ip, sizeof(ipv4_hdr_t));
 
     /* 3. Copy Payload */
-    memcpy(tx_buf->data + sizeof(eth_hdr_t) + sizeof(ipv4_hdr_t),
-           payload->data + payload->offset, payload->len);
+    memcpy(tx_buf->data + sizeof(eth_hdr_t) + sizeof(ipv4_hdr_t), payload->data + payload->offset, payload->len);
 
     tx_buf->len = sizeof(eth_hdr_t) + sizeof(ipv4_hdr_t) + payload->len;
     tx_buf->offset = 0;

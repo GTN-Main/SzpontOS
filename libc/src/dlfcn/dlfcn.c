@@ -10,7 +10,7 @@ static char g_dlerror_buf[256] = {0};
 static int g_has_dlerror = 0;
 
 typedef struct {
-    uint8_t  e_ident[16];
+    uint8_t e_ident[16];
     uint16_t e_type;
     uint16_t e_machine;
     uint32_t e_version;
@@ -47,8 +47,8 @@ typedef struct {
 
 typedef struct {
     uint32_t st_name;
-    uint8_t  st_info;
-    uint8_t  st_other;
+    uint8_t st_info;
+    uint8_t st_other;
     uint16_t st_shndx;
     uint64_t st_value;
     uint64_t st_size;
@@ -78,7 +78,8 @@ static void set_dlerror(const char *msg) {
 }
 
 char *dlerror(void) {
-    if (!g_has_dlerror) return NULL;
+    if (!g_has_dlerror)
+        return NULL;
     g_has_dlerror = 0;
     return g_dlerror_buf;
 }

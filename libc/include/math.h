@@ -6,40 +6,40 @@ extern "C" {
 #endif
 
 /* Constants */
-#define HUGE_VAL    (__builtin_huge_val())
-#define HUGE_VALF   (__builtin_huge_valf())
-#define HUGE_VALL   (__builtin_huge_vall())
-#define INFINITY    (__builtin_inff())
-#define NAN         (__builtin_nanf(""))
+#define HUGE_VAL (__builtin_huge_val())
+#define HUGE_VALF (__builtin_huge_valf())
+#define HUGE_VALL (__builtin_huge_vall())
+#define INFINITY (__builtin_inff())
+#define NAN (__builtin_nanf(""))
 
-#define M_E         2.71828182845904523536028747135266250   /* e */
-#define M_LOG2E     1.44269504088896340735992468100189214   /* log_2 e */
-#define M_LOG10E    0.434294481903251827651128918916605082  /* log_10 e */
-#define M_LN2       0.693147180559945309417232121458176568  /* log_e 2 */
-#define M_LN10      2.30258509299404568401799145468436421   /* log_e 10 */
-#define M_PI        3.14159265358979323846264338327950288   /* pi */
-#define M_PI_2      1.57079632679489661923132169163975144   /* pi/2 */
-#define M_PI_4      0.785398163397448309615660845819875721  /* pi/4 */
-#define M_1_PI      0.318309886183790671537767526745028724  /* 1/pi */
-#define M_2_PI      0.636619772367581343075535053490057448  /* 2/pi */
-#define M_2_SQRTPI  1.12837916709551257389615890312154517   /* 2/sqrt(pi) */
-#define M_SQRT2     1.41421356237309504880168872420969808   /* sqrt(2) */
-#define M_SQRT1_2   0.707106781186547524400844362104849039  /* 1/sqrt(2) */
+#define M_E 2.71828182845904523536028747135266250        /* e */
+#define M_LOG2E 1.44269504088896340735992468100189214    /* log_2 e */
+#define M_LOG10E 0.434294481903251827651128918916605082  /* log_10 e */
+#define M_LN2 0.693147180559945309417232121458176568     /* log_e 2 */
+#define M_LN10 2.30258509299404568401799145468436421     /* log_e 10 */
+#define M_PI 3.14159265358979323846264338327950288       /* pi */
+#define M_PI_2 1.57079632679489661923132169163975144     /* pi/2 */
+#define M_PI_4 0.785398163397448309615660845819875721    /* pi/4 */
+#define M_1_PI 0.318309886183790671537767526745028724    /* 1/pi */
+#define M_2_PI 0.636619772367581343075535053490057448    /* 2/pi */
+#define M_2_SQRTPI 1.12837916709551257389615890312154517 /* 2/sqrt(pi) */
+#define M_SQRT2 1.41421356237309504880168872420969808    /* sqrt(2) */
+#define M_SQRT1_2 0.707106781186547524400844362104849039 /* 1/sqrt(2) */
 
-#define FP_NAN       0
-#define FP_INFINITE  1
-#define FP_ZERO      2
+#define FP_NAN 0
+#define FP_INFINITE 1
+#define FP_ZERO 2
 #define FP_SUBNORMAL 3
-#define FP_NORMAL    4
+#define FP_NORMAL 4
 
-#define isnan(x)          __builtin_isnan(x)
-#define isinf(x)          __builtin_isinf(x)
-#define isfinite(x)       __builtin_isfinite(x)
-#define isnormal(x)       __builtin_isnormal(x)
-#define signbit(x)        __builtin_signbit(x)
+#define isnan(x) __builtin_isnan(x)
+#define isinf(x) __builtin_isinf(x)
+#define isfinite(x) __builtin_isfinite(x)
+#define isnormal(x) __builtin_isnormal(x)
+#define signbit(x) __builtin_signbit(x)
 #define isunordered(u, v) __builtin_isunordered(u, v)
-#define isgreater(u, v)   __builtin_isgreater(u, v)
-#define isless(u, v)      __builtin_isless(u, v)
+#define isgreater(u, v) __builtin_isgreater(u, v)
+#define isless(u, v) __builtin_isless(u, v)
 #define isgreaterequal(u, v) __builtin_isgreaterequal(u, v)
 #define islessequal(u, v) __builtin_islessequal(u, v)
 #define islessgreater(u, v) __builtin_islessgreater(u, v)
@@ -48,7 +48,7 @@ extern "C" {
 double sin(double x);
 double cos(double x);
 double tan(double x);
-void   sincos(double x, double *s, double *c);
+void sincos(double x, double *s, double *c);
 double asin(double x);
 double acos(double x);
 double atan(double x);
@@ -71,7 +71,7 @@ double log2(double x);
 double log10(double x);
 double log1p(double x);
 double logb(double x);
-int    ilogb(double x);
+int ilogb(double x);
 
 /* Power and root functions */
 double pow(double base, double exp);
@@ -85,7 +85,7 @@ double ceil(double x);
 double floor(double x);
 double trunc(double x);
 double round(double x);
-long   lround(double x);
+long lround(double x);
 long long llround(double x);
 double rint(double x);
 double nearbyint(double x);

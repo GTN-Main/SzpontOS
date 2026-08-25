@@ -2,7 +2,8 @@
 #include <sys/sysinfo.h>
 
 int main(int argc, char *argv[]) {
-    (void)argc; (void)argv;
+    (void)argc;
+    (void)argv;
 
     struct sysinfo s;
     if (sysinfo(&s) != 0) {
@@ -15,8 +16,7 @@ int main(int argc, char *argv[]) {
     long mins = (up % 3600) / 60;
     long secs = up % 60;
 
-    printf(" up %ld:%02ld:%02ld,  %u processes,  load average: 0.00, 0.00, 0.00\n",
-           hours, mins, secs, s.procs);
+    printf(" up %ld:%02ld:%02ld,  %u processes,  load average: 0.00, 0.00, 0.00\n", hours, mins, secs, s.procs);
 
     return 0;
 }

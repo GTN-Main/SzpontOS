@@ -3,25 +3,25 @@
 
 #include <kernel/types.h>
 
-#define VFS_TYPE_FILE       1
-#define VFS_TYPE_DIRECTORY  2
+#define VFS_TYPE_FILE 1
+#define VFS_TYPE_DIRECTORY 2
 #define VFS_TYPE_CHARDEVICE 3
 #define VFS_TYPE_BLOCKDEVICE 4
-#define VFS_TYPE_PIPE       5
-#define VFS_TYPE_SYMLINK    6
-#define VFS_TYPE_SOCKET     7
+#define VFS_TYPE_PIPE 5
+#define VFS_TYPE_SYMLINK 6
+#define VFS_TYPE_SOCKET 7
 
-#define O_RDONLY    0x0000
-#define O_WRONLY    0x0001
-#define O_RDWR      0x0002
-#define O_CREAT     0x0040
-#define O_EXCL      0x0080
-#define O_TRUNC     0x0200
-#define O_APPEND    0x0400
+#define O_RDONLY 0x0000
+#define O_WRONLY 0x0001
+#define O_RDWR 0x0002
+#define O_CREAT 0x0040
+#define O_EXCL 0x0080
+#define O_TRUNC 0x0200
+#define O_APPEND 0x0400
 
-#define SEEK_SET    0
-#define SEEK_CUR    1
-#define SEEK_END    2
+#define SEEK_SET 0
+#define SEEK_CUR 1
+#define SEEK_END 2
 
 struct vfs_node;
 
@@ -31,9 +31,9 @@ typedef struct vfs_dirent {
     uint32_t type;
 } vfs_dirent_t;
 
-#define VFS_READ  4
+#define VFS_READ 4
 #define VFS_WRITE 2
-#define VFS_EXEC  1
+#define VFS_EXEC 1
 
 typedef struct vfs_ops {
     ssize_t (*read)(struct vfs_node *node, off_t offset, size_t size, void *buffer);
@@ -47,11 +47,12 @@ typedef struct vfs_ops {
     int (*chmod)(struct vfs_node *node, mode_t mode);
     int (*chown)(struct vfs_node *node, uid_t uid, gid_t gid);
     int (*unlink)(struct vfs_node *parent, const char *name);
+    int (*ioctl)(struct vfs_node *node, uint64_t request, uintptr_t arg);
 } vfs_ops_t;
 
 typedef struct vfs_node {
     char name[128];
-    uint32_t flags;       /* VFS_TYPE_* */
+    uint32_t flags; /* VFS_TYPE_* */
     uint32_t inode;
     size_t length;
     uint32_t uid;

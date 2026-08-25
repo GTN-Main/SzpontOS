@@ -13,7 +13,8 @@ static void wc_fd(int fd, const char *name, int show_l, int show_w, int show_c) 
         bytes += n;
         for (ssize_t i = 0; i < n; i++) {
             char c = buf[i];
-            if (c == '\n') lines++;
+            if (c == '\n')
+                lines++;
             if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
                 in_word = 0;
             } else if (!in_word) {
@@ -23,10 +24,14 @@ static void wc_fd(int fd, const char *name, int show_l, int show_w, int show_c) 
         }
     }
 
-    if (show_l) printf("%7ld ", lines);
-    if (show_w) printf("%7ld ", words);
-    if (show_c) printf("%7ld ", bytes);
-    if (name) printf("%s", name);
+    if (show_l)
+        printf("%7ld ", lines);
+    if (show_w)
+        printf("%7ld ", words);
+    if (show_c)
+        printf("%7ld ", bytes);
+    if (name)
+        printf("%s", name);
     printf("\n");
 }
 
@@ -37,9 +42,12 @@ int main(int argc, char *argv[]) {
     for (int i = 1; i < argc; i++) {
         if (argv[i][0] == '-') {
             for (size_t j = 1; j < strlen(argv[i]); j++) {
-                if (argv[i][j] == 'l') show_l = 1;
-                else if (argv[i][j] == 'w') show_w = 1;
-                else if (argv[i][j] == 'c') show_c = 1;
+                if (argv[i][j] == 'l')
+                    show_l = 1;
+                else if (argv[i][j] == 'w')
+                    show_w = 1;
+                else if (argv[i][j] == 'c')
+                    show_c = 1;
             }
             first_file = i + 1;
         } else {

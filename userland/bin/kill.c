@@ -13,30 +13,11 @@
 static const struct {
     int num;
     const char *name;
-} g_signals[] = {
-    { SIGHUP,    "HUP" },
-    { SIGINT,    "INT" },
-    { SIGQUIT,   "QUIT" },
-    { SIGILL,    "ILL" },
-    { SIGTRAP,   "TRAP" },
-    { SIGABRT,   "ABRT" },
-    { SIGBUS,    "BUS" },
-    { SIGFPE,    "FPE" },
-    { SIGKILL,   "KILL" },
-    { SIGUSR1,   "USR1" },
-    { SIGSEGV,   "SEGV" },
-    { SIGUSR2,   "USR2" },
-    { SIGPIPE,   "PIPE" },
-    { SIGALRM,   "ALRM" },
-    { SIGTERM,   "TERM" },
-    { SIGCHLD,   "CHLD" },
-    { SIGCONT,   "CONT" },
-    { SIGSTOP,   "STOP" },
-    { SIGTSTP,   "TSTP" },
-    { SIGTTIN,   "TTIN" },
-    { SIGTTOU,   "TTOU" },
-    { SIGWINCH,  "WINCH" }
-};
+} g_signals[] = {{SIGHUP, "HUP"},   {SIGINT, "INT"},    {SIGQUIT, "QUIT"}, {SIGILL, "ILL"},   {SIGTRAP, "TRAP"},
+                 {SIGABRT, "ABRT"}, {SIGBUS, "BUS"},    {SIGFPE, "FPE"},   {SIGKILL, "KILL"}, {SIGUSR1, "USR1"},
+                 {SIGSEGV, "SEGV"}, {SIGUSR2, "USR2"},  {SIGPIPE, "PIPE"}, {SIGALRM, "ALRM"}, {SIGTERM, "TERM"},
+                 {SIGCHLD, "CHLD"}, {SIGCONT, "CONT"},  {SIGSTOP, "STOP"}, {SIGTSTP, "TSTP"}, {SIGTTIN, "TTIN"},
+                 {SIGTTOU, "TTOU"}, {SIGWINCH, "WINCH"}};
 #define SIG_COUNT (sizeof(g_signals) / sizeof(g_signals[0]))
 
 static void list_signals(void) {
@@ -47,8 +28,10 @@ static void list_signals(void) {
 }
 
 static int parse_signal(const char *str) {
-    if (!str || !*str) return -1;
-    if (strncmp(str, "SIG", 3) == 0) str += 3;
+    if (!str || !*str)
+        return -1;
+    if (strncmp(str, "SIG", 3) == 0)
+        str += 3;
 
     char *end;
     long num = strtol(str, &end, 10);

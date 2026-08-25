@@ -10,7 +10,8 @@
 
 void icmp_input(netif_t *netif, net_buf_t *buf) {
     if (!netif || !buf || buf->len < sizeof(icmp_hdr_t)) {
-        if (buf) net_buf_free(buf);
+        if (buf)
+            net_buf_free(buf);
         return;
     }
 
@@ -46,7 +47,8 @@ void icmp_input(netif_t *netif, net_buf_t *buf) {
 
 int icmp_send_echo_request(uint32_t dest_ip, uint16_t id, uint16_t seq, const void *payload, size_t len) {
     net_buf_t *buf = net_buf_alloc();
-    if (!buf) return -1;
+    if (!buf)
+        return -1;
 
     icmp_hdr_t *icmp = (icmp_hdr_t *)buf->data;
     icmp->type = ICMP_TYPE_ECHOREQ;

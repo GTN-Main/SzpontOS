@@ -26,7 +26,8 @@ void net_buf_free(net_buf_t *buf) {
 }
 
 void netif_register(netif_t *nif) {
-    if (!nif) return;
+    if (!nif)
+        return;
 
     spinlock_acquire(&g_netif_lock);
     nif->next = g_netif_list;
@@ -59,7 +60,8 @@ netif_t *netif_get_loopback(void) {
 }
 
 netif_t *netif_find_by_name(const char *name) {
-    if (!name) return NULL;
+    if (!name)
+        return NULL;
     spinlock_acquire(&g_netif_lock);
     for (netif_t *cur = g_netif_list; cur != NULL; cur = cur->next) {
         if (strcmp(cur->name, name) == 0) {
@@ -89,7 +91,8 @@ netif_t *netif_get_list(void) {
 
 void netif_input(netif_t *netif, net_buf_t *buf) {
     if (!netif || !buf || buf->len < sizeof(eth_hdr_t)) {
-        if (buf) net_buf_free(buf);
+        if (buf)
+            net_buf_free(buf);
         return;
     }
 
@@ -111,7 +114,8 @@ void netif_input(netif_t *netif, net_buf_t *buf) {
 
 int netif_output(netif_t *netif, net_buf_t *buf) {
     if (!netif || !buf || !netif->send) {
-        if (buf) net_buf_free(buf);
+        if (buf)
+            net_buf_free(buf);
         return -1;
     }
     int res = netif->send(netif, buf);

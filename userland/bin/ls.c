@@ -13,16 +13,16 @@
 #include <unistd.h>
 
 /* ANSI Colors */
-#define C_RESET   "\033[0m"
-#define C_BOLD    "\033[1m"
-#define C_BLUE    "\033[1;34m"
-#define C_GREEN   "\033[1;32m"
-#define C_CYAN    "\033[1;36m"
-#define C_RED     "\033[1;31m"
-#define C_YELLOW  "\033[1;33m"
+#define C_RESET "\033[0m"
+#define C_BOLD "\033[1m"
+#define C_BLUE "\033[1;34m"
+#define C_GREEN "\033[1;32m"
+#define C_CYAN "\033[1;36m"
+#define C_RED "\033[1;31m"
+#define C_YELLOW "\033[1;33m"
 #define C_MAGENTA "\033[1;35m"
-#define C_WHITE   "\033[1;37m"
-#define C_GRAY    "\033[0;90m"
+#define C_WHITE "\033[1;37m"
+#define C_GRAY "\033[0;90m"
 
 static void format_mode(mode_t mode, char *buf) {
     buf[0] = S_ISDIR(mode) ? 'd' : (S_ISLNK(mode) ? 'l' : '-');
@@ -39,22 +39,30 @@ static void format_mode(mode_t mode, char *buf) {
 }
 
 static const char *color_for_entry(struct dirent *d, const char *fullpath) {
-    if (d->d_type == DT_DIR) return C_BLUE;
+    if (d->d_type == DT_DIR)
+        return C_BLUE;
 
     struct stat st;
     if (stat(fullpath, &st) == 0) {
-        if (S_ISLNK(st.st_mode)) return C_CYAN;
-        if (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) return C_GREEN;
+        if (S_ISLNK(st.st_mode))
+            return C_CYAN;
+        if (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH))
+            return C_GREEN;
     }
 
     /* Color by extension */
     const char *dot = strrchr(d->d_name, '.');
     if (dot) {
-        if (strcmp(dot, ".c") == 0 || strcmp(dot, ".h") == 0) return C_YELLOW;
-        if (strcmp(dot, ".so") == 0 || strcmp(dot, ".a") == 0) return C_MAGENTA;
-        if (strcmp(dot, ".sko") == 0) return C_RED;
-        if (strcmp(dot, ".txt") == 0 || strcmp(dot, ".md") == 0) return C_WHITE;
-        if (strcmp(dot, ".conf") == 0 || strcmp(dot, ".jsonc") == 0) return C_GRAY;
+        if (strcmp(dot, ".c") == 0 || strcmp(dot, ".h") == 0)
+            return C_YELLOW;
+        if (strcmp(dot, ".so") == 0 || strcmp(dot, ".a") == 0)
+            return C_MAGENTA;
+        if (strcmp(dot, ".sko") == 0)
+            return C_RED;
+        if (strcmp(dot, ".txt") == 0 || strcmp(dot, ".md") == 0)
+            return C_WHITE;
+        if (strcmp(dot, ".conf") == 0 || strcmp(dot, ".jsonc") == 0)
+            return C_GRAY;
     }
     return C_RESET;
 }
@@ -83,7 +91,8 @@ static void ls_long(const char *path, bool show_all, bool human) {
 
     struct dirent *d;
     while ((d = readdir(dir)) != NULL) {
-        if (!show_all && d->d_name[0] == '.') continue;
+        if (!show_all && d->d_name[0] == '.')
+            continue;
 
         char fullpath[512];
         if (strcmp(path, "/") == 0)
@@ -119,7 +128,8 @@ static void ls_short(const char *path, bool show_all) {
 
     struct dirent *d;
     while ((d = readdir(dir)) != NULL) {
-        if (!show_all && d->d_name[0] == '.') continue;
+        if (!show_all && d->d_name[0] == '.')
+            continue;
 
         char fullpath[512];
         if (strcmp(path, "/") == 0)
@@ -151,19 +161,25 @@ int main(int argc, char *argv[]) {
         if (argv[i][0] == '-' && argv[i][1] != '\0') {
             for (int j = 1; argv[i][j]; j++) {
                 switch (argv[i][j]) {
-                    case 'l': opt_long = true; break;
-                    case 'a': opt_all = true; break;
-                    case 'h': opt_human = true; break;
-                    case '-':
-                        if (strcmp(argv[i], "--help") == 0) {
-                            usage();
-                            return 0;
-                        }
-                        break;
-                    default:
-                        fprintf(stderr, "ls: invalid option -- '%c'\n", argv[i][j]);
+                case 'l':
+                    opt_long = true;
+                    break;
+                case 'a':
+                    opt_all = true;
+                    break;
+                case 'h':
+                    opt_human = true;
+                    break;
+                case '-':
+                    if (strcmp(argv[i], "--help") == 0) {
                         usage();
-                        return 1;
+                        return 0;
+                    }
+                    break;
+                default:
+                    fprintf(stderr, "ls: invalid option -- '%c'\n", argv[i][j]);
+                    usage();
+                    return 1;
                 }
             }
         } else {
@@ -186,7 +202,8 @@ int main(int argc, char *argv[]) {
         else
             ls_short(paths[i], opt_all);
 
-        if (i < path_count - 1) printf("\n");
+        if (i < path_count - 1)
+            printf("\n");
     }
 
     return 0;

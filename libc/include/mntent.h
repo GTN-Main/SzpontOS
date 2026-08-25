@@ -13,8 +13,8 @@ struct mntent {
     char *mnt_dir;
     char *mnt_type;
     char *mnt_opts;
-    int   mnt_freq;
-    int   mnt_passno;
+    int mnt_freq;
+    int mnt_passno;
 };
 
 FILE *setmntent(const char *filename, const char *type);

@@ -36,12 +36,12 @@ int main(int argc, char *argv[]) {
     }
 
     const char *shell = (pw->pw_shell && *pw->pw_shell) ? pw->pw_shell : "/bin/sh";
-    char *sh_argv[] = { (char *)shell, NULL };
+    char *sh_argv[] = {(char *)shell, NULL};
     char env_home[128], env_user[128], env_shell[128];
     snprintf(env_home, sizeof(env_home), "HOME=%s", pw->pw_dir);
     snprintf(env_user, sizeof(env_user), "USER=%s", pw->pw_name);
     snprintf(env_shell, sizeof(env_shell), "SHELL=%s", shell);
-    char *envp[] = { env_home, env_user, env_shell, "PATH=/bin", NULL };
+    char *envp[] = {env_home, env_user, env_shell, "PATH=/bin", NULL};
 
     execve(shell, sh_argv, envp);
 

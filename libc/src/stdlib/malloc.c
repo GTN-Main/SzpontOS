@@ -21,7 +21,8 @@ typedef struct block_header {
 static block_header_t *g_head = NULL;
 
 void *malloc(size_t size) {
-    if (size == 0) return NULL;
+    if (size == 0)
+        return NULL;
     size = ALIGN_UP(size, ALIGNMENT);
 
     /* Search free list */
@@ -51,7 +52,8 @@ void *malloc(size_t size) {
         g_head = new_block;
     } else {
         block_header_t *last = g_head;
-        while (last->next) last = last->next;
+        while (last->next)
+            last = last->next;
         last->next = new_block;
         new_block->prev = last;
     }
@@ -60,7 +62,8 @@ void *malloc(size_t size) {
 }
 
 void free(void *ptr) {
-    if (!ptr) return;
+    if (!ptr)
+        return;
     block_header_t *block = (block_header_t *)((uintptr_t)ptr - HEADER_SIZE);
     block->is_free = 1;
 
@@ -68,19 +71,22 @@ void free(void *ptr) {
     if (block->next && block->next->is_free) {
         block->size += HEADER_SIZE + block->next->size;
         block->next = block->next->next;
-        if (block->next) block->next->prev = block;
+        if (block->next)
+            block->next->prev = block;
     }
 
     /* Coalesce prev */
     if (block->prev && block->prev->is_free) {
         block->prev->size += HEADER_SIZE + block->size;
         block->prev->next = block->next;
-        if (block->next) block->next->prev = block->prev;
+        if (block->next)
+            block->next->prev = block->prev;
     }
 }
 
 void *realloc(void *ptr, size_t size) {
-    if (!ptr) return malloc(size);
+    if (!ptr)
+        return malloc(size);
     if (size == 0) {
         free(ptr);
         return NULL;
@@ -109,11 +115,11 @@ void *calloc(size_t nmemb, size_t size) {
 }
 
 size_t malloc_usable_size(void *ptr) {
-    if (!ptr) return 0;
+    if (!ptr)
+        return 0;
     block_header_t *block = (block_header_t *)((uintptr_t)ptr - HEADER_SIZE);
     return block->size;
 }
-
 
 extern void __execute_atexit(void);
 
@@ -157,7 +163,8 @@ long long llabs(long long j) {
 
 unsigned long long strtoull(const char *nptr, char **endptr, int base) {
     const char *s = nptr;
-    while (isspace((unsigned char)*s)) s++;
+    while (isspace((unsigned char)*s))
+        s++;
 
     if (base == 0) {
         if (*s == '0') {
@@ -178,16 +185,21 @@ unsigned long long strtoull(const char *nptr, char **endptr, int base) {
     unsigned long long acc = 0;
     while (*s) {
         int val;
-        if (isdigit((unsigned char)*s)) val = *s - '0';
-        else if (isalpha((unsigned char)*s)) val = toupper((unsigned char)*s) - 'A' + 10;
-        else break;
+        if (isdigit((unsigned char)*s))
+            val = *s - '0';
+        else if (isalpha((unsigned char)*s))
+            val = toupper((unsigned char)*s) - 'A' + 10;
+        else
+            break;
 
-        if (val >= base) break;
+        if (val >= base)
+            break;
         acc = acc * base + val;
         s++;
     }
 
-    if (endptr) *endptr = (char *)s;
+    if (endptr)
+        *endptr = (char *)s;
     return acc;
 }
 
@@ -197,7 +209,8 @@ unsigned long strtoul(const char *nptr, char **endptr, int base) {
 
 long long strtoll(const char *nptr, char **endptr, int base) {
     const char *s = nptr;
-    while (isspace((unsigned char)*s)) s++;
+    while (isspace((unsigned char)*s))
+        s++;
 
     int neg = 0;
     if (*s == '-') {
@@ -217,7 +230,8 @@ long strtol(const char *nptr, char **endptr, int base) {
 
 double strtod(const char *nptr, char **endptr) {
     const char *s = nptr;
-    while (isspace((unsigned char)*s)) s++;
+    while (isspace((unsigned char)*s))
+        s++;
 
     int neg = 0;
     if (*s == '-') {
@@ -243,7 +257,8 @@ double strtod(const char *nptr, char **endptr) {
         }
     }
 
-    if (endptr) *endptr = (char *)s;
+    if (endptr)
+        *endptr = (char *)s;
     return neg ? -val : val;
 }
 
@@ -257,12 +272,18 @@ static char *g_env_vals[MAX_ENV];
 static size_t g_env_count = 0;
 
 char *getenv(const char *name) {
-    if (!name) return NULL;
-    if (strcmp(name, "PATH") == 0) return "/bin:/usr/bin";
-    if (strcmp(name, "HOME") == 0) return "/";
-    if (strcmp(name, "USER") == 0) return "root";
-    if (strcmp(name, "TERM") == 0) return "xterm-256color";
-    if (strcmp(name, "MAGIC") == 0) return "/etc/magic:/usr/share/misc/magic";
+    if (!name)
+        return NULL;
+    if (strcmp(name, "PATH") == 0)
+        return "/bin:/usr/bin";
+    if (strcmp(name, "HOME") == 0)
+        return "/";
+    if (strcmp(name, "USER") == 0)
+        return "root";
+    if (strcmp(name, "TERM") == 0)
+        return "xterm-256color";
+    if (strcmp(name, "MAGIC") == 0)
+        return "/etc/magic:/usr/share/misc/magic";
 
     for (size_t i = 0; i < g_env_count; i++) {
         if (strcmp(g_env_keys[i], name) == 0) {
@@ -273,10 +294,12 @@ char *getenv(const char *name) {
 }
 
 int setenv(const char *name, const char *value, int overwrite) {
-    if (!name || !value) return -1;
+    if (!name || !value)
+        return -1;
     for (size_t i = 0; i < g_env_count; i++) {
         if (strcmp(g_env_keys[i], name) == 0) {
-            if (!overwrite) return 0;
+            if (!overwrite)
+                return 0;
             free(g_env_vals[i]);
             g_env_vals[i] = strdup(value);
             return 0;
@@ -292,7 +315,8 @@ int setenv(const char *name, const char *value, int overwrite) {
 }
 
 int unsetenv(const char *name) {
-    if (!name) return -1;
+    if (!name)
+        return -1;
     for (size_t i = 0; i < g_env_count; i++) {
         if (strcmp(g_env_keys[i], name) == 0) {
             free(g_env_keys[i]);
@@ -307,9 +331,11 @@ int unsetenv(const char *name) {
 }
 
 int putenv(char *string) {
-    if (!string) return -1;
+    if (!string)
+        return -1;
     char *eq = strchr(string, '=');
-    if (!eq) return -1;
+    if (!eq)
+        return -1;
     *eq = '\0';
     int ret = setenv(string, eq + 1, 1);
     *eq = '=';
@@ -327,7 +353,8 @@ void setprogname(const char *name) {
 }
 
 char *mktemp(char *template) {
-    if (!template) return NULL;
+    if (!template)
+        return NULL;
     char *x = strstr(template, "XXXXXX");
     if (x) {
         static unsigned int counter = 1000;
@@ -338,25 +365,31 @@ char *mktemp(char *template) {
 
 int mkstemp(char *template) {
     char *name = mktemp(template);
-    if (!name) return -1;
+    if (!name)
+        return -1;
     return open(name, O_RDWR | O_CREAT | O_EXCL, 0600);
 }
 
 int mkstemps(char *template, int suffixlen) {
-    if (!template || suffixlen < 0) return -1;
+    if (!template || suffixlen < 0)
+        return -1;
     size_t len = strlen(template);
-    if (len < (size_t)suffixlen + 6) return -1;
+    if (len < (size_t)suffixlen + 6)
+        return -1;
     char *x = template + len - suffixlen - 6;
-    if (strncmp(x, "XXXXXX", 6) != 0) return -1;
+    if (strncmp(x, "XXXXXX", 6) != 0)
+        return -1;
     static unsigned int counter = 1000;
     snprintf(x, 7, "%06u", counter++);
     return open(template, O_RDWR | O_CREAT | O_EXCL, 0600);
 }
 
 char *realpath(const char *path, char *resolved_path) {
-    if (!path) return NULL;
+    if (!path)
+        return NULL;
     char *res = resolved_path ? resolved_path : (char *)malloc(4096);
-    if (!res) return NULL;
+    if (!res)
+        return NULL;
 
     if (path[0] == '/') {
         strncpy(res, path, 4095);
@@ -374,12 +407,14 @@ char *realpath(const char *path, char *resolved_path) {
 }
 
 void qsort(void *base, size_t nmemb, size_t size, int (*compar)(const void *, const void *)) {
-    if (!base || nmemb <= 1 || size == 0 || !compar) return;
+    if (!base || nmemb <= 1 || size == 0 || !compar)
+        return;
 
     /* Simple insertion sort / bubble sort for small/medium arrays */
     char *arr = (char *)base;
     char *temp = (char *)malloc(size);
-    if (!temp) return;
+    if (!temp)
+        return;
 
     for (size_t i = 0; i < nmemb - 1; i++) {
         for (size_t j = 0; j < nmemb - i - 1; j++) {
@@ -396,7 +431,8 @@ void qsort(void *base, size_t nmemb, size_t size, int (*compar)(const void *, co
 }
 
 void *bsearch(const void *key, const void *base, size_t nmemb, size_t size, int (*compar)(const void *, const void *)) {
-    if (!key || !base || !compar) return NULL;
+    if (!key || !base || !compar)
+        return NULL;
     size_t l = 0, r = nmemb;
     const char *arr = (const char *)base;
 
@@ -404,9 +440,12 @@ void *bsearch(const void *key, const void *base, size_t nmemb, size_t size, int 
         size_t mid = l + (r - l) / 2;
         const void *elem = arr + mid * size;
         int res = compar(key, elem);
-        if (res == 0) return (void *)elem;
-        if (res < 0) r = mid;
-        else l = mid + 1;
+        if (res == 0)
+            return (void *)elem;
+        if (res < 0)
+            r = mid;
+        else
+            l = mid + 1;
     }
     return NULL;
 }

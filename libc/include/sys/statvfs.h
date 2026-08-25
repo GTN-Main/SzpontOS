@@ -6,17 +6,17 @@
 #include <sys/types.h>
 
 struct statvfs {
-    unsigned long  f_bsize;    /* File system block size */
-    unsigned long  f_frsize;   /* Fundamental file system block size */
-    fsblkcnt_t     f_blocks;   /* Total blocks on file system in units of f_frsize */
-    fsblkcnt_t     f_bfree;    /* Total free blocks */
-    fsblkcnt_t     f_bavail;   /* Free blocks available to non-privileged user */
-    fsfilcnt_t     f_files;    /* Total file nodes in file system */
-    fsfilcnt_t     f_ffree;    /* Total free file nodes */
-    fsfilcnt_t     f_favail;   /* Free nodes available to non-privileged user */
-    unsigned long  f_fsid;     /* File system ID */
-    unsigned long  f_flag;     /* Mount flags */
-    unsigned long  f_namemax;  /* Maximum filename length */
+    unsigned long f_bsize;   /* File system block size */
+    unsigned long f_frsize;  /* Fundamental file system block size */
+    fsblkcnt_t f_blocks;     /* Total blocks on file system in units of f_frsize */
+    fsblkcnt_t f_bfree;      /* Total free blocks */
+    fsblkcnt_t f_bavail;     /* Free blocks available to non-privileged user */
+    fsfilcnt_t f_files;      /* Total file nodes in file system */
+    fsfilcnt_t f_ffree;      /* Total free file nodes */
+    fsfilcnt_t f_favail;     /* Free nodes available to non-privileged user */
+    unsigned long f_fsid;    /* File system ID */
+    unsigned long f_flag;    /* Mount flags */
+    unsigned long f_namemax; /* Maximum filename length */
 };
 
 struct statfs {

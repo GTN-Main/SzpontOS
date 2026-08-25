@@ -8,7 +8,7 @@ typedef struct list_node {
     struct list_node *next;
 } list_node_t;
 
-#define LIST_HEAD_INIT(name) { &(name), &(name) }
+#define LIST_HEAD_INIT(name) {&(name), &(name)}
 #define LIST_HEAD(name) list_node_t name = LIST_HEAD_INIT(name)
 
 static inline void list_init(list_node_t *list) {
@@ -49,19 +49,14 @@ static inline void list_remove(list_node_t *node) {
     node->next = node;
 }
 
-#define container_of(ptr, type, member) \
-    ((type *)((char *)(ptr) - offsetof(type, member)))
+#define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
 
-#define list_entry(ptr, type, member) \
-    container_of(ptr, type, member)
+#define list_entry(ptr, type, member) container_of(ptr, type, member)
 
-#define list_first_entry(ptr, type, member) \
-    list_entry((ptr)->next, type, member)
+#define list_first_entry(ptr, type, member) list_entry((ptr)->next, type, member)
 
-#define list_for_each(pos, head) \
-    for (pos = (head)->next; pos != (head); pos = pos->next)
+#define list_for_each(pos, head) for (pos = (head)->next; pos != (head); pos = pos->next)
 
-#define list_for_each_safe(pos, n, head) \
-    for (pos = (head)->next, n = pos->next; pos != (head); pos = n, n = pos->next)
+#define list_for_each_safe(pos, n, head) for (pos = (head)->next, n = pos->next; pos != (head); pos = n, n = pos->next)
 
 #endif /* SZPONTOS_KERNEL_LIST_H */

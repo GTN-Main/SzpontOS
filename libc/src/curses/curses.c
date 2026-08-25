@@ -47,11 +47,14 @@ static void term_send_fmt(const char *fmt, ...) {
 }
 
 WINDOW *newwin(int nlines, int ncols, int begy, int begx) {
-    if (nlines <= 0) nlines = LINES - begy;
-    if (ncols <= 0) ncols = COLS - begx;
+    if (nlines <= 0)
+        nlines = LINES - begy;
+    if (ncols <= 0)
+        ncols = COLS - begx;
 
     WINDOW *win = (WINDOW *)malloc(sizeof(WINDOW));
-    if (!win) return NULL;
+    if (!win)
+        return NULL;
 
     win->_maxy = nlines;
     win->_maxx = ncols;
@@ -86,11 +89,14 @@ WINDOW *newwin(int nlines, int ncols, int begy, int begx) {
 }
 
 int delwin(WINDOW *win) {
-    if (!win) return ERR;
+    if (!win)
+        return ERR;
     if (win->_lines) {
         for (int y = 0; y < win->_maxy; y++) {
-            if (win->_lines[y]) free(win->_lines[y]);
-            if (win->_attrs[y]) free(win->_attrs[y]);
+            if (win->_lines[y])
+                free(win->_lines[y]);
+            if (win->_attrs[y])
+                free(win->_attrs[y]);
         }
         free(win->_lines);
         free(win->_attrs);
@@ -104,19 +110,22 @@ WINDOW *subwin(WINDOW *orig, int nlines, int ncols, int begy, int begx) {
 }
 
 WINDOW *derwin(WINDOW *orig, int nlines, int ncols, int begy, int begx) {
-    if (!orig) return NULL;
+    if (!orig)
+        return NULL;
     return newwin(nlines, ncols, orig->_begy + begy, orig->_begx + begx);
 }
 
 int mvwin(WINDOW *win, int y, int x) {
-    if (!win) return ERR;
+    if (!win)
+        return ERR;
     win->_begy = y;
     win->_begx = x;
     return OK;
 }
 
 WINDOW *initscr(void) {
-    if (g_curses_initialized) return stdscr;
+    if (g_curses_initialized)
+        return stdscr;
 
     tcgetattr(STDIN_FILENO, &g_orig_termios);
 
@@ -149,7 +158,8 @@ WINDOW *initscr(void) {
 }
 
 int endwin(void) {
-    if (!g_curses_initialized) return ERR;
+    if (!g_curses_initialized)
+        return ERR;
 
     /* Restore original terminal modes */
     tcsetattr(STDIN_FILENO, TCSANOW, &g_orig_termios);
@@ -226,13 +236,15 @@ int nonl(void) {
 }
 
 int keypad(WINDOW *win, bool bf) {
-    if (!win) return ERR;
+    if (!win)
+        return ERR;
     win->_keypad = bf;
     return OK;
 }
 
 int nodelay(WINDOW *win, bool bf) {
-    if (!win) return ERR;
+    if (!win)
+        return ERR;
     win->_nodelay = bf;
     return OK;
 }
@@ -242,7 +254,8 @@ int timeout(int delay) {
 }
 
 int wtimeout(WINDOW *win, int delay) {
-    if (!win) return ERR;
+    if (!win)
+        return ERR;
     win->_delay = delay;
     return OK;
 }
@@ -252,14 +265,34 @@ int halfdelay(int tenths) {
     return OK;
 }
 
-int intrflush(WINDOW *win, bool bf) { (void)win; (void)bf; return OK; }
-int qiflush(void) { return OK; }
-int flushinp(void) { return OK; }
-int typeahead(int fd) { (void)fd; return OK; }
-int leaveok(WINDOW *win, bool bf) { if (win) win->_leaveok = bf; return OK; }
-int scrollok(WINDOW *win, bool bf) { if (win) win->_scroll = bf; return OK; }
+int intrflush(WINDOW *win, bool bf) {
+    (void)win;
+    (void)bf;
+    return OK;
+}
+int qiflush(void) {
+    return OK;
+}
+int flushinp(void) {
+    return OK;
+}
+int typeahead(int fd) {
+    (void)fd;
+    return OK;
+}
+int leaveok(WINDOW *win, bool bf) {
+    if (win)
+        win->_leaveok = bf;
+    return OK;
+}
+int scrollok(WINDOW *win, bool bf) {
+    if (win)
+        win->_scroll = bf;
+    return OK;
+}
 int wsetscrreg(WINDOW *win, int top, int bot) {
-    if (!win || top < 0 || bot < top || bot >= win->_maxy) return ERR;
+    if (!win || top < 0 || bot < top || bot >= win->_maxy)
+        return ERR;
     win->_regtop = top;
     win->_regbottom = bot;
     return OK;
@@ -267,8 +300,15 @@ int wsetscrreg(WINDOW *win, int top, int bot) {
 int setscrreg(int top, int bot) {
     return wsetscrreg(stdscr, top, bot);
 }
-int idlok(WINDOW *win, bool bf) { (void)win; (void)bf; return OK; }
-void idcok(WINDOW *win, bool bf) { (void)win; (void)bf; }
+int idlok(WINDOW *win, bool bf) {
+    (void)win;
+    (void)bf;
+    return OK;
+}
+void idcok(WINDOW *win, bool bf) {
+    (void)win;
+    (void)bf;
+}
 
 int curs_set(int visibility) {
     if (visibility == 0) {
@@ -280,8 +320,10 @@ int curs_set(int visibility) {
 }
 
 int wmove(WINDOW *win, int y, int x) {
-    if (!win) return ERR;
-    if (y < 0 || y >= win->_maxy || x < 0 || x >= win->_maxx) return ERR;
+    if (!win)
+        return ERR;
+    if (y < 0 || y >= win->_maxy || x < 0 || x >= win->_maxx)
+        return ERR;
     win->_cury = y;
     win->_curx = x;
     return OK;
@@ -292,7 +334,8 @@ int move(int y, int x) {
 }
 
 static void win_scroll_up(WINDOW *win) {
-    if (!win || win->_maxy <= 1) return;
+    if (!win || win->_maxy <= 1)
+        return;
     chtype *top_line = win->_lines[0];
     chtype *top_attr = win->_attrs[0];
     for (int y = 0; y + 1 < win->_maxy; y++) {
@@ -308,7 +351,8 @@ static void win_scroll_up(WINDOW *win) {
 }
 
 int waddch(WINDOW *win, const chtype ch) {
-    if (!win) return ERR;
+    if (!win)
+        return ERR;
 
     char c = (char)(ch & A_CHARTEXT);
     attr_t attr = (ch & ~A_CHARTEXT) | win->_attrs_current;
@@ -345,7 +389,8 @@ int waddch(WINDOW *win, const chtype ch) {
         }
         return OK;
     } else if (c == '\b') {
-        if (win->_curx > 0) win->_curx--;
+        if (win->_curx > 0)
+            win->_curx--;
         return OK;
     }
 
@@ -375,12 +420,14 @@ int addch(const chtype ch) {
 }
 
 int mvwaddch(WINDOW *win, int y, int x, const chtype ch) {
-    if (wmove(win, y, x) == ERR) return ERR;
+    if (wmove(win, y, x) == ERR)
+        return ERR;
     return waddch(win, ch);
 }
 
 int waddnstr(WINDOW *win, const char *str, int n) {
-    if (!win || !str) return ERR;
+    if (!win || !str)
+        return ERR;
     int count = 0;
     while (*str && (n < 0 || count < n)) {
         waddch(win, (unsigned char)*str++);
@@ -402,12 +449,14 @@ int addnstr(const char *str, int n) {
 }
 
 int mvwaddstr(WINDOW *win, int y, int x, const char *str) {
-    if (wmove(win, y, x) == ERR) return ERR;
+    if (wmove(win, y, x) == ERR)
+        return ERR;
     return waddstr(win, str);
 }
 
 int mvwaddnstr(WINDOW *win, int y, int x, const char *str, int n) {
-    if (wmove(win, y, x) == ERR) return ERR;
+    if (wmove(win, y, x) == ERR)
+        return ERR;
     return waddnstr(win, str, n);
 }
 
@@ -441,7 +490,8 @@ int printw(const char *fmt, ...) {
 }
 
 int mvwprintw(WINDOW *win, int y, int x, const char *fmt, ...) {
-    if (wmove(win, y, x) == ERR) return ERR;
+    if (wmove(win, y, x) == ERR)
+        return ERR;
     va_list args;
     va_start(args, fmt);
     int ret = vw_printw(win, fmt, args);
@@ -450,7 +500,8 @@ int mvwprintw(WINDOW *win, int y, int x, const char *fmt, ...) {
 }
 
 int werase(WINDOW *win) {
-    if (!win) return ERR;
+    if (!win)
+        return ERR;
     for (int y = 0; y < win->_maxy; y++) {
         for (int x = 0; x < win->_maxx; x++) {
             win->_lines[y][x] = ' ';
@@ -467,7 +518,8 @@ int erase(void) {
 }
 
 int wclear(WINDOW *win) {
-    if (!win) return ERR;
+    if (!win)
+        return ERR;
     werase(win);
     return OK;
 }
@@ -477,7 +529,8 @@ int clear(void) {
 }
 
 int wclrtoeol(WINDOW *win) {
-    if (!win) return ERR;
+    if (!win)
+        return ERR;
     int y = win->_cury;
     for (int x = win->_curx; x < win->_maxx; x++) {
         win->_lines[y][x] = ' ';
@@ -491,7 +544,8 @@ int clrtoeol(void) {
 }
 
 int wclrtobot(WINDOW *win) {
-    if (!win) return ERR;
+    if (!win)
+        return ERR;
     wclrtoeol(win);
     for (int y = win->_cury + 1; y < win->_maxy; y++) {
         for (int x = 0; x < win->_maxx; x++) {
@@ -507,7 +561,8 @@ int clrtobot(void) {
 }
 
 int wscrl(WINDOW *win, int n) {
-    if (!win || n == 0) return OK;
+    if (!win || n == 0)
+        return OK;
     int top = win->_regtop;
     int bot = win->_regbottom;
     if (top >= bot || bot >= win->_maxy) {
@@ -553,23 +608,31 @@ int scroll(WINDOW *win) {
 static void apply_attributes(attr_t attr) {
     term_send("\033[0m"); /* Reset */
 
-    if (attr & A_BOLD) term_send("\033[1m");
-    if (attr & A_DIM) term_send("\033[2m");
-    if (attr & A_UNDERLINE) term_send("\033[4m");
-    if (attr & A_BLINK) term_send("\033[5m");
-    if (attr & A_REVERSE) term_send("\033[7m");
+    if (attr & A_BOLD)
+        term_send("\033[1m");
+    if (attr & A_DIM)
+        term_send("\033[2m");
+    if (attr & A_UNDERLINE)
+        term_send("\033[4m");
+    if (attr & A_BLINK)
+        term_send("\033[5m");
+    if (attr & A_REVERSE)
+        term_send("\033[7m");
 
     int pair = PAIR_NUMBER(attr);
     if (pair > 0 && pair < COLOR_PAIRS) {
         short fg = g_pairs[pair].fg;
         short bg = g_pairs[pair].bg;
-        if (fg >= 0 && fg < 8) term_send_fmt("\033[%dm", 30 + fg);
-        if (bg >= 0 && bg < 8) term_send_fmt("\033[%dm", 40 + bg);
+        if (fg >= 0 && fg < 8)
+            term_send_fmt("\033[%dm", 30 + fg);
+        if (bg >= 0 && bg < 8)
+            term_send_fmt("\033[%dm", 40 + bg);
     }
 }
 
 int wrefresh(WINDOW *win) {
-    if (!win) return ERR;
+    if (!win)
+        return ERR;
 
     /* Render window content to terminal */
     attr_t current_term_attr = (attr_t)-1;
@@ -619,7 +682,8 @@ int redrawwin(WINDOW *win) {
 }
 
 int wredrawln(WINDOW *win, int beg_line, int num_lines) {
-    (void)beg_line; (void)num_lines;
+    (void)beg_line;
+    (void)num_lines;
     return wrefresh(win);
 }
 
@@ -637,7 +701,8 @@ int wgetch(WINDOW *win) {
 
     unsigned char c = 0;
     ssize_t n = read(STDIN_FILENO, &c, 1);
-    if (n <= 0) return ERR;
+    if (n <= 0)
+        return ERR;
 
     if (!win || !win->_keypad) {
         return c;
@@ -654,45 +719,65 @@ int wgetch(WINDOW *win) {
 
         unsigned char seq[8] = {0};
         ssize_t sn = read(STDIN_FILENO, seq, 1);
-        if (sn <= 0) return 0x1B;
+        if (sn <= 0)
+            return 0x1B;
 
         if (seq[0] == '[' || seq[0] == 'O') {
             unsigned char code = 0;
-            if (read(STDIN_FILENO, &code, 1) <= 0) return 0x1B;
+            if (read(STDIN_FILENO, &code, 1) <= 0)
+                return 0x1B;
 
             if (seq[0] == '[') {
                 switch (code) {
-                    case 'A': return KEY_UP;
-                    case 'B': return KEY_DOWN;
-                    case 'C': return KEY_RIGHT;
-                    case 'D': return KEY_LEFT;
-                    case 'H': return KEY_HOME;
-                    case 'F': return KEY_END;
-                    case '1':
-                    case '2':
-                    case '3':
-                    case '4':
-                    case '5':
-                    case '6': {
-                        unsigned char tilde = 0;
-                        read(STDIN_FILENO, &tilde, 1);
-                        if (code == '1') return KEY_HOME;
-                        if (code == '2') return KEY_IC;
-                        if (code == '3') return KEY_DC;
-                        if (code == '4') return KEY_END;
-                        if (code == '5') return KEY_PPAGE;
-                        if (code == '6') return KEY_NPAGE;
-                        break;
-                    }
+                case 'A':
+                    return KEY_UP;
+                case 'B':
+                    return KEY_DOWN;
+                case 'C':
+                    return KEY_RIGHT;
+                case 'D':
+                    return KEY_LEFT;
+                case 'H':
+                    return KEY_HOME;
+                case 'F':
+                    return KEY_END;
+                case '1':
+                case '2':
+                case '3':
+                case '4':
+                case '5':
+                case '6': {
+                    unsigned char tilde = 0;
+                    read(STDIN_FILENO, &tilde, 1);
+                    if (code == '1')
+                        return KEY_HOME;
+                    if (code == '2')
+                        return KEY_IC;
+                    if (code == '3')
+                        return KEY_DC;
+                    if (code == '4')
+                        return KEY_END;
+                    if (code == '5')
+                        return KEY_PPAGE;
+                    if (code == '6')
+                        return KEY_NPAGE;
+                    break;
+                }
                 }
             } else if (seq[0] == 'O') {
                 switch (code) {
-                    case 'H': return KEY_HOME;
-                    case 'F': return KEY_END;
-                    case 'P': return KEY_F(1);
-                    case 'Q': return KEY_F(2);
-                    case 'R': return KEY_F(3);
-                    case 'S': return KEY_F(4);
+                case 'H':
+                    return KEY_HOME;
+                case 'F':
+                    return KEY_END;
+                case 'P':
+                    return KEY_F(1);
+                case 'Q':
+                    return KEY_F(2);
+                case 'R':
+                    return KEY_F(3);
+                case 'S':
+                    return KEY_F(4);
                 }
             }
         }
@@ -711,11 +796,13 @@ int getch(void) {
 }
 
 int wgetnstr(WINDOW *win, char *str, int n) {
-    if (!win || !str || n <= 0) return ERR;
+    if (!win || !str || n <= 0)
+        return ERR;
     int pos = 0;
     while (pos + 1 < n) {
         int ch = wgetch(win);
-        if (ch == '\n' || ch == '\r' || ch == ERR) break;
+        if (ch == '\n' || ch == '\r' || ch == ERR)
+            break;
         if (ch == KEY_BACKSPACE) {
             if (pos > 0) {
                 pos--;
@@ -738,45 +825,65 @@ int getnstr(char *str, int n) {
 }
 
 int wattron(WINDOW *win, int attrs) {
-    if (!win) return ERR;
+    if (!win)
+        return ERR;
     win->_attrs_current |= attrs;
     return OK;
 }
 
 int wattroff(WINDOW *win, int attrs) {
-    if (!win) return ERR;
+    if (!win)
+        return ERR;
     win->_attrs_current &= ~attrs;
     return OK;
 }
 
 int wattrset(WINDOW *win, int attrs) {
-    if (!win) return ERR;
+    if (!win)
+        return ERR;
     win->_attrs_current = attrs;
     return OK;
 }
 
-int attron(int attrs) { return wattron(stdscr, attrs); }
-int attroff(int attrs) { return wattroff(stdscr, attrs); }
-int attrset(int attrs) { return wattrset(stdscr, attrs); }
+int attron(int attrs) {
+    return wattron(stdscr, attrs);
+}
+int attroff(int attrs) {
+    return wattroff(stdscr, attrs);
+}
+int attrset(int attrs) {
+    return wattrset(stdscr, attrs);
+}
 
-int wstandout(WINDOW *win) { return wattron(win, A_STANDOUT); }
-int wstandend(WINDOW *win) { return wattroff(win, A_STANDOUT); }
-int standout(void) { return wstandout(stdscr); }
-int standend(void) { return wstandend(stdscr); }
+int wstandout(WINDOW *win) {
+    return wattron(win, A_STANDOUT);
+}
+int wstandend(WINDOW *win) {
+    return wattroff(win, A_STANDOUT);
+}
+int standout(void) {
+    return wstandout(stdscr);
+}
+int standend(void) {
+    return wstandend(stdscr);
+}
 
 int wbkgd(WINDOW *win, chtype ch) {
-    if (!win) return ERR;
+    if (!win)
+        return ERR;
     win->_bkgd = ch;
     return OK;
 }
 
 void wbkgdset(WINDOW *win, chtype ch) {
-    if (win) win->_bkgd = ch;
+    if (win)
+        win->_bkgd = ch;
 }
 
 int wchgat(WINDOW *win, int n, attr_t attr, short color, const void *opts) {
     (void)opts;
-    if (!win) return ERR;
+    if (!win)
+        return ERR;
     int y = win->_cury;
     int count = (n < 0 || win->_curx + n > win->_maxx) ? (win->_maxx - win->_curx) : n;
     attr_t full_attr = attr | COLOR_PAIR(color);
@@ -787,7 +894,8 @@ int wchgat(WINDOW *win, int n, attr_t attr, short color, const void *opts) {
 }
 
 int mvwchgat(WINDOW *win, int y, int x, int n, attr_t attr, short color, const void *opts) {
-    if (wmove(win, y, x) == ERR) return ERR;
+    if (wmove(win, y, x) == ERR)
+        return ERR;
     return wchgat(win, n, attr, color, opts);
 }
 
@@ -804,29 +912,39 @@ bool can_change_color(void) {
 }
 
 int init_pair(short pair, short f, short b) {
-    if (pair <= 0 || pair >= COLOR_PAIRS) return ERR;
+    if (pair <= 0 || pair >= COLOR_PAIRS)
+        return ERR;
     g_pairs[pair].fg = f;
     g_pairs[pair].bg = b;
     return OK;
 }
 
 int pair_content(short pair, short *f, short *b) {
-    if (pair <= 0 || pair >= COLOR_PAIRS) return ERR;
-    if (f) *f = g_pairs[pair].fg;
-    if (b) *b = g_pairs[pair].bg;
+    if (pair <= 0 || pair >= COLOR_PAIRS)
+        return ERR;
+    if (f)
+        *f = g_pairs[pair].fg;
+    if (b)
+        *b = g_pairs[pair].bg;
     return OK;
 }
 
 int init_color(short color, short r, short g, short b) {
-    (void)color; (void)r; (void)g; (void)b;
+    (void)color;
+    (void)r;
+    (void)g;
+    (void)b;
     return OK;
 }
 
 int color_content(short color, short *r, short *g, short *b) {
     (void)color;
-    if (r) *r = 1000;
-    if (g) *g = 1000;
-    if (b) *b = 1000;
+    if (r)
+        *r = 1000;
+    if (g)
+        *g = 1000;
+    if (b)
+        *b = 1000;
     return OK;
 }
 
@@ -844,9 +962,11 @@ int flash(void) {
 }
 
 int napms(int ms) {
-    if (ms <= 0) return OK;
+    if (ms <= 0)
+        return OK;
     unsigned int sec = ms / 1000;
-    if (sec > 0) sleep(sec);
+    if (sec > 0)
+        sleep(sec);
     return OK;
 }
 
@@ -854,8 +974,12 @@ char *termname(void) {
     return "xterm-256color";
 }
 
-int erasechar(void) { return '\b'; }
-int killchar(void) { return 0x15; }
+int erasechar(void) {
+    return '\b';
+}
+int killchar(void) {
+    return 0x15;
+}
 
 static TERMINAL g_cur_term;
 TERMINAL *cur_term = &g_cur_term;
@@ -866,13 +990,16 @@ char *BC = NULL;
 short ospeed = 0;
 
 int setupterm(const char *term, int fildes, int *errret) {
-    (void)term; (void)fildes;
-    if (errret) *errret = 1;
+    (void)term;
+    (void)fildes;
+    if (errret)
+        *errret = 1;
     return OK;
 }
 
 int set_curterm(TERMINAL *nterm) {
-    if (nterm) cur_term = nterm;
+    if (nterm)
+        cur_term = nterm;
     return OK;
 }
 
@@ -891,9 +1018,11 @@ char *tparm(const char *str, ...) {
 
 int tputs(const char *str, int affcnt, int (*putc_fn)(int)) {
     (void)affcnt;
-    if (!str) return ERR;
+    if (!str)
+        return ERR;
     while (*str) {
-        if (putc_fn) putc_fn((unsigned char)*str);
+        if (putc_fn)
+            putc_fn((unsigned char)*str);
         else {
             char c = *str;
             write(STDOUT_FILENO, &c, 1);
@@ -913,9 +1042,12 @@ int tigetflag(const char *capname) {
 }
 
 int tigetnum(const char *capname) {
-    if (capname && strcmp(capname, "cols") == 0) return COLS;
-    if (capname && strcmp(capname, "lines") == 0) return LINES;
-    if (capname && strcmp(capname, "colors") == 0) return 8;
+    if (capname && strcmp(capname, "cols") == 0)
+        return COLS;
+    if (capname && strcmp(capname, "lines") == 0)
+        return LINES;
+    if (capname && strcmp(capname, "colors") == 0)
+        return 8;
     return -1;
 }
 
@@ -925,7 +1057,8 @@ char *tigetstr(const char *capname) {
 }
 
 int tgetent(char *bp, const char *name) {
-    (void)bp; (void)name;
+    (void)bp;
+    (void)name;
     return 1;
 }
 
@@ -935,13 +1068,16 @@ int tgetflag(const char *id) {
 }
 
 int tgetnum(const char *id) {
-    if (id && strcmp(id, "co") == 0) return COLS;
-    if (id && strcmp(id, "li") == 0) return LINES;
+    if (id && strcmp(id, "co") == 0)
+        return COLS;
+    if (id && strcmp(id, "li") == 0)
+        return LINES;
     return -1;
 }
 
 char *tgetstr(const char *id, char **area) {
-    (void)id; (void)area;
+    (void)id;
+    (void)area;
     return NULL;
 }
 

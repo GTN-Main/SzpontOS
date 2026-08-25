@@ -20,20 +20,24 @@ static inline int futex_wake(volatile int *addr, int count) {
 
 int pthread_cond_init(pthread_cond_t *cond, const pthread_condattr_t *attr) {
     (void)attr;
-    if (!cond) return EINVAL;
+    if (!cond)
+        return EINVAL;
     cond->seq = 0;
     cond->waiters = 0;
     return 0;
 }
 
 int pthread_cond_destroy(pthread_cond_t *cond) {
-    if (!cond) return EINVAL;
-    if (cond->waiters > 0) return EBUSY;
+    if (!cond)
+        return EINVAL;
+    if (cond->waiters > 0)
+        return EBUSY;
     return 0;
 }
 
 int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex) {
-    if (!cond || !mutex) return EINVAL;
+    if (!cond || !mutex)
+        return EINVAL;
 
     int seq = cond->seq;
     __sync_fetch_and_add(&cond->waiters, 1);
@@ -50,7 +54,8 @@ int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex) {
 }
 
 int pthread_cond_timedwait(pthread_cond_t *cond, pthread_mutex_t *mutex, const struct timespec *abstime) {
-    if (!cond || !mutex) return EINVAL;
+    if (!cond || !mutex)
+        return EINVAL;
 
     int seq = cond->seq;
     __sync_fetch_and_add(&cond->waiters, 1);
@@ -72,21 +77,24 @@ int pthread_cond_timedwait(pthread_cond_t *cond, pthread_mutex_t *mutex, const s
 }
 
 int pthread_cond_signal(pthread_cond_t *cond) {
-    if (!cond) return EINVAL;
+    if (!cond)
+        return EINVAL;
     __sync_fetch_and_add(&cond->seq, 1);
     futex_wake(&cond->seq, 1);
     return 0;
 }
 
 int pthread_cond_broadcast(pthread_cond_t *cond) {
-    if (!cond) return EINVAL;
+    if (!cond)
+        return EINVAL;
     __sync_fetch_and_add(&cond->seq, 1);
     futex_wake(&cond->seq, 1024);
     return 0;
 }
 
 int pthread_condattr_init(pthread_condattr_t *attr) {
-    if (!attr) return EINVAL;
+    if (!attr)
+        return EINVAL;
     attr->pshared = PTHREAD_PROCESS_PRIVATE;
     return 0;
 }

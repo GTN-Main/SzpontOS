@@ -27,18 +27,22 @@ int tcgetattr(int fd, struct termios *termios_p) {
 
 int tcsetattr(int fd, int optional_actions, const struct termios *termios_p) {
     unsigned long req = TCSETS;
-    if (optional_actions == TCSADRAIN) req = TCSETSW;
-    else if (optional_actions == TCSAFLUSH) req = TCSETSF;
+    if (optional_actions == TCSADRAIN)
+        req = TCSETSW;
+    else if (optional_actions == TCSAFLUSH)
+        req = TCSETSF;
     return ioctl(fd, req, (void *)termios_p);
 }
 
 int tcflush(int fd, int queue_selector) {
-    (void)fd; (void)queue_selector;
+    (void)fd;
+    (void)queue_selector;
     return 0;
 }
 
 int tcflow(int fd, int action) {
-    (void)fd; (void)action;
+    (void)fd;
+    (void)action;
     return 0;
 }
 
@@ -51,13 +55,15 @@ speed_t cfgetospeed(const struct termios *termios_p) {
 }
 
 int cfsetispeed(struct termios *termios_p, speed_t speed) {
-    if (!termios_p) return -1;
+    if (!termios_p)
+        return -1;
     termios_p->c_ispeed = speed;
     return 0;
 }
 
 int cfsetospeed(struct termios *termios_p, speed_t speed) {
-    if (!termios_p) return -1;
+    if (!termios_p)
+        return -1;
     termios_p->c_ospeed = speed;
     return 0;
 }

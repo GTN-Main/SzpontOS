@@ -4,7 +4,8 @@
 
 size_t c16rtomb(char *s, char16_t c16, mbstate_t *ps) {
     (void)ps;
-    if (!s) return 1;
+    if (!s)
+        return 1;
     if (c16 < 0x80) {
         *s = (char)c16;
         return 1;
@@ -22,14 +23,17 @@ size_t c16rtomb(char *s, char16_t c16, mbstate_t *ps) {
 
 size_t mbrtoc16(char16_t *pc16, const char *s, size_t n, mbstate_t *ps) {
     (void)ps;
-    if (!s || n == 0) return 0;
-    if (pc16) *pc16 = (char16_t)*s;
+    if (!s || n == 0)
+        return 0;
+    if (pc16)
+        *pc16 = (char16_t)*s;
     return 1;
 }
 
 size_t c32rtomb(char *s, char32_t c32, mbstate_t *ps) {
     (void)ps;
-    if (!s) return 1;
+    if (!s)
+        return 1;
     if (c32 < 0x80) {
         *s = (char)c32;
         return 1;
@@ -43,7 +47,9 @@ size_t c32rtomb(char *s, char32_t c32, mbstate_t *ps) {
 
 size_t mbrtoc32(char32_t *pc32, const char *s, size_t n, mbstate_t *ps) {
     (void)ps;
-    if (!s || n == 0) return 0;
-    if (pc32) *pc32 = (char32_t)*s;
+    if (!s || n == 0)
+        return 0;
+    if (pc32)
+        *pc32 = (char32_t)*s;
     return 1;
 }

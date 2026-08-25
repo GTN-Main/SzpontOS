@@ -1,6 +1,7 @@
 [bits 64]
 default rel
 
+global syscall
 global __syscall
 global __syscall0
 global __syscall1
@@ -13,7 +14,8 @@ global __clone
 
 section .text
 
-; int64_t __syscall(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_t a4, int64_t a5, int64_t a6)
+; int64_t syscall(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_t a4, int64_t a5, int64_t a6)
+syscall:
 __syscall:
     mov rax, rdi        ; syscall number
     mov rdi, rsi        ; a1

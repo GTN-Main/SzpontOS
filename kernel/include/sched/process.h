@@ -11,11 +11,7 @@
 #define MAX_FD 256
 #define NGROUPS_MAX 32
 
-typedef enum {
-    PROCESS_ACTIVE = 0,
-    PROCESS_ZOMBIE = 1,
-    PROCESS_DEAD   = 2
-} process_status_t;
+typedef enum { PROCESS_ACTIVE = 0, PROCESS_ZOMBIE = 1, PROCESS_DEAD = 2 } process_status_t;
 
 typedef struct process {
     pid_t pid;

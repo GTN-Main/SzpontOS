@@ -3,13 +3,13 @@
 
 #include <kernel/types.h>
 
-#define VMM_FLAG_PRESENT        (1ULL << 0)
-#define VMM_FLAG_WRITABLE       (1ULL << 1)
-#define VMM_FLAG_USER           (1ULL << 2)
-#define VMM_FLAG_WRITE_THROUGH  (1ULL << 3)
+#define VMM_FLAG_PRESENT (1ULL << 0)
+#define VMM_FLAG_WRITABLE (1ULL << 1)
+#define VMM_FLAG_USER (1ULL << 2)
+#define VMM_FLAG_WRITE_THROUGH (1ULL << 3)
 #define VMM_FLAG_WRITE_COMBINING (1ULL << 3) /* PA1 in configured PAT MSR */
-#define VMM_FLAG_CACHE_DISABLE  (1ULL << 4)
-#define VMM_FLAG_NO_EXECUTE     (1ULL << 63)
+#define VMM_FLAG_CACHE_DISABLE (1ULL << 4)
+#define VMM_FLAG_NO_EXECUTE (1ULL << 63)
 
 #define VMM_PAGE_SIZE 4096UL
 #define PHYS_ADDR_MASK 0x000FFFFFFFFFF000ULL
@@ -20,11 +20,11 @@ typedef struct {
 
 typedef struct {
     page_table_t *pml4_virt;
-    uintptr_t     pml4_phys;
+    uintptr_t pml4_phys;
 } pagemap_t;
 
 extern pagemap_t g_kernel_pagemap;
-extern uint64_t  g_hhdm_base;
+extern uint64_t g_hhdm_base;
 
 #define PHYS_TO_VIRT(p) ((void *)((uintptr_t)(p) + g_hhdm_base))
 #define VIRT_TO_PHYS(v) ((uintptr_t)(v) - g_hhdm_base)

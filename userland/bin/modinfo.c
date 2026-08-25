@@ -11,7 +11,7 @@
 #include <sys/stat.h>
 
 typedef struct {
-    uint8_t  e_ident[16];
+    uint8_t e_ident[16];
     uint16_t e_type;
     uint16_t e_machine;
     uint32_t e_version;
@@ -72,7 +72,11 @@ int main(int argc, char *argv[]) {
     close(fd);
 
     Elf64_Ehdr *ehdr = (Elf64_Ehdr *)buf;
-    if (memcmp(ehdr->e_ident, "\x7F" "ELF", 4) != 0 || ehdr->e_ident[4] != 2) {
+    if (memcmp(ehdr->e_ident,
+               "\x7F"
+               "ELF",
+               4) != 0 ||
+        ehdr->e_ident[4] != 2) {
         fprintf(stderr, "modinfo: '%s' is not a valid 64-bit ELF object\n", path);
         free(buf);
         return 1;
@@ -95,7 +99,10 @@ int main(int argc, char *argv[]) {
             while (pos < info_len) {
                 const char *entry = info + pos;
                 size_t entry_len = strlen(entry);
-                if (entry_len == 0) { pos++; continue; }
+                if (entry_len == 0) {
+                    pos++;
+                    continue;
+                }
 
                 char key[64] = {0};
                 char val[256] = {0};

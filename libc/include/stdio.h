@@ -26,36 +26,36 @@ typedef struct _FILE {
 #define _IONBF 2
 
 void setbuf(FILE *stream, char *buf);
-int  setvbuf(FILE *stream, char *buf, int mode, size_t size);
+int setvbuf(FILE *stream, char *buf, int mode, size_t size);
 
 extern FILE *stdin;
 extern FILE *stdout;
 extern FILE *stderr;
 
-#define stdin  stdin
+#define stdin stdin
 #define stdout stdout
 #define stderr stderr
 
 FILE *fopen(const char *pathname, const char *mode);
 FILE *fdopen(int fd, const char *mode);
 FILE *freopen(const char *pathname, const char *mode, FILE *stream);
-int   fclose(FILE *stream);
+int fclose(FILE *stream);
 size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream);
 size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream);
-int   fseek(FILE *stream, long offset, int whence);
-long  ftell(FILE *stream);
-void  rewind(FILE *stream);
-int   fflush(FILE *stream);
-int   feof(FILE *stream);
-int   ferror(FILE *stream);
-void  clearerr(FILE *stream);
-int   fileno(FILE *stream);
+int fseek(FILE *stream, long offset, int whence);
+long ftell(FILE *stream);
+void rewind(FILE *stream);
+int fflush(FILE *stream);
+int feof(FILE *stream);
+int ferror(FILE *stream);
+void clearerr(FILE *stream);
+int fileno(FILE *stream);
 
-int   fgetc(FILE *stream);
+int fgetc(FILE *stream);
 char *fgets(char *s, int size, FILE *stream);
-int   fputc(int c, FILE *stream);
-int   fputs(const char *s, FILE *stream);
-int   ungetc(int c, FILE *stream);
+int fputc(int c, FILE *stream);
+int fputs(const char *s, FILE *stream);
+int ungetc(int c, FILE *stream);
 
 #define getc(stream) fgetc(stream)
 #define putc(c, stream) fputc(c, stream)

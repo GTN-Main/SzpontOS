@@ -17,7 +17,7 @@ extern void arch_switch_context(uintptr_t *old_rsp, uintptr_t new_rsp);
 
 static void idle_thread_func(void) {
     while (1) {
-        __asm__ volatile ("sti; hlt; cli");
+        __asm__ volatile("sti; hlt; cli");
     }
 }
 
@@ -35,7 +35,8 @@ void sched_init(void) {
 }
 
 void sched_add_thread(thread_t *thread) {
-    if (!thread) return;
+    if (!thread)
+        return;
     spinlock_acquire(&g_sched_lock);
     thread->state = THREAD_READY;
     list_add_tail(&g_ready_queue, &thread->sched_node);
@@ -43,7 +44,8 @@ void sched_add_thread(thread_t *thread) {
 }
 
 void sched_remove_thread(thread_t *thread) {
-    if (!thread) return;
+    if (!thread)
+        return;
     spinlock_acquire(&g_sched_lock);
     list_remove(&thread->sched_node);
     spinlock_release(&g_sched_lock);
@@ -58,7 +60,8 @@ process_t *sched_get_current_process(void) {
 }
 
 void sched_yield(void) {
-    if (!g_sched_started) return;
+    if (!g_sched_started)
+        return;
 
     spinlock_acquire(&g_sched_lock);
 
@@ -116,7 +119,8 @@ void sched_yield(void) {
 
 void thread_sleep(uint32_t ms) {
     thread_t *curr = sched_get_current_thread();
-    if (!curr) return;
+    if (!curr)
+        return;
 
     if (ms == 0) {
         sched_yield();
@@ -125,7 +129,8 @@ void thread_sleep(uint32_t ms) {
 
     uint32_t freq = pit_get_frequency();
     uint64_t ticks_to_sleep = ((uint64_t)ms * freq + 999) / 1000;
-    if (ticks_to_sleep == 0) ticks_to_sleep = 1;
+    if (ticks_to_sleep == 0)
+        ticks_to_sleep = 1;
 
     spinlock_acquire(&g_sched_lock);
     curr->state = THREAD_SLEEPING;
@@ -139,7 +144,8 @@ void thread_sleep(uint32_t ms) {
 void sched_tick(void) {
     extern void e1000_poll(void);
     e1000_poll();
-    if (!g_sched_started) return;
+    if (!g_sched_started)
+        return;
     sched_yield();
 }
 

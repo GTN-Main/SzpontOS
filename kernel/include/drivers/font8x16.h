@@ -3,7 +3,7 @@
 
 #include <kernel/types.h>
 
-#define FONT_WIDTH  8
+#define FONT_WIDTH 8
 #define FONT_HEIGHT 16
 
 /* Standard 8x16 bitmap font (CP437/ASCII) */

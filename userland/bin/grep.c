@@ -21,8 +21,8 @@ static void usage(void) {
     fprintf(stderr, "  -E  Interpret pattern as an extended regular expression\n");
 }
 
-static void grep_file(FILE *f, const char *filename, regex_t *preg,
-                      bool opt_v, bool opt_n, bool opt_c, bool opt_l, bool multiple_files) {
+static void grep_file(FILE *f, const char *filename, regex_t *preg, bool opt_v, bool opt_n, bool opt_c, bool opt_l,
+                      bool multiple_files) {
     char line[4096];
     size_t line_num = 0;
     size_t match_count = 0;
@@ -36,7 +36,8 @@ static void grep_file(FILE *f, const char *filename, regex_t *preg,
 
         int r = regexec(preg, line, 0, NULL, 0);
         bool match = (r == 0);
-        if (opt_v) match = !match;
+        if (opt_v)
+            match = !match;
 
         if (match) {
             match_count++;
@@ -81,16 +82,28 @@ int main(int argc, char *argv[]) {
         }
         for (int j = 1; argv[opt_idx][j]; j++) {
             switch (argv[opt_idx][j]) {
-                case 'i': opt_i = true; break;
-                case 'v': opt_v = true; break;
-                case 'n': opt_n = true; break;
-                case 'c': opt_c = true; break;
-                case 'l': opt_l = true; break;
-                case 'E': opt_E = true; break;
-                default:
-                    fprintf(stderr, "grep: invalid option -- '%c'\n", argv[opt_idx][j]);
-                    usage();
-                    return 2;
+            case 'i':
+                opt_i = true;
+                break;
+            case 'v':
+                opt_v = true;
+                break;
+            case 'n':
+                opt_n = true;
+                break;
+            case 'c':
+                opt_c = true;
+                break;
+            case 'l':
+                opt_l = true;
+                break;
+            case 'E':
+                opt_E = true;
+                break;
+            default:
+                fprintf(stderr, "grep: invalid option -- '%c'\n", argv[opt_idx][j]);
+                usage();
+                return 2;
             }
         }
         opt_idx++;
@@ -103,8 +116,10 @@ int main(int argc, char *argv[]) {
 
     const char *pattern = argv[opt_idx++];
     int cflags = 0;
-    if (opt_i) cflags |= REG_ICASE;
-    if (opt_E) cflags |= REG_EXTENDED;
+    if (opt_i)
+        cflags |= REG_ICASE;
+    if (opt_E)
+        cflags |= REG_EXTENDED;
 
     regex_t preg;
     int err = regcomp(&preg, pattern, cflags);

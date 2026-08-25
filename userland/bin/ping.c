@@ -140,18 +140,20 @@ int main(int argc, char *argv[]) {
                         char reply_ip[INET_ADDRSTRLEN];
                         inet_ntop(AF_INET, &from_addr.sin_addr, reply_ip, sizeof(reply_ip));
                         received++;
-                        printf("64 bytes from %s: icmp_seq=%d ttl=64 time=%.3f ms\n",
-                               reply_ip, seq, rtt_ms);
+                        printf("64 bytes from %s: icmp_seq=%d ttl=64 time=%.3f ms\n", reply_ip, seq, rtt_ms);
 
-                        if (rtt_ms < min_rtt) min_rtt = rtt_ms;
-                        if (rtt_ms > max_rtt) max_rtt = rtt_ms;
+                        if (rtt_ms < min_rtt)
+                            min_rtt = rtt_ms;
+                        if (rtt_ms > max_rtt)
+                            max_rtt = rtt_ms;
                         sum_rtt += rtt_ms;
                         got_reply = 1;
                         break;
                     }
                 }
             } else {
-                ssize_t n = recvfrom(sock, recv_buf, sizeof(recv_buf), 0x40 /* MSG_DONTWAIT */, (struct sockaddr *)&from_addr, &from_len);
+                ssize_t n = recvfrom(sock, recv_buf, sizeof(recv_buf), 0x40 /* MSG_DONTWAIT */,
+                                     (struct sockaddr *)&from_addr, &from_len);
                 if (n >= (ssize_t)sizeof(struct icmphdr)) {
                     struct icmphdr *reply_icmp = (struct icmphdr *)recv_buf;
                     if (reply_icmp->icmp_type == ICMP_ECHOREPLY) {
@@ -162,18 +164,20 @@ int main(int argc, char *argv[]) {
                         char reply_ip[INET_ADDRSTRLEN];
                         inet_ntop(AF_INET, &from_addr.sin_addr, reply_ip, sizeof(reply_ip));
                         received++;
-                        printf("64 bytes from %s: icmp_seq=%d ttl=64 time=%.3f ms\n",
-                               reply_ip, seq, rtt_ms);
+                        printf("64 bytes from %s: icmp_seq=%d ttl=64 time=%.3f ms\n", reply_ip, seq, rtt_ms);
 
-                        if (rtt_ms < min_rtt) min_rtt = rtt_ms;
-                        if (rtt_ms > max_rtt) max_rtt = rtt_ms;
+                        if (rtt_ms < min_rtt)
+                            min_rtt = rtt_ms;
+                        if (rtt_ms > max_rtt)
+                            max_rtt = rtt_ms;
                         sum_rtt += rtt_ms;
                         got_reply = 1;
                         break;
                     }
                 }
             }
-            for (volatile int d = 0; d < 50000; d++) {}
+            for (volatile int d = 0; d < 50000; d++) {
+            }
         }
 
         if (!got_reply) {
@@ -182,7 +186,8 @@ int main(int argc, char *argv[]) {
 
         if (seq < count) {
             /* Small delay between pings */
-            for (volatile int d = 0; d < 3000000; d++) {}
+            for (volatile int d = 0; d < 3000000; d++) {
+            }
         }
     }
 

@@ -54,43 +54,44 @@ int main(int argc, char *argv[]) {
                 opt_r = true;
             } else if (strcmp(arg, "--kernel-version") == 0) {
                 opt_v = true;
-            } else if (strcmp(arg, "--machine") == 0 || strcmp(arg, "--processor") == 0 || strcmp(arg, "--hardware-platform") == 0) {
+            } else if (strcmp(arg, "--machine") == 0 || strcmp(arg, "--processor") == 0 ||
+                       strcmp(arg, "--hardware-platform") == 0) {
                 opt_m = true;
             } else if (strcmp(arg, "--operating-system") == 0) {
                 opt_o = true;
             } else if (arg[0] == '-' && arg[1] != '\0') {
                 for (int j = 1; arg[j]; j++) {
                     switch (arg[j]) {
-                        case 'a':
-                            opt_s = opt_n = opt_r = opt_v = opt_m = true;
-                            break;
-                        case 's':
-                            opt_s = true;
-                            break;
-                        case 'n':
-                            opt_n = true;
-                            break;
-                        case 'r':
-                            opt_r = true;
-                            break;
-                        case 'v':
-                            opt_v = true;
-                            break;
-                        case 'm':
-                        case 'p':
-                        case 'i':
-                            opt_m = true;
-                            break;
-                        case 'o':
-                            opt_o = true;
-                            break;
-                        case 'h':
-                            print_help();
-                            return 0;
-                        default:
-                            fprintf(stderr, "uname: invalid option -- '%c'\n", arg[j]);
-                            fprintf(stderr, "Try 'uname --help' for more information.\n");
-                            return 1;
+                    case 'a':
+                        opt_s = opt_n = opt_r = opt_v = opt_m = true;
+                        break;
+                    case 's':
+                        opt_s = true;
+                        break;
+                    case 'n':
+                        opt_n = true;
+                        break;
+                    case 'r':
+                        opt_r = true;
+                        break;
+                    case 'v':
+                        opt_v = true;
+                        break;
+                    case 'm':
+                    case 'p':
+                    case 'i':
+                        opt_m = true;
+                        break;
+                    case 'o':
+                        opt_o = true;
+                        break;
+                    case 'h':
+                        print_help();
+                        return 0;
+                    default:
+                        fprintf(stderr, "uname: invalid option -- '%c'\n", arg[j]);
+                        fprintf(stderr, "Try 'uname --help' for more information.\n");
+                        return 1;
                     }
                 }
             } else {

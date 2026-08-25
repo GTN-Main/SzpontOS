@@ -10,7 +10,8 @@
 #include <string.h>
 
 int main(int argc, char *argv[]) {
-    (void)argc; (void)argv;
+    (void)argc;
+    (void)argv;
 
     int fd = open("/proc/modules", O_RDONLY);
     if (fd < 0) {
@@ -34,50 +35,66 @@ int main(int argc, char *argv[]) {
     char *line = buf;
     while (line && *line) {
         char *next = strchr(line, '\n');
-        if (next) *next = '\0';
+        if (next)
+            *next = '\0';
 
         if (strlen(line) > 0) {
             char *p = line;
-            while (*p && (*p == ' ' || *p == '\t')) p++;
+            while (*p && (*p == ' ' || *p == '\t'))
+                p++;
             char *name = p;
-            while (*p && *p != ' ' && *p != '\t') p++;
-            if (*p) *p++ = '\0';
+            while (*p && *p != ' ' && *p != '\t')
+                p++;
+            if (*p)
+                *p++ = '\0';
 
-            while (*p && (*p == ' ' || *p == '\t')) p++;
+            while (*p && (*p == ' ' || *p == '\t'))
+                p++;
             char *size = p;
-            while (*p && *p != ' ' && *p != '\t') p++;
-            if (*p) *p++ = '\0';
+            while (*p && *p != ' ' && *p != '\t')
+                p++;
+            if (*p)
+                *p++ = '\0';
 
-            while (*p && (*p == ' ' || *p == '\t')) p++;
+            while (*p && (*p == ' ' || *p == '\t'))
+                p++;
             char *ref = p;
-            while (*p && *p != ' ' && *p != '\t') p++;
-            if (*p) *p++ = '\0';
+            while (*p && *p != ' ' && *p != '\t')
+                p++;
+            if (*p)
+                *p++ = '\0';
 
-            while (*p && (*p == ' ' || *p == '\t')) p++;
+            while (*p && (*p == ' ' || *p == '\t'))
+                p++;
             char *dash = p;
-            while (*p && *p != ' ' && *p != '\t') p++;
-            if (*p) *p++ = '\0';
+            while (*p && *p != ' ' && *p != '\t')
+                p++;
+            if (*p)
+                *p++ = '\0';
             (void)dash;
 
-            while (*p && (*p == ' ' || *p == '\t')) p++;
+            while (*p && (*p == ' ' || *p == '\t'))
+                p++;
             char *state = p;
-            while (*p && *p != ' ' && *p != '\t') p++;
-            if (*p) *p++ = '\0';
+            while (*p && *p != ' ' && *p != '\t')
+                p++;
+            if (*p)
+                *p++ = '\0';
 
-            while (*p && (*p == ' ' || *p == '\t')) p++;
+            while (*p && (*p == ' ' || *p == '\t'))
+                p++;
             char *addr = p;
-            while (*p && *p != ' ' && *p != '\t') p++;
-            if (*p) *p = '\0';
+            while (*p && *p != ' ' && *p != '\t')
+                p++;
+            if (*p)
+                *p = '\0';
 
-            printf("%-24s %8s %8s %-10s %s\n",
-                name[0] ? name : "-",
-                size[0] ? size : "-",
-                ref[0] ? ref : "0",
-                state[0] ? state : "Live",
-                addr[0] ? addr : "-");
+            printf("%-24s %8s %8s %-10s %s\n", name[0] ? name : "-", size[0] ? size : "-", ref[0] ? ref : "0",
+                   state[0] ? state : "Live", addr[0] ? addr : "-");
         }
 
-        if (!next) break;
+        if (!next)
+            break;
         line = next + 1;
     }
 

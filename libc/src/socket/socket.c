@@ -88,8 +88,8 @@ ssize_t recv(int sockfd, void *buf, size_t len, int flags) {
     return recvfrom(sockfd, buf, len, flags, NULL, NULL);
 }
 
-ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
-               const struct sockaddr *dest_addr, socklen_t addrlen) {
+ssize_t sendto(int sockfd, const void *buf, size_t len, int flags, const struct sockaddr *dest_addr,
+               socklen_t addrlen) {
     int64_t ret = __syscall6(SYS_sendto, sockfd, (int64_t)buf, (int64_t)len, flags, (int64_t)dest_addr, addrlen);
     if (ret < 0) {
         errno = (int)-ret;
@@ -98,9 +98,9 @@ ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
     return (ssize_t)ret;
 }
 
-ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
-                 struct sockaddr *src_addr, socklen_t *addrlen) {
-    int64_t ret = __syscall6(SYS_recvfrom, sockfd, (int64_t)buf, (int64_t)len, flags, (int64_t)src_addr, (int64_t)addrlen);
+ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags, struct sockaddr *src_addr, socklen_t *addrlen) {
+    int64_t ret =
+        __syscall6(SYS_recvfrom, sockfd, (int64_t)buf, (int64_t)len, flags, (int64_t)src_addr, (int64_t)addrlen);
     if (ret < 0) {
         errno = (int)-ret;
         return -1;

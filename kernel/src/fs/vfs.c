@@ -34,7 +34,8 @@ void vfs_init(void) {
 }
 
 int vfs_mount(const char *path, vfs_node_t *node) {
-    if (!path || !node) return -1;
+    if (!path || !node)
+        return -1;
 
     spinlock_acquire(&g_vfs_lock);
     if (g_mount_count >= MAX_MOUNTS) {
@@ -67,13 +68,15 @@ int vfs_mount(const char *path, vfs_node_t *node) {
 }
 
 size_t vfs_get_mount_list(vfs_mount_info_t *buf, size_t max_count) {
-    if (!buf || max_count == 0) return 0;
+    if (!buf || max_count == 0)
+        return 0;
     spinlock_acquire(&g_vfs_lock);
     size_t count = 0;
 
     if (g_vfs_root && count < max_count) {
         strncpy(buf[count].path, "/", 127);
-        strncpy(buf[count].name, (g_vfs_root->name[0] && strcmp(g_vfs_root->name, "/") != 0) ? g_vfs_root->name : "rootfs", 127);
+        strncpy(buf[count].name,
+                (g_vfs_root->name[0] && strcmp(g_vfs_root->name, "/") != 0) ? g_vfs_root->name : "rootfs", 127);
         buf[count].flags = g_vfs_root->flags;
         count++;
     }
@@ -94,7 +97,8 @@ size_t vfs_get_mount_list(vfs_mount_info_t *buf, size_t max_count) {
 }
 
 void vfs_normalize_path(const char *src, char *dst, size_t dst_size) {
-    if (!src || !dst || dst_size == 0) return;
+    if (!src || !dst || dst_size == 0)
+        return;
 
     char temp[256];
     strncpy(temp, src, sizeof(temp) - 1);
@@ -104,11 +108,13 @@ void vfs_normalize_path(const char *src, char *dst, size_t dst_size) {
     int token_count = 0;
 
     char *p = temp;
-    while (*p == '/') p++;
+    while (*p == '/')
+        p++;
 
     while (*p) {
         char *slash = strchr(p, '/');
-        if (slash) *slash = '\0';
+        if (slash)
+            *slash = '\0';
 
         if (strcmp(p, ".") == 0 || *p == '\0') {
             /* ignore current dir */
@@ -122,8 +128,10 @@ void vfs_normalize_path(const char *src, char *dst, size_t dst_size) {
             }
         }
 
-        if (slash) p = slash + 1;
-        else break;
+        if (slash)
+            p = slash + 1;
+        else
+            break;
     }
 
     if (token_count == 0) {
@@ -140,11 +148,13 @@ void vfs_normalize_path(const char *src, char *dst, size_t dst_size) {
 }
 
 vfs_node_t *vfs_lookup(const char *path) {
-    if (!path || !g_vfs_root) return NULL;
+    if (!path || !g_vfs_root)
+        return NULL;
 
     char norm_path[256];
     vfs_normalize_path(path, norm_path, sizeof(norm_path));
-    if (strcmp(norm_path, "/") == 0) return g_vfs_root;
+    if (strcmp(norm_path, "/") == 0)
+        return g_vfs_root;
 
     /* Check mount point prefix matching */
     vfs_node_t *current = g_vfs_root;
@@ -156,8 +166,10 @@ vfs_node_t *vfs_lookup(const char *path) {
             if (path[mlen] == '/' || path[mlen] == '\0') {
                 current = g_mounts[i].node;
                 subpath = path + mlen;
-                if (*subpath == '/') subpath++;
-                if (*subpath == '\0') return current;
+                if (*subpath == '/')
+                    subpath++;
+                if (*subpath == '\0')
+                    return current;
                 break;
             }
         }
@@ -169,7 +181,8 @@ vfs_node_t *vfs_lookup(const char *path) {
     temp[sizeof(temp) - 1] = '\0';
 
     char *token = temp;
-    while (*token == '/') token++;
+    while (*token == '/')
+        token++;
 
     char *next_slash;
     while (token && *token) {
@@ -207,10 +220,12 @@ vfs_node_t *vfs_lookup(const char *path) {
 }
 
 int vfs_check_permission(vfs_node_t *node, int mask) {
-    if (!node) return -1;
+    if (!node)
+        return -1;
 
     process_t *curr = sched_get_current_process();
-    if (!curr) return 0; /* Kernel has full access */
+    if (!curr)
+        return 0; /* Kernel has full access */
 
     /* Superuser (root) bypasses normal checks */
     if (curr->euid == 0) {
@@ -261,7 +276,8 @@ int vfs_check_permission(vfs_node_t *node, int mask) {
 
 int vfs_chmod(const char *path, mode_t mode) {
     vfs_node_t *node = vfs_lookup(path);
-    if (!node) return -1;
+    if (!node)
+        return -1;
 
     process_t *curr = sched_get_current_process();
     if (curr && curr->euid != 0 && curr->euid != node->uid) {
@@ -277,7 +293,8 @@ int vfs_chmod(const char *path, mode_t mode) {
 
 int vfs_chown(const char *path, uid_t uid, gid_t gid) {
     vfs_node_t *node = vfs_lookup(path);
-    if (!node) return -1;
+    if (!node)
+        return -1;
 
     process_t *curr = sched_get_current_process();
     if (curr && curr->euid != 0) {
@@ -298,7 +315,8 @@ int vfs_chown(const char *path, uid_t uid, gid_t gid) {
 }
 
 int vfs_mkdir(const char *path, mode_t mode) {
-    if (!path || !*path) return -1;
+    if (!path || !*path)
+        return -1;
 
     /* Extract parent path and dir name */
     char parent_path[256];
@@ -326,7 +344,8 @@ int vfs_mkdir(const char *path, mode_t mode) {
     }
 
     vfs_node_t *parent = vfs_lookup(parent_path);
-    if (!parent || parent->flags != VFS_TYPE_DIRECTORY) return -1;
+    if (!parent || parent->flags != VFS_TYPE_DIRECTORY)
+        return -1;
 
     if (vfs_check_permission(parent, VFS_WRITE | VFS_EXEC) != 0) {
         return -1; /* Permission denied in parent directory */
@@ -340,7 +359,8 @@ int vfs_mkdir(const char *path, mode_t mode) {
 }
 
 int vfs_unlink(const char *path) {
-    if (!path || !*path) return -1;
+    if (!path || !*path)
+        return -1;
 
     char parent_path[256];
     char entry_name[128];
@@ -367,7 +387,8 @@ int vfs_unlink(const char *path) {
     }
 
     vfs_node_t *parent = vfs_lookup(parent_path);
-    if (!parent || parent->flags != VFS_TYPE_DIRECTORY) return -1;
+    if (!parent || parent->flags != VFS_TYPE_DIRECTORY)
+        return -1;
 
     if (vfs_check_permission(parent, VFS_WRITE | VFS_EXEC) != 0) {
         return -1; /* Permission denied */

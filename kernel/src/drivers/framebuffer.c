@@ -10,6 +10,7 @@
 #include <mm/heap.h>
 #include <mm/pmm.h>
 #include <mm/vmm.h>
+#include <arch/x86_64/io.h>
 
 static struct limine_framebuffer *g_fb = NULL;
 static uint32_t *g_fb_ptr = NULL;
@@ -103,9 +104,12 @@ static const uint32_t g_ansi_colors_bright[8] = {
 
 /* 256-Color Lookup Helper */
 static uint32_t ansi_256_to_rgb(int idx) {
-    if (idx < 0) return FB_COLOR_WHITE;
-    if (idx < 8) return g_ansi_colors_normal[idx];
-    if (idx < 16) return g_ansi_colors_bright[idx - 8];
+    if (idx < 0)
+        return FB_COLOR_WHITE;
+    if (idx < 8)
+        return g_ansi_colors_normal[idx];
+    if (idx < 16)
+        return g_ansi_colors_bright[idx - 8];
     if (idx >= 16 && idx <= 231) {
         /* 6x6x6 color cube */
         int code = idx - 16;
@@ -126,94 +130,174 @@ static uint32_t ansi_256_to_rgb(int idx) {
 /* DEC Special Graphics Translation (CP437) */
 static uint8_t map_dec_graphics(char c) {
     switch (c) {
-        case '`': return 0x04; /* Diamond ◆ */
-        case 'a': return 0xB1; /* Checkerboard ▒ */
-        case 'f': return 0xF8; /* Degree ° */
-        case 'g': return 0xF1; /* Plus/minus ± */
-        case 'j': return 0xD9; /* Lower right corner ┘ */
-        case 'k': return 0xBF; /* Upper right corner ┐ */
-        case 'l': return 0xDA; /* Upper left corner ┌ */
-        case 'm': return 0xC0; /* Lower left corner └ */
-        case 'n': return 0xC5; /* Crossing lines ┼ */
-        case 'o': return 0xC4; /* Horizontal line ─ */
-        case 'p': return 0xC4; /* Horizontal line ─ */
-        case 'q': return 0xC4; /* Horizontal line ─ */
-        case 'r': return 0xC4; /* Horizontal line ─ */
-        case 's': return 0x5F; /* Underscore _ */
-        case 't': return 0xC3; /* Left tee ├ */
-        case 'u': return 0xB4; /* Right tee ┤ */
-        case 'v': return 0xC1; /* Bottom tee ┴ */
-        case 'w': return 0xC2; /* Top tee ┬ */
-        case 'x': return 0xB3; /* Vertical line │ */
-        case 'y': return 0xF3; /* Less than or equal ≤ */
-        case 'z': return 0xF2; /* Greater than or equal ≥ */
-        case '{': return 0xE3; /* Pi π */
-        case '|': return 0xD8; /* Not equal ≠ */
-        case '}': return 0x9C; /* Pound £ */
-        case '~': return 0xFA; /* Bullet · */
-        default:  return (uint8_t)c;
+    case '`':
+        return 0x04; /* Diamond ◆ */
+    case 'a':
+        return 0xB1; /* Checkerboard ▒ */
+    case 'f':
+        return 0xF8; /* Degree ° */
+    case 'g':
+        return 0xF1; /* Plus/minus ± */
+    case 'j':
+        return 0xD9; /* Lower right corner ┘ */
+    case 'k':
+        return 0xBF; /* Upper right corner ┐ */
+    case 'l':
+        return 0xDA; /* Upper left corner ┌ */
+    case 'm':
+        return 0xC0; /* Lower left corner └ */
+    case 'n':
+        return 0xC5; /* Crossing lines ┼ */
+    case 'o':
+        return 0xC4; /* Horizontal line ─ */
+    case 'p':
+        return 0xC4; /* Horizontal line ─ */
+    case 'q':
+        return 0xC4; /* Horizontal line ─ */
+    case 'r':
+        return 0xC4; /* Horizontal line ─ */
+    case 's':
+        return 0x5F; /* Underscore _ */
+    case 't':
+        return 0xC3; /* Left tee ├ */
+    case 'u':
+        return 0xB4; /* Right tee ┤ */
+    case 'v':
+        return 0xC1; /* Bottom tee ┴ */
+    case 'w':
+        return 0xC2; /* Top tee ┬ */
+    case 'x':
+        return 0xB3; /* Vertical line │ */
+    case 'y':
+        return 0xF3; /* Less than or equal ≤ */
+    case 'z':
+        return 0xF2; /* Greater than or equal ≥ */
+    case '{':
+        return 0xE3; /* Pi π */
+    case '|':
+        return 0xD8; /* Not equal ≠ */
+    case '}':
+        return 0x9C; /* Pound £ */
+    case '~':
+        return 0xFA; /* Bullet · */
+    default:
+        return (uint8_t)c;
     }
 }
 
 /* Unicode Code Point to CP437 Mapping */
 static uint8_t unicode_to_cp437(uint32_t cp) {
-    if (cp <= 0x7F) return (uint8_t)cp;
+    if (cp <= 0x7F)
+        return (uint8_t)cp;
 
     /* Unicode Box Drawing (0x2500 - 0x257F) */
     switch (cp) {
-        case 0x2500: case 0x2501: return 0xC4; /* ─ ━ */
-        case 0x2502: case 0x2503: return 0xB3; /* │ ┃ */
-        case 0x250C: case 0x250F: return 0xDA; /* ┌ ┏ */
-        case 0x2510: case 0x2513: return 0xBF; /* ┐ ┓ */
-        case 0x2514: case 0x2517: return 0xC0; /* └ ┗ */
-        case 0x2518: case 0x251B: return 0xD9; /* ┘ ┛ */
-        case 0x251C: case 0x2523: return 0xC3; /* ├ ┣ */
-        case 0x2524: case 0x252B: return 0xB4; /* ┤ ┫ */
-        case 0x252C: case 0x2533: return 0xC2; /* ┬ ┳ */
-        case 0x2534: case 0x253B: return 0xC1; /* ┴ ┻ */
-        case 0x253C: case 0x254B: return 0xC5; /* ┼ ╋ */
+    case 0x2500:
+    case 0x2501:
+        return 0xC4; /* ─ ━ */
+    case 0x2502:
+    case 0x2503:
+        return 0xB3; /* │ ┃ */
+    case 0x250C:
+    case 0x250F:
+        return 0xDA; /* ┌ ┏ */
+    case 0x2510:
+    case 0x2513:
+        return 0xBF; /* ┐ ┓ */
+    case 0x2514:
+    case 0x2517:
+        return 0xC0; /* └ ┗ */
+    case 0x2518:
+    case 0x251B:
+        return 0xD9; /* ┘ ┛ */
+    case 0x251C:
+    case 0x2523:
+        return 0xC3; /* ├ ┣ */
+    case 0x2524:
+    case 0x252B:
+        return 0xB4; /* ┤ ┫ */
+    case 0x252C:
+    case 0x2533:
+        return 0xC2; /* ┬ ┳ */
+    case 0x2534:
+    case 0x253B:
+        return 0xC1; /* ┴ ┻ */
+    case 0x253C:
+    case 0x254B:
+        return 0xC5; /* ┼ ╋ */
 
-        /* Double Box Drawing */
-        case 0x2550: return 0xCD; /* ═ */
-        case 0x2551: return 0xBA; /* ║ */
-        case 0x2554: return 0xC9; /* ╔ */
-        case 0x2557: return 0xBB; /* ╗ */
-        case 0x255A: return 0xC8; /* ╚ */
-        case 0x255D: return 0xBC; /* ╝ */
-        case 0x2560: return 0xCC; /* ╠ */
-        case 0x2563: return 0xB9; /* ╣ */
-        case 0x2566: return 0xCB; /* ╦ */
-        case 0x2569: return 0xCA; /* ╩ */
-        case 0x256C: return 0xCE; /* ╬ */
+    /* Double Box Drawing */
+    case 0x2550:
+        return 0xCD; /* ═ */
+    case 0x2551:
+        return 0xBA; /* ║ */
+    case 0x2554:
+        return 0xC9; /* ╔ */
+    case 0x2557:
+        return 0xBB; /* ╗ */
+    case 0x255A:
+        return 0xC8; /* ╚ */
+    case 0x255D:
+        return 0xBC; /* ╝ */
+    case 0x2560:
+        return 0xCC; /* ╠ */
+    case 0x2563:
+        return 0xB9; /* ╣ */
+    case 0x2566:
+        return 0xCB; /* ╦ */
+    case 0x2569:
+        return 0xCA; /* ╩ */
+    case 0x256C:
+        return 0xCE; /* ╬ */
 
-        /* Unicode Block Elements (0x2580 - 0x259F) */
-        case 0x2588: return 0xDB; /* █ Full block */
-        case 0x2580: return 0xDF; /* ▀ Upper half */
-        case 0x2584: return 0xDC; /* ▄ Lower half */
-        case 0x258C: return 0xDD; /* ▌ Left half */
-        case 0x2590: return 0xDE; /* ▐ Right half */
-        case 0x2591: return 0xB0; /* ░ Light shade */
-        case 0x2592: return 0xB1; /* ▒ Medium shade */
-        case 0x2593: return 0xB2; /* ▓ Dark shade */
-        case 0x25A0: return 0xFE; /* ■ Black square */
+    /* Unicode Block Elements (0x2580 - 0x259F) */
+    case 0x2588:
+        return 0xDB; /* █ Full block */
+    case 0x2580:
+        return 0xDF; /* ▀ Upper half */
+    case 0x2584:
+        return 0xDC; /* ▄ Lower half */
+    case 0x258C:
+        return 0xDD; /* ▌ Left half */
+    case 0x2590:
+        return 0xDE; /* ▐ Right half */
+    case 0x2591:
+        return 0xB0; /* ░ Light shade */
+    case 0x2592:
+        return 0xB1; /* ▒ Medium shade */
+    case 0x2593:
+        return 0xB2; /* ▓ Dark shade */
+    case 0x25A0:
+        return 0xFE; /* ■ Black square */
 
-        /* Punctuation and Symbols */
-        case 0x2022: case 0x00B7: return 0xFA; /* • · */
-        case 0x00B0: return 0xF8; /* ° */
-        case 0x00B1: return 0xF1; /* ± */
-        case 0x2264: return 0xF3; /* ≤ */
-        case 0x2265: return 0xF2; /* ≥ */
-        case 0x2191: return 0x18; /* ↑ */
-        case 0x2193: return 0x19; /* ↓ */
-        case 0x2192: return 0x1A; /* → */
-        case 0x2190: return 0x1B; /* ← */
-        default:
-            return (cp < 256) ? (uint8_t)cp : '?';
+    /* Punctuation and Symbols */
+    case 0x2022:
+    case 0x00B7:
+        return 0xFA; /* • · */
+    case 0x00B0:
+        return 0xF8; /* ° */
+    case 0x00B1:
+        return 0xF1; /* ± */
+    case 0x2264:
+        return 0xF3; /* ≤ */
+    case 0x2265:
+        return 0xF2; /* ≥ */
+    case 0x2191:
+        return 0x18; /* ↑ */
+    case 0x2193:
+        return 0x19; /* ↓ */
+    case 0x2192:
+        return 0x1A; /* → */
+    case 0x2190:
+        return 0x1B; /* ← */
+    default:
+        return (cp < 256) ? (uint8_t)cp : '?';
     }
 }
 
 void framebuffer_init(struct limine_framebuffer *fb) {
-    if (!fb || !fb->address) return;
+    if (!fb || !fb->address)
+        return;
 
     g_fb = fb;
     g_fb_ptr = (uint32_t *)fb->address;
@@ -294,18 +378,26 @@ static inline void fb_mark_dirty(size_t x, size_t y, size_t w, size_t h) {
         g_dirty_max_y = y + h;
         g_fb_dirty = true;
     } else {
-        if (x < g_dirty_min_x) g_dirty_min_x = x;
-        if (y < g_dirty_min_y) g_dirty_min_y = y;
-        if (x + w > g_dirty_max_x) g_dirty_max_x = x + w;
-        if (y + h > g_dirty_max_y) g_dirty_max_y = y + h;
+        if (x < g_dirty_min_x)
+            g_dirty_min_x = x;
+        if (y < g_dirty_min_y)
+            g_dirty_min_y = y;
+        if (x + w > g_dirty_max_x)
+            g_dirty_max_x = x + w;
+        if (y + h > g_dirty_max_y)
+            g_dirty_max_y = y + h;
     }
 }
 
 static inline void fb_flush_rect(size_t x, size_t y, size_t w, size_t h) {
-    if (!g_fb_ptr || !g_backbuffer) return;
-    if (x >= g_fb_width || y >= g_fb_height) return;
-    if (x + w > g_fb_width) w = g_fb_width - x;
-    if (y + h > g_fb_height) h = g_fb_height - y;
+    if (!g_fb_ptr || !g_backbuffer)
+        return;
+    if (x >= g_fb_width || y >= g_fb_height)
+        return;
+    if (x + w > g_fb_width)
+        w = g_fb_width - x;
+    if (y + h > g_fb_height)
+        h = g_fb_height - y;
 
     size_t bytes = w * sizeof(uint32_t);
     for (size_t row = 0; row < h; row++) {
@@ -315,19 +407,21 @@ static inline void fb_flush_rect(size_t x, size_t y, size_t w, size_t h) {
 }
 
 void fb_flush(void) {
-    if (!g_fb_dirty || !g_fb_ptr || !g_backbuffer) return;
-    if (g_dirty_max_x > g_fb_width) g_dirty_max_x = g_fb_width;
-    if (g_dirty_max_y > g_fb_height) g_dirty_max_y = g_fb_height;
+    if (!g_fb_dirty || !g_fb_ptr || !g_backbuffer)
+        return;
+    if (g_dirty_max_x > g_fb_width)
+        g_dirty_max_x = g_fb_width;
+    if (g_dirty_max_y > g_fb_height)
+        g_dirty_max_y = g_fb_height;
     if (g_dirty_max_x > g_dirty_min_x && g_dirty_max_y > g_dirty_min_y) {
-        fb_flush_rect(g_dirty_min_x, g_dirty_min_y,
-                      g_dirty_max_x - g_dirty_min_x,
-                      g_dirty_max_y - g_dirty_min_y);
+        fb_flush_rect(g_dirty_min_x, g_dirty_min_y, g_dirty_max_x - g_dirty_min_x, g_dirty_max_y - g_dirty_min_y);
     }
     g_fb_dirty = false;
 }
 
 void fb_put_pixel(size_t x, size_t y, uint32_t color) {
-    if (!g_fb_ptr || x >= g_fb_width || y >= g_fb_height) return;
+    if (!g_fb_ptr || x >= g_fb_width || y >= g_fb_height)
+        return;
     size_t offset = y * g_fb_pitch_pixels + x;
     if (g_backbuffer) {
         g_backbuffer[offset] = color;
@@ -338,7 +432,8 @@ void fb_put_pixel(size_t x, size_t y, uint32_t color) {
 }
 
 static inline void fb_fill_pixels_32(uint32_t *dst, uint32_t color, size_t count) {
-    if (!dst || count == 0) return;
+    if (!dst || count == 0)
+        return;
     uint64_t color64 = ((uint64_t)color << 32) | (uint64_t)color;
     size_t qwords = count >> 1;
     uint64_t *d64 = (uint64_t *)dst;
@@ -351,10 +446,14 @@ static inline void fb_fill_pixels_32(uint32_t *dst, uint32_t color, size_t count
 }
 
 void fb_fill_rect(size_t x, size_t y, size_t w, size_t h, uint32_t color) {
-    if (!g_fb_ptr || w == 0 || h == 0) return;
-    if (x >= g_fb_width || y >= g_fb_height) return;
-    if (x + w > g_fb_width) w = g_fb_width - x;
-    if (y + h > g_fb_height) h = g_fb_height - y;
+    if (!g_fb_ptr || w == 0 || h == 0)
+        return;
+    if (x >= g_fb_width || y >= g_fb_height)
+        return;
+    if (x + w > g_fb_width)
+        w = g_fb_width - x;
+    if (y + h > g_fb_height)
+        h = g_fb_height - y;
 
     if (g_backbuffer) {
         for (size_t row = 0; row < h; row++) {
@@ -371,7 +470,8 @@ void fb_fill_rect(size_t x, size_t y, size_t w, size_t h, uint32_t color) {
 }
 
 void fb_clear(uint32_t color) {
-    if (!g_fb_ptr) return;
+    if (!g_fb_ptr)
+        return;
     size_t total_pixels = g_fb_height * g_fb_pitch_pixels;
     if (g_backbuffer) {
         fb_fill_pixels_32(g_backbuffer, color, total_pixels);
@@ -385,7 +485,8 @@ void fb_clear(uint32_t color) {
 }
 
 static void fb_draw_char_raw(size_t col, size_t row, uint8_t uc, uint32_t fg, uint32_t bg, bool underline) {
-    if (!g_fb_ptr || col >= g_cols || row >= g_rows) return;
+    if (!g_fb_ptr || col >= g_cols || row >= g_rows)
+        return;
 
     const uint8_t *glyph = g_font_8x16[uc];
     size_t px = col * g_char_w;
@@ -419,9 +520,9 @@ static void fb_draw_char_raw(size_t col, size_t row, uint8_t uc, uint32_t fg, ui
             uint32_t *dst1 = &target[(py + y * 2 + 1) * g_fb_pitch_pixels + px];
             for (size_t x = 0; x < 8; x++) {
                 uint32_t c = (line & (0x80 >> x)) ? fg : bg;
-                dst0[x * 2]     = c;
+                dst0[x * 2] = c;
                 dst0[x * 2 + 1] = c;
-                dst1[x * 2]     = c;
+                dst1[x * 2] = c;
                 dst1[x * 2 + 1] = c;
             }
         }
@@ -445,11 +546,13 @@ static void fb_draw_char_raw(size_t col, size_t row, uint8_t uc, uint32_t fg, ui
 
     if (g_backbuffer) {
         fb_mark_dirty(px, py, g_char_w, g_char_h);
+        fb_flush_rect(px, py, g_char_w, g_char_h);
     }
 }
 
 static void fb_scroll_up_region(size_t top, size_t bottom) {
-    if (!g_fb_ptr || top >= bottom || bottom >= g_rows) return;
+    if (!g_fb_ptr || top >= bottom || bottom >= g_rows)
+        return;
 
     /* Flush pending drawing before scrolling */
     fb_flush();
@@ -497,7 +600,8 @@ static void fb_scroll_up_region(size_t top, size_t bottom) {
 }
 
 static void fb_scroll_down_region(size_t top, size_t bottom) {
-    if (!g_fb_ptr || top >= bottom || bottom >= g_rows) return;
+    if (!g_fb_ptr || top >= bottom || bottom >= g_rows)
+        return;
 
     /* Flush pending drawing before scrolling */
     fb_flush();
@@ -679,8 +783,7 @@ static void handle_csi_command(char cmd) {
                     if (g_alt_screen_buf) {
                         uint32_t *src_buf = g_backbuffer ? g_backbuffer : g_fb_ptr;
                         for (size_t y = 0; y < g_fb_height; y++) {
-                            memcpy(&g_alt_screen_buf[y * g_fb_width],
-                                   &src_buf[y * g_fb_pitch_pixels],
+                            memcpy(&g_alt_screen_buf[y * g_fb_width], &src_buf[y * g_fb_pitch_pixels],
                                    g_fb_width * sizeof(uint32_t));
                         }
                     }
@@ -700,8 +803,7 @@ static void handle_csi_command(char cmd) {
                     if (g_alt_screen_buf) {
                         uint32_t *dst_buf = g_backbuffer ? g_backbuffer : g_fb_ptr;
                         for (size_t y = 0; y < g_fb_height; y++) {
-                            memcpy(&dst_buf[y * g_fb_pitch_pixels],
-                                   &g_alt_screen_buf[y * g_fb_width],
+                            memcpy(&dst_buf[y * g_fb_pitch_pixels], &g_alt_screen_buf[y * g_fb_width],
                                    g_fb_width * sizeof(uint32_t));
                         }
                         if (g_backbuffer) {
@@ -716,234 +818,239 @@ static void handle_csi_command(char cmd) {
     }
 
     switch (cmd) {
-        case 'm':
-            handle_csi_sgr();
-            break;
+    case 'm':
+        handle_csi_sgr();
+        break;
 
-        case 'H':
-        case 'f': {
-            /* Cursor Position: \033[row;colH (1-indexed) */
-            int row = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] - 1 : 0;
-            int col = (g_ansi_param_count > 1 && g_ansi_params[1] > 0) ? g_ansi_params[1] - 1 : 0;
-            g_cursor_y = (row < (int)g_rows) ? (size_t)row : g_rows - 1;
-            g_cursor_x = (col < (int)g_cols) ? (size_t)col : g_cols - 1;
-            break;
-        }
+    case 'H':
+    case 'f': {
+        /* Cursor Position: \033[row;colH (1-indexed) */
+        int row = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] - 1 : 0;
+        int col = (g_ansi_param_count > 1 && g_ansi_params[1] > 0) ? g_ansi_params[1] - 1 : 0;
+        g_cursor_y = (row < (int)g_rows) ? (size_t)row : g_rows - 1;
+        g_cursor_x = (col < (int)g_cols) ? (size_t)col : g_cols - 1;
+        break;
+    }
 
-        case 'A': {
-            /* Cursor Up */
-            int count = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] : 1;
-            g_cursor_y = (g_cursor_y >= (size_t)count) ? g_cursor_y - count : 0;
-            break;
-        }
+    case 'A': {
+        /* Cursor Up */
+        int count = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] : 1;
+        g_cursor_y = (g_cursor_y >= (size_t)count) ? g_cursor_y - count : 0;
+        break;
+    }
 
-        case 'B': {
-            /* Cursor Down */
-            int count = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] : 1;
-            g_cursor_y += count;
-            if (g_cursor_y >= g_rows) g_cursor_y = g_rows - 1;
-            break;
-        }
+    case 'B': {
+        /* Cursor Down */
+        int count = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] : 1;
+        g_cursor_y += count;
+        if (g_cursor_y >= g_rows)
+            g_cursor_y = g_rows - 1;
+        break;
+    }
 
-        case 'C': {
-            /* Cursor Forward */
-            int count = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] : 1;
-            g_cursor_x += count;
-            if (g_cursor_x >= g_cols) g_cursor_x = g_cols - 1;
-            break;
-        }
+    case 'C': {
+        /* Cursor Forward */
+        int count = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] : 1;
+        g_cursor_x += count;
+        if (g_cursor_x >= g_cols)
+            g_cursor_x = g_cols - 1;
+        break;
+    }
 
-        case 'D': {
-            /* Cursor Backward */
-            int count = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] : 1;
-            g_cursor_x = (g_cursor_x >= (size_t)count) ? g_cursor_x - count : 0;
-            break;
-        }
+    case 'D': {
+        /* Cursor Backward */
+        int count = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] : 1;
+        g_cursor_x = (g_cursor_x >= (size_t)count) ? g_cursor_x - count : 0;
+        break;
+    }
 
-        case 'E': {
-            /* Cursor Next Line */
-            int count = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] : 1;
+    case 'E': {
+        /* Cursor Next Line */
+        int count = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] : 1;
+        g_cursor_x = 0;
+        g_cursor_y += count;
+        if (g_cursor_y >= g_rows)
+            g_cursor_y = g_rows - 1;
+        break;
+    }
+
+    case 'F': {
+        /* Cursor Previous Line */
+        int count = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] : 1;
+        g_cursor_x = 0;
+        g_cursor_y = (g_cursor_y >= (size_t)count) ? g_cursor_y - count : 0;
+        break;
+    }
+
+    case 'G':
+    case '`': {
+        /* Cursor Horizontal Absolute (Column) */
+        int col = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] - 1 : 0;
+        g_cursor_x = (col < (int)g_cols) ? (size_t)col : g_cols - 1;
+        break;
+    }
+
+    case 'd': {
+        /* Vertical Position Absolute (Row) */
+        int row = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] - 1 : 0;
+        g_cursor_y = (row < (int)g_rows) ? (size_t)row : g_rows - 1;
+        break;
+    }
+
+    case 'J': {
+        /* Erase in Display */
+        int mode = (g_ansi_param_count > 0) ? g_ansi_params[0] : 0;
+        if (mode == 2 || mode == 3) {
+            /* Clear entire screen */
+            fb_clear(g_bg_color);
             g_cursor_x = 0;
-            g_cursor_y += count;
-            if (g_cursor_y >= g_rows) g_cursor_y = g_rows - 1;
-            break;
-        }
-
-        case 'F': {
-            /* Cursor Previous Line */
-            int count = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] : 1;
-            g_cursor_x = 0;
-            g_cursor_y = (g_cursor_y >= (size_t)count) ? g_cursor_y - count : 0;
-            break;
-        }
-
-        case 'G':
-        case '`': {
-            /* Cursor Horizontal Absolute (Column) */
-            int col = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] - 1 : 0;
-            g_cursor_x = (col < (int)g_cols) ? (size_t)col : g_cols - 1;
-            break;
-        }
-
-        case 'd': {
-            /* Vertical Position Absolute (Row) */
-            int row = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] - 1 : 0;
-            g_cursor_y = (row < (int)g_rows) ? (size_t)row : g_rows - 1;
-            break;
-        }
-
-        case 'J': {
-            /* Erase in Display */
-            int mode = (g_ansi_param_count > 0) ? g_ansi_params[0] : 0;
-            if (mode == 2 || mode == 3) {
-                /* Clear entire screen */
-                fb_clear(g_bg_color);
-                g_cursor_x = 0;
-                g_cursor_y = 0;
-            } else if (mode == 0) {
-                /* Clear from cursor to end of screen */
-                if (g_cursor_x < g_cols) {
-                    fb_fill_rect(g_cursor_x * g_char_w, g_cursor_y * g_char_h,
-                                 (g_cols - g_cursor_x) * g_char_w, g_char_h, g_bg_color);
-                }
-                if (g_cursor_y + 1 < g_rows) {
-                    fb_fill_rect(0, (g_cursor_y + 1) * g_char_h,
-                                 g_fb_width, (g_rows - g_cursor_y - 1) * g_char_h, g_bg_color);
-                }
-            } else if (mode == 1) {
-                /* Clear from start of screen to cursor */
-                if (g_cursor_y > 0) {
-                    fb_fill_rect(0, 0, g_fb_width, g_cursor_y * g_char_h, g_bg_color);
-                }
-                fb_fill_rect(0, g_cursor_y * g_char_h, (g_cursor_x + 1) * g_char_w, g_char_h, g_bg_color);
+            g_cursor_y = 0;
+        } else if (mode == 0) {
+            /* Clear from cursor to end of screen */
+            if (g_cursor_x < g_cols) {
+                fb_fill_rect(g_cursor_x * g_char_w, g_cursor_y * g_char_h, (g_cols - g_cursor_x) * g_char_w, g_char_h,
+                             g_bg_color);
             }
-            break;
-        }
-
-        case 'K': {
-            /* Erase in Line */
-            int mode = (g_ansi_param_count > 0) ? g_ansi_params[0] : 0;
-            if (mode == 0) {
-                /* Clear cursor to end of line */
-                if (g_cursor_x < g_cols) {
-                    fb_fill_rect(g_cursor_x * g_char_w, g_cursor_y * g_char_h,
-                                 (g_cols - g_cursor_x) * g_char_w, g_char_h, g_bg_color);
-                }
-            } else if (mode == 1) {
-                /* Clear start of line to cursor */
-                fb_fill_rect(0, g_cursor_y * g_char_h, (g_cursor_x + 1) * g_char_w, g_char_h, g_bg_color);
-            } else if (mode == 2) {
-                /* Clear entire line */
-                fb_fill_rect(0, g_cursor_y * g_char_h, g_fb_width, g_char_h, g_bg_color);
+            if (g_cursor_y + 1 < g_rows) {
+                fb_fill_rect(0, (g_cursor_y + 1) * g_char_h, g_fb_width, (g_rows - g_cursor_y - 1) * g_char_h,
+                             g_bg_color);
             }
-            break;
-        }
-
-        case 'X': {
-            /* Erase Characters */
-            int count = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] : 1;
-            size_t w = (g_cursor_x + count <= g_cols) ? (size_t)count : (g_cols - g_cursor_x);
-            fb_fill_rect(g_cursor_x * g_char_w, g_cursor_y * g_char_h, w * g_char_w, g_char_h, g_bg_color);
-            break;
-        }
-
-        case 'L': {
-            /* Insert Line (IL) */
-            int count = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] : 1;
-            if (g_cursor_y >= g_scroll_top && g_cursor_y <= g_scroll_bottom) {
-                for (int i = 0; i < count; i++) {
-                    fb_scroll_down_region(g_cursor_y, g_scroll_bottom);
-                }
+        } else if (mode == 1) {
+            /* Clear from start of screen to cursor */
+            if (g_cursor_y > 0) {
+                fb_fill_rect(0, 0, g_fb_width, g_cursor_y * g_char_h, g_bg_color);
             }
-            break;
+            fb_fill_rect(0, g_cursor_y * g_char_h, (g_cursor_x + 1) * g_char_w, g_char_h, g_bg_color);
         }
+        break;
+    }
 
-        case 'M': {
-            /* Delete Line (DL) */
-            int count = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] : 1;
-            if (g_cursor_y >= g_scroll_top && g_cursor_y <= g_scroll_bottom) {
-                for (int i = 0; i < count; i++) {
-                    fb_scroll_up_region(g_cursor_y, g_scroll_bottom);
-                }
+    case 'K': {
+        /* Erase in Line */
+        int mode = (g_ansi_param_count > 0) ? g_ansi_params[0] : 0;
+        if (mode == 0) {
+            /* Clear cursor to end of line */
+            if (g_cursor_x < g_cols) {
+                fb_fill_rect(g_cursor_x * g_char_w, g_cursor_y * g_char_h, (g_cols - g_cursor_x) * g_char_w, g_char_h,
+                             g_bg_color);
             }
-            break;
+        } else if (mode == 1) {
+            /* Clear start of line to cursor */
+            fb_fill_rect(0, g_cursor_y * g_char_h, (g_cursor_x + 1) * g_char_w, g_char_h, g_bg_color);
+        } else if (mode == 2) {
+            /* Clear entire line */
+            fb_fill_rect(0, g_cursor_y * g_char_h, g_fb_width, g_char_h, g_bg_color);
         }
+        break;
+    }
 
-        case '@': {
-            /* Insert Characters (ICH) */
-            int count = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] : 1;
-            if (g_cursor_x < g_cols && count > 0) {
-                size_t shift = (size_t)count;
-                if (g_cursor_x + shift < g_cols) {
-                    for (size_t x = g_cols - 1; x >= g_cursor_x + shift; x--) {
-                        /* Copy pixel column */
-                        for (size_t y = 0; y < g_char_h; y++) {
-                            uint32_t *row = &g_fb_ptr[(g_cursor_y * g_char_h + y) * g_fb_pitch_pixels];
-                            for (size_t sx = 0; sx < g_char_w; sx++) {
-                                row[x * g_char_w + sx] = row[(x - shift) * g_char_w + sx];
-                            }
+    case 'X': {
+        /* Erase Characters */
+        int count = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] : 1;
+        size_t w = (g_cursor_x + count <= g_cols) ? (size_t)count : (g_cols - g_cursor_x);
+        fb_fill_rect(g_cursor_x * g_char_w, g_cursor_y * g_char_h, w * g_char_w, g_char_h, g_bg_color);
+        break;
+    }
+
+    case 'L': {
+        /* Insert Line (IL) */
+        int count = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] : 1;
+        if (g_cursor_y >= g_scroll_top && g_cursor_y <= g_scroll_bottom) {
+            for (int i = 0; i < count; i++) {
+                fb_scroll_down_region(g_cursor_y, g_scroll_bottom);
+            }
+        }
+        break;
+    }
+
+    case 'M': {
+        /* Delete Line (DL) */
+        int count = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] : 1;
+        if (g_cursor_y >= g_scroll_top && g_cursor_y <= g_scroll_bottom) {
+            for (int i = 0; i < count; i++) {
+                fb_scroll_up_region(g_cursor_y, g_scroll_bottom);
+            }
+        }
+        break;
+    }
+
+    case '@': {
+        /* Insert Characters (ICH) */
+        int count = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] : 1;
+        if (g_cursor_x < g_cols && count > 0) {
+            size_t shift = (size_t)count;
+            if (g_cursor_x + shift < g_cols) {
+                for (size_t x = g_cols - 1; x >= g_cursor_x + shift; x--) {
+                    /* Copy pixel column */
+                    for (size_t y = 0; y < g_char_h; y++) {
+                        uint32_t *row = &g_fb_ptr[(g_cursor_y * g_char_h + y) * g_fb_pitch_pixels];
+                        for (size_t sx = 0; sx < g_char_w; sx++) {
+                            row[x * g_char_w + sx] = row[(x - shift) * g_char_w + sx];
                         }
                     }
                 }
-                fb_fill_rect(g_cursor_x * g_char_w, g_cursor_y * g_char_h, shift * g_char_w, g_char_h, g_bg_color);
             }
-            break;
+            fb_fill_rect(g_cursor_x * g_char_w, g_cursor_y * g_char_h, shift * g_char_w, g_char_h, g_bg_color);
         }
+        break;
+    }
 
-        case 'P': {
-            /* Delete Characters (DCH) */
-            int count = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] : 1;
-            if (g_cursor_x < g_cols && count > 0) {
-                size_t shift = (size_t)count;
-                if (g_cursor_x + shift < g_cols) {
-                    for (size_t x = g_cursor_x; x + shift < g_cols; x++) {
-                        for (size_t y = 0; y < g_char_h; y++) {
-                            uint32_t *row = &g_fb_ptr[(g_cursor_y * g_char_h + y) * g_fb_pitch_pixels];
-                            for (size_t sx = 0; sx < g_char_w; sx++) {
-                                row[x * g_char_w + sx] = row[(x + shift) * g_char_w + sx];
-                            }
+    case 'P': {
+        /* Delete Characters (DCH) */
+        int count = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] : 1;
+        if (g_cursor_x < g_cols && count > 0) {
+            size_t shift = (size_t)count;
+            if (g_cursor_x + shift < g_cols) {
+                for (size_t x = g_cursor_x; x + shift < g_cols; x++) {
+                    for (size_t y = 0; y < g_char_h; y++) {
+                        uint32_t *row = &g_fb_ptr[(g_cursor_y * g_char_h + y) * g_fb_pitch_pixels];
+                        for (size_t sx = 0; sx < g_char_w; sx++) {
+                            row[x * g_char_w + sx] = row[(x + shift) * g_char_w + sx];
                         }
                     }
-                    fb_fill_rect((g_cols - shift) * g_char_w, g_cursor_y * g_char_h, shift * g_char_w, g_char_h, g_bg_color);
-                } else {
-                    fb_fill_rect(g_cursor_x * g_char_w, g_cursor_y * g_char_h, (g_cols - g_cursor_x) * g_char_w, g_char_h, g_bg_color);
                 }
-            }
-            break;
-        }
-
-        case 'r': {
-            /* Set Top and Bottom Margins (DECSTBM) */
-            int top = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] - 1 : 0;
-            int bottom = (g_ansi_param_count > 1 && g_ansi_params[1] > 0) ? g_ansi_params[1] - 1 : (int)(g_rows - 1);
-            if (top >= 0 && top < (int)g_rows && bottom > top && bottom < (int)g_rows) {
-                g_scroll_top = (size_t)top;
-                g_scroll_bottom = (size_t)bottom;
+                fb_fill_rect((g_cols - shift) * g_char_w, g_cursor_y * g_char_h, shift * g_char_w, g_char_h,
+                             g_bg_color);
             } else {
-                g_scroll_top = 0;
-                g_scroll_bottom = (g_rows > 0) ? g_rows - 1 : 0;
+                fb_fill_rect(g_cursor_x * g_char_w, g_cursor_y * g_char_h, (g_cols - g_cursor_x) * g_char_w, g_char_h,
+                             g_bg_color);
             }
-            g_cursor_x = 0;
-            g_cursor_y = g_scroll_top;
-            break;
         }
+        break;
+    }
 
-        case 's': {
-            /* Save Cursor Position */
-            g_saved_cursor_x = g_cursor_x;
-            g_saved_cursor_y = g_cursor_y;
-            break;
+    case 'r': {
+        /* Set Top and Bottom Margins (DECSTBM) */
+        int top = (g_ansi_param_count > 0 && g_ansi_params[0] > 0) ? g_ansi_params[0] - 1 : 0;
+        int bottom = (g_ansi_param_count > 1 && g_ansi_params[1] > 0) ? g_ansi_params[1] - 1 : (int)(g_rows - 1);
+        if (top >= 0 && top < (int)g_rows && bottom > top && bottom < (int)g_rows) {
+            g_scroll_top = (size_t)top;
+            g_scroll_bottom = (size_t)bottom;
+        } else {
+            g_scroll_top = 0;
+            g_scroll_bottom = (g_rows > 0) ? g_rows - 1 : 0;
         }
+        g_cursor_x = 0;
+        g_cursor_y = g_scroll_top;
+        break;
+    }
 
-        case 'u': {
-            /* Restore Cursor Position */
-            g_cursor_x = (g_saved_cursor_x < g_cols) ? g_saved_cursor_x : g_cols - 1;
-            g_cursor_y = (g_saved_cursor_y < g_rows) ? g_saved_cursor_y : g_rows - 1;
-            break;
-        }
+    case 's': {
+        /* Save Cursor Position */
+        g_saved_cursor_x = g_cursor_x;
+        g_saved_cursor_y = g_cursor_y;
+        break;
+    }
 
-        default:
-            break;
+    case 'u': {
+        /* Restore Cursor Position */
+        g_cursor_x = (g_saved_cursor_x < g_cols) ? g_saved_cursor_x : g_cols - 1;
+        g_cursor_y = (g_saved_cursor_y < g_rows) ? g_saved_cursor_y : g_rows - 1;
+        break;
+    }
+
+    default:
+        break;
     }
 }
 
@@ -969,7 +1076,8 @@ static void render_glyph(uint8_t glyph_idx) {
 }
 
 static void fb_console_putc_internal(char c) {
-    if (!g_fb_ptr) return;
+    if (!g_fb_ptr)
+        return;
 
     /* UTF-8 Multi-byte Decoding */
     uint8_t byte = (uint8_t)c;
@@ -1177,7 +1285,8 @@ void fb_console_putc(char c) {
 }
 
 void fb_console_puts(const char *str) {
-    if (!str) return;
+    if (!str)
+        return;
     while (*str) {
         fb_console_putc_internal(*str++);
     }
@@ -1185,7 +1294,8 @@ void fb_console_puts(const char *str) {
 }
 
 void fb_console_write(const char *buf, size_t len) {
-    if (!buf || len == 0) return;
+    if (!buf || len == 0)
+        return;
     for (size_t i = 0; i < len; i++) {
         fb_console_putc_internal(buf[i]);
     }
@@ -1196,13 +1306,48 @@ void fb_console_clear(void) {
     fb_clear(g_bg_color);
 }
 
-
 void framebuffer_init_backbuffer(void) {
-    if (!g_fb || !g_fb->address || g_backbuffer) return;
+    if (!g_fb || !g_fb->address || g_backbuffer)
+        return;
 
     size_t total_bytes = g_fb_height * g_fb_pitch_pixels * sizeof(uint32_t);
     size_t pages_needed = (total_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
 
+    /* =========================================================================
+     * CRITICAL FIX: Remap framebuffer VRAM pages with Write-Combining (WC)
+     *
+     * Limine maps the framebuffer through HHDM with default Write-Back (WB)
+     * caching attributes. On QEMU this works because "VRAM" is just RAM.
+     * On real GPUs (NVIDIA Quadro, Intel HD Graphics, etc.), VRAM is an MMIO
+     * region on the PCIe bus. The GPU display controller reads VRAM directly
+     * from the graphics card memory, NOT from CPU cache. If we write to VRAM
+     * with WB caching, the data stays in CPU L1/L2 cache and NEVER reaches
+     * the display controller — resulting in a frozen/blank screen.
+     *
+     * We remap every page of the VRAM region with PWT+PCD flags (bits 3+4),
+     * which gives us Uncacheable (UC) behavior. This guarantees that every
+     * store to g_fb_ptr immediately reaches VRAM through the PCIe bus.
+     * ========================================================================= */
+    uintptr_t fb_virt = (uintptr_t)g_fb->address;
+    uintptr_t fb_phys = VIRT_TO_PHYS(fb_virt);
+    size_t fb_total_bytes = g_fb_height * g_fb->pitch;
+    size_t fb_pages = (fb_total_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
+
+    for (size_t i = 0; i < fb_pages; i++) {
+        uintptr_t vaddr = fb_virt + i * PAGE_SIZE;
+        uintptr_t paddr = fb_phys + i * PAGE_SIZE;
+        /* Remap with PWT (bit 3) + PCD (bit 4) = Uncacheable, bypasses CPU cache entirely */
+        vmm_map_page(&g_kernel_pagemap, vaddr, paddr,
+                     VMM_FLAG_PRESENT | VMM_FLAG_WRITABLE | VMM_FLAG_WRITE_THROUGH | VMM_FLAG_CACHE_DISABLE);
+    }
+
+    /* Flush TLB to activate new cache attributes */
+    write_cr3(read_cr3());
+
+    klog_info("FB: VRAM remapped as Uncacheable (%zu pages, phys 0x%lx, virt 0x%lx)", fb_pages, (unsigned long)fb_phys,
+              (unsigned long)fb_virt);
+
+    /* Allocate in-RAM shadow backbuffer (this one stays Write-Back for fast rendering) */
     uintptr_t phys = pmm_alloc_pages(pages_needed);
     if (!phys) {
         klog_warn("FB: Failed to allocate %zu pages for backbuffer!", pages_needed);
@@ -1217,10 +1362,5 @@ void framebuffer_init_backbuffer(void) {
         memcpy(g_backbuffer, g_fb_ptr, total_bytes);
     }
 
-    /* Set Write-Combining on the physical framebuffer VRAM mapping */
-    vmm_set_range_flags(&g_kernel_pagemap, (uintptr_t)g_fb_ptr, total_bytes,
-                        VMM_FLAG_WRITABLE | VMM_FLAG_WRITE_COMBINING);
-
-    klog_info("FB: Backbuffer enabled (%zu KiB in RAM, Write-Combining active)",
-              total_bytes / 1024);
+    klog_info("FB: Backbuffer enabled (%zu KiB in RAM, Shadow Buffer active)", total_bytes / 1024);
 }

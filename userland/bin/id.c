@@ -4,7 +4,8 @@
 #include <grp.h>
 
 int main(int argc, char *argv[]) {
-    (void)argc; (void)argv;
+    (void)argc;
+    (void)argv;
 
     uid_t uid = getuid();
     gid_t gid = getgid();

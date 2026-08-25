@@ -6,8 +6,8 @@
 
 typedef enum {
     LOG_LEVEL_DEBUG = 0,
-    LOG_LEVEL_INFO  = 1,
-    LOG_LEVEL_WARN  = 2,
+    LOG_LEVEL_INFO = 1,
+    LOG_LEVEL_WARN = 2,
     LOG_LEVEL_ERROR = 3,
     LOG_LEVEL_PANIC = 4,
 } log_level_t;
@@ -24,9 +24,9 @@ size_t klog_read_ring(char *dst, size_t max_len, size_t offset);
 size_t klog_get_ring_size(void);
 
 #define klog_debug(fmt, ...) klog(LOG_LEVEL_DEBUG, fmt, ##__VA_ARGS__)
-#define klog_info(fmt, ...)  klog(LOG_LEVEL_INFO,  fmt, ##__VA_ARGS__)
-#define klog_warn(fmt, ...)  klog(LOG_LEVEL_WARN,  fmt, ##__VA_ARGS__)
+#define klog_info(fmt, ...) klog(LOG_LEVEL_INFO, fmt, ##__VA_ARGS__)
+#define klog_warn(fmt, ...) klog(LOG_LEVEL_WARN, fmt, ##__VA_ARGS__)
 #define klog_error(fmt, ...) klog(LOG_LEVEL_ERROR, fmt, ##__VA_ARGS__)
-#define klog_err(fmt, ...)   klog(LOG_LEVEL_ERROR, fmt, ##__VA_ARGS__)
+#define klog_err(fmt, ...) klog(LOG_LEVEL_ERROR, fmt, ##__VA_ARGS__)
 
 #endif /* SZPONTOS_KERNEL_KPRINT_H */

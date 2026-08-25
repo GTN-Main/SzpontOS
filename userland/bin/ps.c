@@ -4,7 +4,8 @@
 #include <sys/sysinfo.h>
 
 int main(int argc, char *argv[]) {
-    (void)argc; (void)argv;
+    (void)argc;
+    (void)argv;
 
     proc_info_t procs[64];
     int count = getprocs(procs, 64);
@@ -20,11 +21,12 @@ int main(int argc, char *argv[]) {
         const char *username = pwd ? pwd->pw_name : "unknown";
 
         const char *stat = "R";
-        if (procs[i].state == 1) stat = "Z";
-        else if (procs[i].state == 2) stat = "D";
+        if (procs[i].state == 1)
+            stat = "Z";
+        else if (procs[i].state == 2)
+            stat = "D";
 
-        printf("%-5d %-5d %-10s %-6s %s\n",
-               procs[i].pid, procs[i].ppid, username, stat, procs[i].name);
+        printf("%-5d %-5d %-10s %-6s %s\n", procs[i].pid, procs[i].ppid, username, stat, procs[i].name);
     }
 
     return 0;

@@ -34,8 +34,7 @@ void pmm_init(struct limine_memmap_response *memmap, uint64_t hhdm_offset) {
     /* Find highest physical address from usable memory regions */
     for (size_t i = 0; i < memmap->entry_count; i++) {
         struct limine_memmap_entry *entry = memmap->entries[i];
-        if (entry->type == LIMINE_MEMMAP_USABLE ||
-            entry->type == LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE) {
+        if (entry->type == LIMINE_MEMMAP_USABLE || entry->type == LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE) {
             uintptr_t top = entry->base + entry->length;
             if (top > max_addr) {
                 max_addr = top;
@@ -117,7 +116,8 @@ void pmm_init(struct limine_memmap_response *memmap, uint64_t hhdm_offset) {
     }
 
     if (!found_bitmap) {
-        panic("PMM: Could not find contiguous physical memory for allocation bitmap (%lu bytes required)!", bitmap_size);
+        panic("PMM: Could not find contiguous physical memory for allocation bitmap (%lu bytes required)!",
+              bitmap_size);
     }
 
     /* Access bitmap via HHDM virtual offset */
@@ -169,10 +169,8 @@ void pmm_init(struct limine_memmap_response *memmap, uint64_t hhdm_offset) {
     }
 
     klog_info("PMM initialized: %lu MiB total, %lu MiB free, %lu MiB used (bitmap at phys 0x%016lx)",
-              (g_total_pages * PAGE_SIZE) / (1024 * 1024),
-              ((g_total_pages - g_used_pages) * PAGE_SIZE) / (1024 * 1024),
-              (g_used_pages * PAGE_SIZE) / (1024 * 1024),
-              (unsigned long)bitmap_phys);
+              (g_total_pages * PAGE_SIZE) / (1024 * 1024), ((g_total_pages - g_used_pages) * PAGE_SIZE) / (1024 * 1024),
+              (g_used_pages * PAGE_SIZE) / (1024 * 1024), (unsigned long)bitmap_phys);
 }
 
 uintptr_t pmm_alloc_page(void) {
@@ -194,8 +192,10 @@ uintptr_t pmm_alloc_page(void) {
 }
 
 uintptr_t pmm_alloc_pages(size_t count) {
-    if (count == 0) return 0;
-    if (count == 1) return pmm_alloc_page();
+    if (count == 0)
+        return 0;
+    if (count == 1)
+        return pmm_alloc_page();
 
     spinlock_acquire(&g_pmm_lock);
 
@@ -204,7 +204,8 @@ uintptr_t pmm_alloc_pages(size_t count) {
 
     for (size_t i = 0; i < g_total_pages; i++) {
         if (!bitmap_test(i)) {
-            if (consecutive == 0) start_idx = i;
+            if (consecutive == 0)
+                start_idx = i;
             consecutive++;
             if (consecutive == count) {
                 for (size_t p = 0; p < count; p++) {
@@ -225,7 +226,8 @@ uintptr_t pmm_alloc_pages(size_t count) {
 
 void pmm_free_page(uintptr_t phys_addr) {
     size_t page_idx = phys_addr / PAGE_SIZE;
-    if (page_idx >= g_total_pages) return;
+    if (page_idx >= g_total_pages)
+        return;
 
     spinlock_acquire(&g_pmm_lock);
     if (bitmap_test(page_idx)) {

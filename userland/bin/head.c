@@ -14,7 +14,8 @@ static void head_fd(int fd, int max_lines) {
             putchar(buf[i]);
             if (buf[i] == '\n') {
                 line_count++;
-                if (line_count >= max_lines) break;
+                if (line_count >= max_lines)
+                    break;
             }
         }
     }
@@ -26,7 +27,8 @@ int main(int argc, char *argv[]) {
 
     if (argc > 2 && strcmp(argv[1], "-n") == 0) {
         max_lines = atoi(argv[2]);
-        if (max_lines <= 0) max_lines = 10;
+        if (max_lines <= 0)
+            max_lines = 10;
         first_file = 3;
     }
 

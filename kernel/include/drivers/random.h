@@ -10,7 +10,7 @@
 #include <kernel/types.h>
 
 #define GRND_NONBLOCK 0x0001
-#define GRND_RANDOM   0x0002
+#define GRND_RANDOM 0x0002
 
 void random_init(void);
 void random_add_entropy(uint64_t data);

@@ -126,7 +126,8 @@ static void e1000_tx_init(void) {
 }
 
 int e1000_send(netif_t *netif, net_buf_t *buf) {
-    if (!buf || buf->len == 0 || !g_tx_descs) return -1;
+    if (!buf || buf->len == 0 || !g_tx_descs)
+        return -1;
     (void)netif;
 
     uint16_t cur = g_tx_cur;
@@ -148,7 +149,8 @@ int e1000_send(netif_t *netif, net_buf_t *buf) {
 }
 
 void e1000_poll(void) {
-    if (!g_rx_descs) return;
+    if (!g_rx_descs)
+        return;
 
     while (g_rx_descs[g_rx_cur].status & 0x01) { /* DD - Descriptor Done */
         uint8_t *pkt_data = g_rx_buffers[g_rx_cur];
@@ -176,7 +178,8 @@ void e1000_poll(void) {
 }
 
 bool e1000_init(pci_device_t *pci_dev) {
-    if (!pci_dev) return false;
+    if (!pci_dev)
+        return false;
 
     g_e1000_pci = pci_dev;
     pci_enable_bus_mastering(pci_dev);
@@ -188,8 +191,7 @@ bool e1000_init(pci_device_t *pci_dev) {
     /* Map 128 KB MMIO space in kernel pagemap */
     extern pagemap_t g_kernel_pagemap;
     for (size_t i = 0; i < 32; i++) {
-        vmm_map_page(&g_kernel_pagemap, g_e1000_mmio_base + (i * PAGE_SIZE),
-                     mmio_phys + (i * PAGE_SIZE),
+        vmm_map_page(&g_kernel_pagemap, g_e1000_mmio_base + (i * PAGE_SIZE), mmio_phys + (i * PAGE_SIZE),
                      VMM_FLAG_PRESENT | VMM_FLAG_WRITABLE | VMM_FLAG_CACHE_DISABLE);
     }
 
@@ -227,7 +229,7 @@ bool e1000_init(pci_device_t *pci_dev) {
 
     netif_register(&g_e1000_netif);
 
-    klog_info("E1000: Intel 8254x NIC initialized: eth0, MAC %02x:%02x:%02x:%02x:%02x:%02x (IP 10.0.2.15/24)",
-              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    klog_info("E1000: Intel 8254x NIC initialized: eth0, MAC %02x:%02x:%02x:%02x:%02x:%02x (IP 10.0.2.15/24)", mac[0],
+              mac[1], mac[2], mac[3], mac[4], mac[5]);
     return true;
 }

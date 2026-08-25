@@ -9,9 +9,11 @@ typedef struct {
 } local_regex_t;
 
 int regcomp(regex_t *preg, const char *regex, int cflags) {
-    if (!preg || !regex) return REG_BADPAT;
+    if (!preg || !regex)
+        return REG_BADPAT;
     local_regex_t *r = (local_regex_t *)malloc(sizeof(local_regex_t));
-    if (!r) return REG_ESPACE;
+    if (!r)
+        return REG_ESPACE;
     r->pattern = strdup(regex);
     r->flags = cflags;
     preg->re_g = r;
@@ -21,7 +23,8 @@ int regcomp(regex_t *preg, const char *regex, int cflags) {
 
 int regexec(const regex_t *preg, const char *string, size_t nmatch, regmatch_t pmatch[], int eflags) {
     (void)eflags;
-    if (!preg || !preg->re_g || !string) return REG_NOMATCH;
+    if (!preg || !preg->re_g || !string)
+        return REG_NOMATCH;
     local_regex_t *r = (local_regex_t *)preg->re_g;
 
     const char *found = NULL;
@@ -42,7 +45,8 @@ int regexec(const regex_t *preg, const char *string, size_t nmatch, regmatch_t p
 }
 
 size_t regerror(int errcode, const regex_t *preg, char *errbuf, size_t errbuf_size) {
-    (void)errcode; (void)preg;
+    (void)errcode;
+    (void)preg;
     if (errbuf && errbuf_size > 0) {
         snprintf(errbuf, errbuf_size, "Regex error");
         return strlen(errbuf);
@@ -53,7 +57,8 @@ size_t regerror(int errcode, const regex_t *preg, char *errbuf, size_t errbuf_si
 void regfree(regex_t *preg) {
     if (preg && preg->re_g) {
         local_regex_t *r = (local_regex_t *)preg->re_g;
-        if (r->pattern) free(r->pattern);
+        if (r->pattern)
+            free(r->pattern);
         free(r);
         preg->re_g = NULL;
     }

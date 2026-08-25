@@ -5,12 +5,13 @@
 #include <unistd.h>
 
 #define MAX_TAIL_LINES 128
-#define MAX_LINE_LEN   256
+#define MAX_LINE_LEN 256
 
 static char g_tail_lines[MAX_TAIL_LINES][MAX_LINE_LEN];
 
 static void tail_fd(int fd, int max_lines) {
-    if (max_lines > MAX_TAIL_LINES) max_lines = MAX_TAIL_LINES;
+    if (max_lines > MAX_TAIL_LINES)
+        max_lines = MAX_TAIL_LINES;
     int total_lines = 0;
 
     char current_line[MAX_LINE_LEN];
@@ -58,7 +59,8 @@ int main(int argc, char *argv[]) {
 
     if (argc > 2 && strcmp(argv[1], "-n") == 0) {
         max_lines = atoi(argv[2]);
-        if (max_lines <= 0) max_lines = 10;
+        if (max_lines <= 0)
+            max_lines = 10;
         first_file = 3;
     }
 

@@ -27,6 +27,8 @@ int munmap(void *addr, size_t length) {
 }
 
 int mprotect(void *addr, size_t len, int prot) {
-    (void)addr; (void)len; (void)prot;
+    (void)addr;
+    (void)len;
+    (void)prot;
     return 0;
 }

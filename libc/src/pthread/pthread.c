@@ -55,7 +55,8 @@ static pthread_internal_t g_main_thread;
 static int g_pthreads_initialized = 0;
 
 static void pthread_init_main_thread(void) {
-    if (g_pthreads_initialized) return;
+    if (g_pthreads_initialized)
+        return;
     memset(&g_main_thread, 0, sizeof(pthread_internal_t));
     g_main_thread.tid = (pthread_t)getpid();
     g_main_thread.self = &g_main_thread;
@@ -91,12 +92,14 @@ static int __pthread_trampoline(void *arg) {
 }
 
 int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_routine)(void *), void *arg) {
-    if (!thread || !start_routine) return EINVAL;
+    if (!thread || !start_routine)
+        return EINVAL;
     pthread_init_main_thread();
 
     size_t stack_size = (attr && attr->stacksize) ? attr->stacksize : DEFAULT_STACK_SIZE;
     void *stack_base = malloc(stack_size);
-    if (!stack_base) return ENOMEM;
+    if (!stack_base)
+        return ENOMEM;
 
     pthread_internal_t *t = (pthread_internal_t *)malloc(sizeof(pthread_internal_t));
     if (!t) {
@@ -115,8 +118,8 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_
     uintptr_t stack_top = (uintptr_t)stack_base + stack_size - 16;
     stack_top &= ~15ULL;
 
-    int flags = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD |
-                CLONE_SETTLS | CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID;
+    int flags = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SETTLS | CLONE_PARENT_SETTID |
+                CLONE_CHILD_CLEARTID;
 
     int child_tid = 0;
     int res = __clone(__pthread_trampoline, (void *)stack_top, flags, t, &child_tid, t, (int *)&t->clear_child_tid);
@@ -159,7 +162,8 @@ void pthread_exit(void *retval) {
     }
 
     if (self->detached) {
-        if (self->stack_base) free(self->stack_base);
+        if (self->stack_base)
+            free(self->stack_base);
         free(self);
     }
 
@@ -182,8 +186,10 @@ int pthread_join(pthread_t thread, void **retval) {
     }
     __sync_lock_release(&g_list_lock);
 
-    if (!curr) return ESRCH;
-    if (curr->detached) return EINVAL;
+    if (!curr)
+        return ESRCH;
+    if (curr->detached)
+        return EINVAL;
 
     /* Wait on clear_child_tid futex until the child thread exits */
     while (curr->clear_child_tid != 0) {
@@ -202,12 +208,15 @@ int pthread_join(pthread_t thread, void **retval) {
         g_thread_list = curr->next;
     } else {
         pthread_internal_t *prev = g_thread_list;
-        while (prev && prev->next != curr) prev = prev->next;
-        if (prev) prev->next = curr->next;
+        while (prev && prev->next != curr)
+            prev = prev->next;
+        if (prev)
+            prev->next = curr->next;
     }
     __sync_lock_release(&g_list_lock);
 
-    if (curr->stack_base) free(curr->stack_base);
+    if (curr->stack_base)
+        free(curr->stack_base);
     free(curr);
 
     return 0;
@@ -244,9 +253,11 @@ int pthread_yield(void) {
 }
 
 int pthread_once(pthread_once_t *once_control, void (*init_routine)(void)) {
-    if (!once_control || !init_routine) return EINVAL;
+    if (!once_control || !init_routine)
+        return EINVAL;
 
-    if (*once_control == 2) return 0; /* Already initialized */
+    if (*once_control == 2)
+        return 0; /* Already initialized */
 
     if (__sync_bool_compare_and_swap(once_control, 0, 1)) {
         init_routine();
@@ -265,7 +276,8 @@ int pthread_once(pthread_once_t *once_control, void (*init_routine)(void)) {
  * ========================================================================= */
 
 int pthread_attr_init(pthread_attr_t *attr) {
-    if (!attr) return EINVAL;
+    if (!attr)
+        return EINVAL;
     attr->detachstate = PTHREAD_CREATE_JOINABLE;
     attr->stacksize = DEFAULT_STACK_SIZE;
     attr->stackaddr = NULL;
@@ -273,31 +285,36 @@ int pthread_attr_init(pthread_attr_t *attr) {
 }
 
 int pthread_attr_destroy(pthread_attr_t *attr) {
-    if (!attr) return EINVAL;
+    if (!attr)
+        return EINVAL;
     memset(attr, 0, sizeof(pthread_attr_t));
     return 0;
 }
 
 int pthread_attr_setstacksize(pthread_attr_t *attr, size_t stacksize) {
-    if (!attr || stacksize < 4096) return EINVAL;
+    if (!attr || stacksize < 4096)
+        return EINVAL;
     attr->stacksize = stacksize;
     return 0;
 }
 
 int pthread_attr_getstacksize(const pthread_attr_t *attr, size_t *stacksize) {
-    if (!attr || !stacksize) return EINVAL;
+    if (!attr || !stacksize)
+        return EINVAL;
     *stacksize = attr->stacksize;
     return 0;
 }
 
 int pthread_attr_setdetachstate(pthread_attr_t *attr, int detachstate) {
-    if (!attr || (detachstate != PTHREAD_CREATE_JOINABLE && detachstate != PTHREAD_CREATE_DETACHED)) return EINVAL;
+    if (!attr || (detachstate != PTHREAD_CREATE_JOINABLE && detachstate != PTHREAD_CREATE_DETACHED))
+        return EINVAL;
     attr->detachstate = detachstate;
     return 0;
 }
 
 int pthread_attr_getdetachstate(const pthread_attr_t *attr, int *detachstate) {
-    if (!attr || !detachstate) return EINVAL;
+    if (!attr || !detachstate)
+        return EINVAL;
     *detachstate = attr->detachstate;
     return 0;
 }
@@ -307,7 +324,8 @@ int pthread_attr_getdetachstate(const pthread_attr_t *attr, int *detachstate) {
  * ========================================================================= */
 
 int pthread_key_create(pthread_key_t *key, void (*destructor)(void *)) {
-    if (!key) return EINVAL;
+    if (!key)
+        return EINVAL;
 
     while (__sync_lock_test_and_set(&g_key_lock, 1)) {
         __builtin_ia32_pause();
@@ -325,13 +343,15 @@ int pthread_key_create(pthread_key_t *key, void (*destructor)(void *)) {
 
     __sync_lock_release(&g_key_lock);
 
-    if (found < 0) return EAGAIN;
+    if (found < 0)
+        return EAGAIN;
     *key = (pthread_key_t)found;
     return 0;
 }
 
 int pthread_key_delete(pthread_key_t key) {
-    if (key >= MAX_PTHREAD_KEYS) return EINVAL;
+    if (key >= MAX_PTHREAD_KEYS)
+        return EINVAL;
 
     while (__sync_lock_test_and_set(&g_key_lock, 1)) {
         __builtin_ia32_pause();
@@ -343,13 +363,15 @@ int pthread_key_delete(pthread_key_t key) {
 }
 
 void *pthread_getspecific(pthread_key_t key) {
-    if (key >= MAX_PTHREAD_KEYS) return NULL;
+    if (key >= MAX_PTHREAD_KEYS)
+        return NULL;
     pthread_internal_t *self = get_current_thread();
     return self->tsd[key];
 }
 
 int pthread_setspecific(pthread_key_t key, const void *value) {
-    if (key >= MAX_PTHREAD_KEYS) return EINVAL;
+    if (key >= MAX_PTHREAD_KEYS)
+        return EINVAL;
     pthread_internal_t *self = get_current_thread();
     self->tsd[key] = (void *)value;
     return 0;

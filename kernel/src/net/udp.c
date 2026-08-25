@@ -11,12 +11,12 @@
 extern socket_t *socket_find_udp(uint32_t local_ip, uint16_t local_port);
 extern int socket_enqueue_data(socket_t *sock, const void *data, size_t len, uint32_t from_ip, uint16_t from_port);
 
-void udp_init(void) {
-}
+void udp_init(void) {}
 
 void udp_input(netif_t *netif, net_buf_t *buf) {
     if (!netif || !buf || buf->len < sizeof(udp_hdr_t)) {
-        if (buf) net_buf_free(buf);
+        if (buf)
+            net_buf_free(buf);
         return;
     }
 
@@ -44,7 +44,8 @@ void udp_input(netif_t *netif, net_buf_t *buf) {
 }
 
 int udp_output(uint32_t src_ip, uint16_t src_port, uint32_t dest_ip, uint16_t dest_port, net_buf_t *payload) {
-    if (!payload) return -1;
+    if (!payload)
+        return -1;
 
     net_buf_t *tx_buf = net_buf_alloc();
     if (!tx_buf) {

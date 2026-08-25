@@ -40,7 +40,7 @@ int main(int argc, char *argv[]) {
 
     /* 2. Syscall getrandom */
     uint8_t buf2[16];
-    long ret = (long)__syscall3(SYS_getrandom, (int64_t)buf2, sizeof(buf2), 0);
+    long ret = syscall(SYS_getrandom, buf2, sizeof(buf2), 0);
     if (ret != sizeof(buf2)) {
         fprintf(stderr, "randtest: getrandom syscall failed (ret=%ld)\n", ret);
         return 1;

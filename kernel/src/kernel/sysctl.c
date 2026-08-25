@@ -30,9 +30,10 @@ static uint64_t g_hw_ncpu = 1;
 static uint64_t g_hw_pagesize = 4096;
 static int g_net_ip_forwarding = 0;
 
-static int handle_hw_physmem(sysctl_node_t *node, void *oldp, size_t *oldlenp,
-                             const void *newp, size_t newlen) {
-    (void)node; (void)newp; (void)newlen;
+static int handle_hw_physmem(sysctl_node_t *node, void *oldp, size_t *oldlenp, const void *newp, size_t newlen) {
+    (void)node;
+    (void)newp;
+    (void)newlen;
     uint64_t total = pmm_get_total_memory();
     if (oldp && oldlenp) {
         size_t copysz = (*oldlenp < sizeof(uint64_t)) ? *oldlenp : sizeof(uint64_t);
@@ -42,9 +43,10 @@ static int handle_hw_physmem(sysctl_node_t *node, void *oldp, size_t *oldlenp,
     return 0;
 }
 
-static int handle_hw_usermem(sysctl_node_t *node, void *oldp, size_t *oldlenp,
-                             const void *newp, size_t newlen) {
-    (void)node; (void)newp; (void)newlen;
+static int handle_hw_usermem(sysctl_node_t *node, void *oldp, size_t *oldlenp, const void *newp, size_t newlen) {
+    (void)node;
+    (void)newp;
+    (void)newlen;
     uint64_t free_mem = pmm_get_free_memory();
     if (oldp && oldlenp) {
         size_t copysz = (*oldlenp < sizeof(uint64_t)) ? *oldlenp : sizeof(uint64_t);
@@ -54,10 +56,10 @@ static int handle_hw_usermem(sysctl_node_t *node, void *oldp, size_t *oldlenp,
     return 0;
 }
 
-int sysctl_register(const char *name, uint32_t type, uint32_t flags,
-                    void *val_ptr, size_t val_size, sysctl_handler_t handler,
-                    const char *description) {
-    if (!name) return -1;
+int sysctl_register(const char *name, uint32_t type, uint32_t flags, void *val_ptr, size_t val_size,
+                    sysctl_handler_t handler, const char *description) {
+    if (!name)
+        return -1;
     spinlock_acquire(&g_sysctl_lock);
     if (g_sysctl_count >= SYSCTL_MAX_NODES) {
         spinlock_release(&g_sysctl_lock);
@@ -86,9 +88,9 @@ int sysctl_register(const char *name, uint32_t type, uint32_t flags,
     return 0;
 }
 
-int sysctl_byname(const char *name, void *oldp, size_t *oldlenp,
-                  const void *newp, size_t newlen) {
-    if (!name) return -1;
+int sysctl_byname(const char *name, void *oldp, size_t *oldlenp, const void *newp, size_t newlen) {
+    if (!name)
+        return -1;
 
     spinlock_acquire(&g_sysctl_lock);
     sysctl_node_t *node = NULL;
@@ -157,7 +159,8 @@ int sysctl_byname(const char *name, void *oldp, size_t *oldlenp,
 }
 
 size_t sysctl_get_all(char *buf, size_t max_len) {
-    if (!buf || max_len == 0) return 0;
+    if (!buf || max_len == 0)
+        return 0;
     spinlock_acquire(&g_sysctl_lock);
 
     size_t off = 0;
@@ -196,22 +199,34 @@ void sysctl_init(void) {
     spinlock_init(&g_sysctl_lock);
     g_sysctl_count = 0;
 
-    sysctl_register("kern.ostype", CTLTYPE_STRING, CTLFLAG_RD, g_kern_ostype, sizeof(g_kern_ostype), NULL, "Operating system type");
-    sysctl_register("kern.osrelease", CTLTYPE_STRING, CTLFLAG_RD, g_kern_osrelease, sizeof(g_kern_osrelease), NULL, "Operating system release");
-    sysctl_register("kern.osrevision", CTLTYPE_ULONG, CTLFLAG_RD, &g_kern_osrevision, sizeof(g_kern_osrevision), NULL, "Operating system revision");
-    sysctl_register("kern.version", CTLTYPE_STRING, CTLFLAG_RD, g_kern_version, sizeof(g_kern_version), NULL, "Kernel build version");
-    sysctl_register("kern.hostname", CTLTYPE_STRING, CTLFLAG_RW, g_kern_hostname, sizeof(g_kern_hostname), NULL, "System hostname");
-    sysctl_register("kern.domainname", CTLTYPE_STRING, CTLFLAG_RW, g_kern_domainname, sizeof(g_kern_domainname), NULL, "System domain name");
-    sysctl_register("kern.maxproc", CTLTYPE_ULONG, CTLFLAG_RD, &g_kern_maxproc, sizeof(g_kern_maxproc), NULL, "Maximum number of processes");
+    sysctl_register("kern.ostype", CTLTYPE_STRING, CTLFLAG_RD, g_kern_ostype, sizeof(g_kern_ostype), NULL,
+                    "Operating system type");
+    sysctl_register("kern.osrelease", CTLTYPE_STRING, CTLFLAG_RD, g_kern_osrelease, sizeof(g_kern_osrelease), NULL,
+                    "Operating system release");
+    sysctl_register("kern.osrevision", CTLTYPE_ULONG, CTLFLAG_RD, &g_kern_osrevision, sizeof(g_kern_osrevision), NULL,
+                    "Operating system revision");
+    sysctl_register("kern.version", CTLTYPE_STRING, CTLFLAG_RD, g_kern_version, sizeof(g_kern_version), NULL,
+                    "Kernel build version");
+    sysctl_register("kern.hostname", CTLTYPE_STRING, CTLFLAG_RW, g_kern_hostname, sizeof(g_kern_hostname), NULL,
+                    "System hostname");
+    sysctl_register("kern.domainname", CTLTYPE_STRING, CTLFLAG_RW, g_kern_domainname, sizeof(g_kern_domainname), NULL,
+                    "System domain name");
+    sysctl_register("kern.maxproc", CTLTYPE_ULONG, CTLFLAG_RD, &g_kern_maxproc, sizeof(g_kern_maxproc), NULL,
+                    "Maximum number of processes");
 
-    sysctl_register("hw.machine", CTLTYPE_STRING, CTLFLAG_RD, g_hw_machine, sizeof(g_hw_machine), NULL, "Target machine architecture");
+    sysctl_register("hw.machine", CTLTYPE_STRING, CTLFLAG_RD, g_hw_machine, sizeof(g_hw_machine), NULL,
+                    "Target machine architecture");
     sysctl_register("hw.model", CTLTYPE_STRING, CTLFLAG_RD, g_hw_model, sizeof(g_hw_model), NULL, "Processor model");
     sysctl_register("hw.ncpu", CTLTYPE_ULONG, CTLFLAG_RD, &g_hw_ncpu, sizeof(g_hw_ncpu), NULL, "Number of active CPUs");
-    sysctl_register("hw.pagesize", CTLTYPE_ULONG, CTLFLAG_RD, &g_hw_pagesize, sizeof(g_hw_pagesize), NULL, "Hardware page size in bytes");
-    sysctl_register("hw.physmem", CTLTYPE_ULONG, CTLFLAG_RD, NULL, sizeof(uint64_t), handle_hw_physmem, "Total physical memory in bytes");
-    sysctl_register("hw.usermem", CTLTYPE_ULONG, CTLFLAG_RD, NULL, sizeof(uint64_t), handle_hw_usermem, "Available user memory in bytes");
+    sysctl_register("hw.pagesize", CTLTYPE_ULONG, CTLFLAG_RD, &g_hw_pagesize, sizeof(g_hw_pagesize), NULL,
+                    "Hardware page size in bytes");
+    sysctl_register("hw.physmem", CTLTYPE_ULONG, CTLFLAG_RD, NULL, sizeof(uint64_t), handle_hw_physmem,
+                    "Total physical memory in bytes");
+    sysctl_register("hw.usermem", CTLTYPE_ULONG, CTLFLAG_RD, NULL, sizeof(uint64_t), handle_hw_usermem,
+                    "Available user memory in bytes");
 
-    sysctl_register("net.inet.ip.forwarding", CTLTYPE_INT, CTLFLAG_RW, &g_net_ip_forwarding, sizeof(int), NULL, "IPv4 packet forwarding flag");
+    sysctl_register("net.inet.ip.forwarding", CTLTYPE_INT, CTLFLAG_RW, &g_net_ip_forwarding, sizeof(int), NULL,
+                    "IPv4 packet forwarding flag");
 
     klog_info("sysctl: MIB tree registered (%lu nodes initialized)", g_sysctl_count);
 }

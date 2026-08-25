@@ -10,9 +10,11 @@ static void dump_stack(uint64_t *rbp) {
     for (int i = 0; i < 10 && rbp; i++) {
         uint64_t rip = rbp[1];
         uint64_t next_rbp = rbp[0];
-        if (rip == 0) break;
+        if (rip == 0)
+            break;
         kprintf("  [%d] RIP: 0x%016lx, RBP: 0x%016lx\n", i, rip, (uint64_t)rbp);
-        if (next_rbp <= (uint64_t)rbp) break;
+        if (next_rbp <= (uint64_t)rbp)
+            break;
         rbp = (uint64_t *)next_rbp;
     }
 }
@@ -40,7 +42,7 @@ void panic(const char *fmt, ...) {
     fb_console_puts("\n\n");
 
     uint64_t *rbp;
-    __asm__ volatile ("mov %%rbp, %0" : "=r"(rbp));
+    __asm__ volatile("mov %%rbp, %0" : "=r"(rbp));
     dump_stack(rbp);
 
     fb_console_puts("\n  System halted. Please reboot the machine.\n");

@@ -2,21 +2,20 @@
 #include <mm/heap.h>
 
 void *memcpy(void *dest, const void *src, size_t n) {
-    if (!dest || !src || n == 0) return dest;
+    if (!dest || !src || n == 0)
+        return dest;
 #if defined(__x86_64__)
     void *d = dest;
     const void *s = src;
-    __asm__ volatile (
-        "mov %2, %%rcx\n\t"
-        "shr $3, %%rcx\n\t"
-        "rep movsq\n\t"
-        "mov %2, %%rcx\n\t"
-        "and $7, %%rcx\n\t"
-        "rep movsb"
-        : "+D"(d), "+S"(s)
-        : "r"(n)
-        : "rcx", "memory"
-    );
+    __asm__ volatile("mov %2, %%rcx\n\t"
+                     "shr $3, %%rcx\n\t"
+                     "rep movsq\n\t"
+                     "mov %2, %%rcx\n\t"
+                     "and $7, %%rcx\n\t"
+                     "rep movsb"
+                     : "+D"(d), "+S"(s)
+                     : "r"(n)
+                     : "rcx", "memory");
     return dest;
 #else
     uint8_t *d = (uint8_t *)dest;
@@ -38,22 +37,21 @@ void *memcpy(void *dest, const void *src, size_t n) {
 }
 
 void *memset(void *s, int c, size_t n) {
-    if (!s || n == 0) return s;
+    if (!s || n == 0)
+        return s;
     uint8_t byte = (uint8_t)c;
 #if defined(__x86_64__)
     void *d = s;
     uint64_t val64 = 0x0101010101010101ULL * byte;
-    __asm__ volatile (
-        "mov %2, %%rcx\n\t"
-        "shr $3, %%rcx\n\t"
-        "rep stosq\n\t"
-        "mov %2, %%rcx\n\t"
-        "and $7, %%rcx\n\t"
-        "rep stosb"
-        : "+D"(d)
-        : "a"(val64), "r"(n)
-        : "rcx", "memory"
-    );
+    __asm__ volatile("mov %2, %%rcx\n\t"
+                     "shr $3, %%rcx\n\t"
+                     "rep stosq\n\t"
+                     "mov %2, %%rcx\n\t"
+                     "and $7, %%rcx\n\t"
+                     "rep stosb"
+                     : "+D"(d)
+                     : "a"(val64), "r"(n)
+                     : "rcx", "memory");
     return s;
 #else
     uint8_t *p = (uint8_t *)s;
@@ -73,7 +71,8 @@ void *memset(void *s, int c, size_t n) {
 }
 
 void *memmove(void *dest, const void *src, size_t n) {
-    if (!dest || !src || n == 0 || dest == src) return dest;
+    if (!dest || !src || n == 0 || dest == src)
+        return dest;
 
     uint8_t *d = (uint8_t *)dest;
     const uint8_t *s = (const uint8_t *)src;
@@ -144,7 +143,8 @@ int strncmp(const char *s1, const char *s2, size_t n) {
 
 char *strcpy(char *dest, const char *src) {
     char *d = dest;
-    while ((*d++ = *src++));
+    while ((*d++ = *src++))
+        ;
     return dest;
 }
 
@@ -161,13 +161,15 @@ char *strncpy(char *dest, const char *src, size_t n) {
 
 char *strcat(char *dest, const char *src) {
     char *d = dest + strlen(dest);
-    while ((*d++ = *src++));
+    while ((*d++ = *src++))
+        ;
     return dest;
 }
 
 char *strchr(const char *s, int c) {
     while (*s) {
-        if (*s == (char)c) return (char *)s;
+        if (*s == (char)c)
+            return (char *)s;
         s++;
     }
     return (*s == (char)c) ? (char *)s : NULL;
@@ -176,17 +178,20 @@ char *strchr(const char *s, int c) {
 char *strrchr(const char *s, int c) {
     const char *last = NULL;
     while (*s) {
-        if (*s == (char)c) last = s;
+        if (*s == (char)c)
+            last = s;
         s++;
     }
     return (last != NULL || *s == (char)c) ? (char *)(last ? last : s) : NULL;
 }
 
 char *strdup(const char *s) {
-    if (!s) return NULL;
+    if (!s)
+        return NULL;
     size_t len = strlen(s);
     char *copy = (char *)kmalloc(len + 1);
-    if (!copy) return NULL;
+    if (!copy)
+        return NULL;
     memcpy(copy, s, len + 1);
     return copy;
 }

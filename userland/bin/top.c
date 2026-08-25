@@ -39,16 +39,17 @@ static void render_top(void) {
     printf("\033[H\033[2J");
 
     /* Header bar */
-    printf("\033[1;37;44m SzpontOS top - %02d:%02d:%02d up %02d:%02d:%02d, %d procs \033[0m\n",
-           hours, mins, secs, hours, mins, secs, (int)si.procs);
+    printf("\033[1;37;44m SzpontOS top - %02d:%02d:%02d up %02d:%02d:%02d, %d procs \033[0m\n", hours, mins, secs,
+           hours, mins, secs, (int)si.procs);
 
     /* Memory summary */
     unsigned long total_mb = si.totalram / 1024 / 1024;
     unsigned long free_mb = si.freeram / 1024 / 1024;
     unsigned long used_mb = total_mb > free_mb ? (total_mb - free_mb) : 0;
 
-    printf("\033[1;36mMem:\033[0m \033[1;32m%luM\033[0m total, \033[1;31m%luM\033[0m used, \033[1;32m%luM\033[0m free\n",
-           total_mb, used_mb, free_mb);
+    printf(
+        "\033[1;36mMem:\033[0m \033[1;32m%luM\033[0m total, \033[1;31m%luM\033[0m used, \033[1;32m%luM\033[0m free\n",
+        total_mb, used_mb, free_mb);
     printf("\033[1;36mSystem:\033[0m %s %s (%s)\n\n", un.sysname, un.release, un.machine);
 
     /* Table header */
@@ -70,7 +71,9 @@ static void render_top(void) {
                 unsigned long mem = 0;
 
                 if (f) {
-                    fscanf(f, "%*d (%31[^)]) %c %*d %*d %*d %*d %*d %*u %*u %*u %*u %*u %*u %*u %*d %*d %*d %*d %*d %*d %*u %*u %*d %lu",
+                    fscanf(f,
+                           "%*d (%31[^)]) %c %*d %*d %*d %*d %*d %*u %*u %*u %*u %*u %*u %*u %*d %*d %*d %*d %*d %*d "
+                           "%*u %*u %*d %lu",
                            cmd, &state, &mem);
                     fclose(f);
                 }
@@ -93,7 +96,8 @@ int main(int argc, char *argv[]) {
     while (iterations < 0 || count < iterations) {
         render_top();
         count++;
-        if (iterations > 0 && count >= iterations) break;
+        if (iterations > 0 && count >= iterations)
+            break;
         sleep(1);
     }
 

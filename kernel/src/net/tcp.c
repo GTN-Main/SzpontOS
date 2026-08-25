@@ -16,8 +16,8 @@ extern int socket_enqueue_data(socket_t *sock, const void *data, size_t len, uin
 typedef struct __attribute__((packed)) {
     uint32_t src_ip;
     uint32_t dest_ip;
-    uint8_t  zero;
-    uint8_t  protocol;
+    uint8_t zero;
+    uint8_t protocol;
     uint16_t tcp_len;
 } tcp_pseudo_header_t;
 
@@ -51,12 +51,11 @@ static uint16_t tcp_checksum(uint32_t src_ip, uint32_t dest_ip, const tcp_hdr_t 
     return (uint16_t)(~sum);
 }
 
-int tcp_send_segment(uint32_t src_ip, uint16_t src_port,
-                     uint32_t dest_ip, uint16_t dest_port,
-                     uint32_t seq, uint32_t ack, uint8_t flags,
-                     const void *data, size_t len) {
+int tcp_send_segment(uint32_t src_ip, uint16_t src_port, uint32_t dest_ip, uint16_t dest_port, uint32_t seq,
+                     uint32_t ack, uint8_t flags, const void *data, size_t len) {
     net_buf_t *buf = net_buf_alloc();
-    if (!buf) return -1;
+    if (!buf)
+        return -1;
 
     tcp_hdr_t *tcp = (tcp_hdr_t *)buf->data;
     tcp->src_port = htons(src_port);
@@ -80,12 +79,12 @@ int tcp_send_segment(uint32_t src_ip, uint16_t src_port,
     return ipv4_output(NULL, dest_ip, IP_PROTO_TCP, buf);
 }
 
-void tcp_init(void) {
-}
+void tcp_init(void) {}
 
 void tcp_input(netif_t *netif, net_buf_t *buf) {
     if (!netif || !buf || buf->len < sizeof(tcp_hdr_t)) {
-        if (buf) net_buf_free(buf);
+        if (buf)
+            net_buf_free(buf);
         return;
     }
 
@@ -121,8 +120,7 @@ void tcp_input(netif_t *netif, net_buf_t *buf) {
                 child->tcp_state = TCP_STATE_SYN_RECEIVED;
 
                 /* Send SYN+ACK */
-                tcp_send_segment(netif->ip, dest_port, ip->src_ip, src_port,
-                                 child->snd_nxt, child->rcv_nxt,
+                tcp_send_segment(netif->ip, dest_port, ip->src_ip, src_port, child->snd_nxt, child->rcv_nxt,
                                  TCP_FLAG_SYN | TCP_FLAG_ACK, NULL, 0);
                 child->snd_nxt++;
             }
@@ -134,9 +132,8 @@ void tcp_input(netif_t *netif, net_buf_t *buf) {
     if (!sock) {
         /* Send RST if no socket found */
         if (!(flags & TCP_FLAG_RST)) {
-            tcp_send_segment(netif->ip, dest_port, ip->src_ip, src_port,
-                             ack, seq + (payload_len ? (uint32_t)payload_len : 1),
-                             TCP_FLAG_RST | TCP_FLAG_ACK, NULL, 0);
+            tcp_send_segment(netif->ip, dest_port, ip->src_ip, src_port, ack,
+                             seq + (payload_len ? (uint32_t)payload_len : 1), TCP_FLAG_RST | TCP_FLAG_ACK, NULL, 0);
         }
         net_buf_free(buf);
         return;
@@ -144,77 +141,77 @@ void tcp_input(netif_t *netif, net_buf_t *buf) {
 
     /* Process state machine */
     switch (sock->tcp_state) {
-        case TCP_STATE_SYN_SENT:
-            if ((flags & (TCP_FLAG_SYN | TCP_FLAG_ACK)) == (TCP_FLAG_SYN | TCP_FLAG_ACK)) {
-                sock->rcv_nxt = seq + 1;
-                sock->snd_una = ack;
-                sock->tcp_state = TCP_STATE_ESTABLISHED;
-                sock->state = SS_CONNECTED;
+    case TCP_STATE_SYN_SENT:
+        if ((flags & (TCP_FLAG_SYN | TCP_FLAG_ACK)) == (TCP_FLAG_SYN | TCP_FLAG_ACK)) {
+            sock->rcv_nxt = seq + 1;
+            sock->snd_una = ack;
+            sock->tcp_state = TCP_STATE_ESTABLISHED;
+            sock->state = SS_CONNECTED;
 
-                /* Send ACK */
-                tcp_send_segment(sock->local_ip, sock->local_port, sock->remote_ip, sock->remote_port,
-                                 sock->snd_nxt, sock->rcv_nxt, TCP_FLAG_ACK, NULL, 0);
-            }
-            break;
+            /* Send ACK */
+            tcp_send_segment(sock->local_ip, sock->local_port, sock->remote_ip, sock->remote_port, sock->snd_nxt,
+                             sock->rcv_nxt, TCP_FLAG_ACK, NULL, 0);
+        }
+        break;
 
-        case TCP_STATE_SYN_RECEIVED:
-            if (flags & TCP_FLAG_ACK) {
-                sock->tcp_state = TCP_STATE_ESTABLISHED;
-                sock->state = SS_CONNECTED;
-            }
-            break;
+    case TCP_STATE_SYN_RECEIVED:
+        if (flags & TCP_FLAG_ACK) {
+            sock->tcp_state = TCP_STATE_ESTABLISHED;
+            sock->state = SS_CONNECTED;
+        }
+        break;
 
-        case TCP_STATE_ESTABLISHED:
-            if (payload_len > 0) {
-                socket_enqueue_data(sock, payload, payload_len, ip->src_ip, src_port);
-                sock->rcv_nxt += (uint32_t)payload_len;
+    case TCP_STATE_ESTABLISHED:
+        if (payload_len > 0) {
+            socket_enqueue_data(sock, payload, payload_len, ip->src_ip, src_port);
+            sock->rcv_nxt += (uint32_t)payload_len;
 
-                /* Send ACK */
-                tcp_send_segment(sock->local_ip, sock->local_port, sock->remote_ip, sock->remote_port,
-                                 sock->snd_nxt, sock->rcv_nxt, TCP_FLAG_ACK, NULL, 0);
-            }
+            /* Send ACK */
+            tcp_send_segment(sock->local_ip, sock->local_port, sock->remote_ip, sock->remote_port, sock->snd_nxt,
+                             sock->rcv_nxt, TCP_FLAG_ACK, NULL, 0);
+        }
 
-            if (flags & TCP_FLAG_FIN) {
-                sock->rcv_nxt++;
-                sock->tcp_state = TCP_STATE_CLOSE_WAIT;
+        if (flags & TCP_FLAG_FIN) {
+            sock->rcv_nxt++;
+            sock->tcp_state = TCP_STATE_CLOSE_WAIT;
 
-                /* Send ACK for FIN */
-                tcp_send_segment(sock->local_ip, sock->local_port, sock->remote_ip, sock->remote_port,
-                                 sock->snd_nxt, sock->rcv_nxt, TCP_FLAG_ACK, NULL, 0);
-            }
-            break;
+            /* Send ACK for FIN */
+            tcp_send_segment(sock->local_ip, sock->local_port, sock->remote_ip, sock->remote_port, sock->snd_nxt,
+                             sock->rcv_nxt, TCP_FLAG_ACK, NULL, 0);
+        }
+        break;
 
-        case TCP_STATE_FIN_WAIT_1:
-            if (flags & TCP_FLAG_ACK) {
-                sock->tcp_state = TCP_STATE_FIN_WAIT_2;
-            }
-            if (flags & TCP_FLAG_FIN) {
-                sock->rcv_nxt++;
-                tcp_send_segment(sock->local_ip, sock->local_port, sock->remote_ip, sock->remote_port,
-                                 sock->snd_nxt, sock->rcv_nxt, TCP_FLAG_ACK, NULL, 0);
-                sock->tcp_state = TCP_STATE_TIME_WAIT;
-            }
-            break;
+    case TCP_STATE_FIN_WAIT_1:
+        if (flags & TCP_FLAG_ACK) {
+            sock->tcp_state = TCP_STATE_FIN_WAIT_2;
+        }
+        if (flags & TCP_FLAG_FIN) {
+            sock->rcv_nxt++;
+            tcp_send_segment(sock->local_ip, sock->local_port, sock->remote_ip, sock->remote_port, sock->snd_nxt,
+                             sock->rcv_nxt, TCP_FLAG_ACK, NULL, 0);
+            sock->tcp_state = TCP_STATE_TIME_WAIT;
+        }
+        break;
 
-        case TCP_STATE_FIN_WAIT_2:
-            if (flags & TCP_FLAG_FIN) {
-                sock->rcv_nxt++;
-                tcp_send_segment(sock->local_ip, sock->local_port, sock->remote_ip, sock->remote_port,
-                                 sock->snd_nxt, sock->rcv_nxt, TCP_FLAG_ACK, NULL, 0);
-                sock->tcp_state = TCP_STATE_CLOSED;
-                sock->state = SS_CLOSED;
-            }
-            break;
+    case TCP_STATE_FIN_WAIT_2:
+        if (flags & TCP_FLAG_FIN) {
+            sock->rcv_nxt++;
+            tcp_send_segment(sock->local_ip, sock->local_port, sock->remote_ip, sock->remote_port, sock->snd_nxt,
+                             sock->rcv_nxt, TCP_FLAG_ACK, NULL, 0);
+            sock->tcp_state = TCP_STATE_CLOSED;
+            sock->state = SS_CLOSED;
+        }
+        break;
 
-        case TCP_STATE_LAST_ACK:
-            if (flags & TCP_FLAG_ACK) {
-                sock->tcp_state = TCP_STATE_CLOSED;
-                sock->state = SS_CLOSED;
-            }
-            break;
+    case TCP_STATE_LAST_ACK:
+        if (flags & TCP_FLAG_ACK) {
+            sock->tcp_state = TCP_STATE_CLOSED;
+            sock->state = SS_CLOSED;
+        }
+        break;
 
-        default:
-            break;
+    default:
+        break;
     }
 
     net_buf_free(buf);

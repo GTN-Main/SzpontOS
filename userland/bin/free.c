@@ -27,22 +27,18 @@ int main(int argc, char *argv[]) {
 
     if (human) {
         printf("%-10s %10s %10s %10s %10s\n", "", "total", "used", "free", "buff/cache");
-        printf("%-10s %9luM %9luM %9luM %9luK\n",
-               "Mem:", total / (1024 * 1024), used / (1024 * 1024), free_mem / (1024 * 1024), buff / 1024);
-        printf("%-10s %9luM %9luM %9luM\n",
-               "Swap:", 0UL, 0UL, 0UL);
+        printf("%-10s %9luM %9luM %9luM %9luK\n", "Mem:", total / (1024 * 1024), used / (1024 * 1024),
+               free_mem / (1024 * 1024), buff / 1024);
+        printf("%-10s %9luM %9luM %9luM\n", "Swap:", 0UL, 0UL, 0UL);
     } else if (megabytes) {
         printf("%-10s %10s %10s %10s %10s\n", "", "total", "used", "free", "buff/cache");
-        printf("%-10s %10lu %10lu %10lu %10lu\n",
-               "Mem:", total / (1024 * 1024), used / (1024 * 1024), free_mem / (1024 * 1024), buff / (1024 * 1024));
-        printf("%-10s %10lu %10lu %10lu\n",
-               "Swap:", 0UL, 0UL, 0UL);
+        printf("%-10s %10lu %10lu %10lu %10lu\n", "Mem:", total / (1024 * 1024), used / (1024 * 1024),
+               free_mem / (1024 * 1024), buff / (1024 * 1024));
+        printf("%-10s %10lu %10lu %10lu\n", "Swap:", 0UL, 0UL, 0UL);
     } else {
         printf("%-10s %10s %10s %10s %10s\n", "", "total", "used", "free", "buff/cache");
-        printf("%-10s %10lu %10lu %10lu %10lu\n",
-               "Mem:", total / 1024, used / 1024, free_mem / 1024, buff / 1024);
-        printf("%-10s %10lu %10lu %10lu\n",
-               "Swap:", 0UL, 0UL, 0UL);
+        printf("%-10s %10lu %10lu %10lu %10lu\n", "Mem:", total / 1024, used / 1024, free_mem / 1024, buff / 1024);
+        printf("%-10s %10lu %10lu %10lu\n", "Swap:", 0UL, 0UL, 0UL);
     }
 
     return 0;

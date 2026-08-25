@@ -5,6 +5,8 @@ ISO_PATH="build/szpontos.iso"
 DISPLAY_OPT="cocoa"
 EXTRA_FLAGS=()
 VGA_FLAGS=("-vga" "std" "-global" "VGA.xres=1280" "-global" "VGA.yres=960")
+MACHINE_OPT="q35,i8042=on"
+ENABLE_USB_KBD=true
 
 # Detect Host OS
 OS_TYPE="$(uname -s)"
@@ -37,6 +39,20 @@ for arg in "$@"; do
         --virtio)
             VGA_FLAGS=("-vga" "virtio")
             ;;
+        --baremetal-ps2|--ps2)
+            echo "[*] Tryb Bare Metal PS/2: Włączono kontroler i8042 PS/2 na płycie Q35"
+            MACHINE_OPT="q35,i8042=on"
+            ENABLE_USB_KBD=false
+            ;;
+        --baremetal-usb|--usb)
+            echo "[*] Tryb Bare Metal USB: Wyłączono i8042 (czysty natywny USB xHCI / UEFI)"
+            MACHINE_OPT="q35,i8042=off"
+            ENABLE_USB_KBD=true
+            ;;
+        --timing-stress|--realistic-timing)
+            echo "[*] Włączono realistyczne zegary i wirtualny licznik instrukcji (-icount shift=auto)"
+            EXTRA_FLAGS+=("-icount" "shift=auto,sleep=on" "-rtc" "base=utc,clock=vm")
+            ;;
         *.iso)
             ISO_PATH="$arg"
             ;;
@@ -68,14 +84,27 @@ if [ ! -f "$DISK_PATH" ]; then
 fi
 
 if [ -f "$DISK_PATH" ]; then
-    EXTRA_FLAGS+=("-drive" "file=$DISK_PATH,format=raw,if=ide,index=0,media=disk")
+    EXTRA_FLAGS+=("-drive" "file=$DISK_PATH,format=raw,if=none,id=disk0,file.locking=off" "-device" "ide-hd,drive=disk0,bus=ide.0")
 fi
 
-# Intel E1000 Network Card with User-mode NAT and port forwarding (Host 8080 -> Guest 80)
-EXTRA_FLAGS+=("-netdev" "user,id=net0,hostfwd=tcp::8080-:80" "-device" "e1000,netdev=net0")
+
+
+# Intel E1000 Network Card with User-mode NAT and port forwarding (Host 8080/8088 -> Guest 80)
+HTTP_PORT=8080
+if lsof -Pi :8080 -sTCP:LISTEN -t >/dev/null 2>&1; then
+    HTTP_PORT=8088
+fi
+EXTRA_FLAGS+=("-netdev" "user,id=net0,hostfwd=tcp::${HTTP_PORT}-:80" "-device" "e1000,netdev=net0")
+
+
+# xHCI USB 3.0 Host Controller & USB HID Devices
+EXTRA_FLAGS+=("-device" "qemu-xhci,id=xhci")
+if [ "$ENABLE_USB_KBD" = true ]; then
+    EXTRA_FLAGS+=("-device" "usb-kbd,bus=xhci.0" "-device" "usb-tablet,bus=xhci.0")
+fi
 
 exec $QEMU_CMD \
-    -M pc \
+    -M "$MACHINE_OPT" \
     -cpu "$CPU_TYPE" \
     -m 512M \
     "${VGA_FLAGS[@]}" \

@@ -8,16 +8,16 @@
 #define UT_NAMESIZE 32
 #define UT_HOSTSIZE 256
 
-#define EMPTY         0
-#define RUN_LVL       1
-#define BOOT_TIME     2
-#define NEW_TIME      3
-#define OLD_TIME      4
-#define INIT_PROCESS  5
+#define EMPTY 0
+#define RUN_LVL 1
+#define BOOT_TIME 2
+#define NEW_TIME 3
+#define OLD_TIME 4
+#define INIT_PROCESS 5
 #define LOGIN_PROCESS 6
-#define USER_PROCESS  7
-#define DEAD_PROCESS  8
-#define ACCOUNTING    9
+#define USER_PROCESS 7
+#define DEAD_PROCESS 8
+#define ACCOUNTING 9
 
 struct exit_status {
     short e_termination;
@@ -27,10 +27,10 @@ struct exit_status {
 struct utmp {
     short ut_type;
     pid_t ut_pid;
-    char  ut_line[UT_LINESIZE];
-    char  ut_id[4];
-    char  ut_user[UT_NAMESIZE];
-    char  ut_host[UT_HOSTSIZE];
+    char ut_line[UT_LINESIZE];
+    char ut_id[4];
+    char ut_user[UT_NAMESIZE];
+    char ut_host[UT_HOSTSIZE];
     struct exit_status ut_exit;
     int32_t ut_session;
     struct timeval ut_tv;
@@ -40,8 +40,8 @@ struct utmp {
 
 #define _PATH_UTMP "/var/run/utmp"
 #define _PATH_WTMP "/var/log/wtmp"
-#define UTMP_FILE  _PATH_UTMP
-#define WTMP_FILE  _PATH_WTMP
+#define UTMP_FILE _PATH_UTMP
+#define WTMP_FILE _PATH_WTMP
 
 void setutent(void);
 struct utmp *getutent(void);

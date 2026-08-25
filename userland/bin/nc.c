@@ -96,7 +96,7 @@ int main(int argc, char **argv) {
             char buf[512];
             while (1) {
                 struct pollfd pfds[2];
-                pfds[0].fd = 0;   /* stdin */
+                pfds[0].fd = 0; /* stdin */
                 pfds[0].events = POLLIN;
                 pfds[1].fd = cfd; /* socket */
                 pfds[1].events = POLLIN;
@@ -105,12 +105,14 @@ int main(int argc, char **argv) {
                 if (p > 0) {
                     if (pfds[0].revents & POLLIN) {
                         ssize_t n = read(0, buf, sizeof(buf));
-                        if (n <= 0) break;
+                        if (n <= 0)
+                            break;
                         send(cfd, buf, (size_t)n, 0);
                     }
                     if (pfds[1].revents & POLLIN) {
                         ssize_t n = recv(cfd, buf, sizeof(buf), 0);
-                        if (n <= 0) break;
+                        if (n <= 0)
+                            break;
                         write(1, buf, (size_t)n);
                     }
                 }
@@ -157,7 +159,7 @@ int main(int argc, char **argv) {
         char buf[512];
         while (1) {
             struct pollfd pfds[2];
-            pfds[0].fd = 0;   /* stdin */
+            pfds[0].fd = 0; /* stdin */
             pfds[0].events = POLLIN;
             pfds[1].fd = sfd; /* socket */
             pfds[1].events = POLLIN;
@@ -166,12 +168,14 @@ int main(int argc, char **argv) {
             if (p > 0) {
                 if (pfds[0].revents & POLLIN) {
                     ssize_t n = read(0, buf, sizeof(buf));
-                    if (n <= 0) break;
+                    if (n <= 0)
+                        break;
                     send(sfd, buf, (size_t)n, 0);
                 }
                 if (pfds[1].revents & POLLIN) {
                     ssize_t n = recv(sfd, buf, sizeof(buf), 0);
-                    if (n <= 0) break;
+                    if (n <= 0)
+                        break;
                     write(1, buf, (size_t)n);
                 }
             }

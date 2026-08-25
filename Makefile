@@ -168,10 +168,20 @@ KERNEL_C_SRCS := \
     kernel/src/drivers/font8x16.c \
     kernel/src/drivers/framebuffer.c \
     kernel/src/drivers/keyboard.c \
+    kernel/src/drivers/ps2_mouse.c \
+    kernel/src/drivers/speaker.c \
+    kernel/src/drivers/tty.c \
+    kernel/src/drivers/acpi.c \
+    kernel/src/drivers/ioapic.c \
+    kernel/src/drivers/usb/usb.c \
+    kernel/src/drivers/usb/xhci.c \
+    kernel/src/drivers/usb/hid.c \
     kernel/src/drivers/rtc.c \
     kernel/src/drivers/ata.c \
+    kernel/src/drivers/ahci.c \
     kernel/src/drivers/pci.c \
     kernel/src/drivers/e1000.c \
+    kernel/src/drivers/rtl8139.c \
     kernel/src/net/net.c \
     kernel/src/net/netif.c \
     kernel/src/net/loopback.c \
@@ -201,6 +211,7 @@ LIBC_C_SRCS := \
     libc/src/string/string.c \
     libc/src/stdlib/malloc.c \
     libc/src/stdlib/atexit.c \
+    libc/src/stdlib/locale.c \
     libc/src/stdio/printf.c \
     libc/src/unistd/unistd.c \
     libc/src/unistd/sysconf.c \
@@ -231,6 +242,7 @@ LIBC_C_SRCS := \
     libc/src/netdb/netdb.c \
     libc/src/net/if.c \
     libc/src/utmp/utmp.c \
+    libc/src/sched/sched.c \
     libc/src/arch/x86_64/builtins.c
 
 
@@ -333,6 +345,8 @@ USER_PROGS := \
     $(ROOTFS_DIR)/bin/shutdown \
     $(ROOTFS_DIR)/bin/poweroff \
     $(ROOTFS_DIR)/bin/ls \
+    $(ROOTFS_DIR)/bin/lspci \
+    $(ROOTFS_DIR)/bin/lsusb \
     $(ROOTFS_DIR)/bin/donut
 
 
@@ -627,41 +641,20 @@ $(LIBNCURSES_A): $(NCURSES_BUILD_DIR)/Makefile $(LIBC_A) $(CRT0_O)
 	@cp $(NCURSES_BUILD_DIR)/lib/libncurses.a $(ROOTFS_DIR)/lib/
 	@cp $(NCURSES_BUILD_DIR)/include/*.h $(SYSROOT_DIR)/usr/include/ 2>/dev/null || true
 	@cp third_party/ncurses/include/curses.h $(SYSROOT_DIR)/usr/include/ 2>/dev/null || true
+	@cp $(SYSROOT_DIR)/usr/include/curses.h $(SYSROOT_DIR)/usr/include/ncurses.h 2>/dev/null || true
 
-# GNU nano Targets (Autotools cross-compile)
-$(NANO_BUILD_DIR)/Makefile: $(LIBNCURSES_A) $(SYSROOT_DIR)/usr/include | $(NANO_BUILD_DIR)
-	@echo "  [CONF-NANO] Konfiguracja GNU nano (Autotools cross-compile)..."
-	@cd $(NANO_BUILD_DIR) && \
-	../../../third_party/nano/configure \
-	    --host=x86_64-elf \
-	    --prefix=/usr \
-	    --sysconfdir=/etc \
-	    --disable-nls \
-	    --disable-speller \
-	    --disable-libmagic \
-	    --enable-utf8 \
-	    --enable-color \
-	    --enable-nanorc \
-	    --enable-multibuffer \
-	    CC="$(CC)" \
-	    CPP="$(CC) -E" \
-	    AR="$(AR)" \
-	    RANLIB="$(RANLIB)" \
-	    CFLAGS="-O2 -ffreestanding -fno-builtin -isystem $(abspath $(SYSROOT_DIR))/usr/include -B$(abspath $(SYSROOT_DIR))/usr/lib" \
-	    CPPFLAGS="-isystem $(abspath $(SYSROOT_DIR))/usr/include" \
-	    LDFLAGS="-nostdlib -L$(abspath $(SYSROOT_DIR))/usr/lib -B$(abspath $(SYSROOT_DIR))/usr/lib" \
-	    NCURSES_CFLAGS="-isystem $(abspath $(SYSROOT_DIR))/usr/include" \
-	    NCURSES_LIBS="-lncurses" \
-	    LIBS="$(abspath $(SYSROOT_DIR))/usr/lib/crt0.o -lc" > /dev/null
-
-$(NANO_BUILD_DIR):
-	@mkdir -p $@
-
-$(ROOTFS_DIR)/bin/nano: $(NANO_BUILD_DIR)/Makefile $(LIBNCURSES_A) $(LIBC_A) $(CRT0_O) | $(ROOTFS_DIR)
-	@mkdir -p $(ROOTFS_DIR)/bin
+# GNU nano Targets (Direct Compilation against libc & libncurses)
+NANO_SRCS := $(wildcard third_party/nano/src/*.c)
+$(ROOTFS_DIR)/bin/nano: $(NANO_SRCS) $(LIBNCURSES_A) $(LIBC_A) $(CRT0_O) | $(ROOTFS_DIR)
+	@mkdir -p $(ROOTFS_DIR)/bin $(BUILD_DIR)/third_party/nano
 	@echo "  [MAKE-NANO] Kompilacja GNU nano..."
-	@$(MAKE) -C $(NANO_BUILD_DIR) > /dev/null
-	@cp $(NANO_BUILD_DIR)/src/nano $@
+	@$(CC) $(USER_CFLAGS) -nostdlib -Ithird_party/nano/src -isystem $(abspath $(SYSROOT_DIR))/usr/include \
+	    -DPACKAGE=\"nano\" -DVERSION=\"7.2\" -DENABLE_UTF8=1 -DENABLE_COLOR=1 -DENABLE_NANORC=1 \
+	    -DENABLE_MULTIBUFFER=1 -DHAVE_NCURSES_H=1 -DHAVE_CURSES_H=1 -DHAVE_LIMITS_H=1 -DHAVE_SYS_PARAM_H=1 \
+	    -DHAVE_TERMIOS_H=1 -DHAVE_UNISTD_H=1 -DHAVE_FCNTL_H=1 -DHAVE_DIRENT_H=1 -DHAVE_PWD_H=1 -DHAVE_GRP_H=1 \
+	    -DHAVE_GETOPT_H=1 -DHAVE_GETOPT_LONG=1 -DHAVE_SIGACTION=1 -DHAVE_SIGNAL_H=1 \
+	    -DNANO_REG_EXTENDED=REG_EXTENDED -DSYSCONFDIR=\"/etc\" \
+	    $(NANO_SRCS) $(CRT0_O) -L$(abspath $(SYSROOT_DIR))/usr/lib -lncurses $(LIBC_A) $(LIBM_A) -o $@
 
 # Build Kernel Modules (.sko)
 $(MODULE_DIR)/hello.sko: modules/hello/hello.c | $(ROOTFS_DIR)
@@ -684,8 +677,13 @@ $(SYSROOT_DIR)/usr/include: $(LIBC_A) $(CRT0_O) $(LIBM_A) $(LIBDL_A)
 sysroot: $(SYSROOT_DIR)/usr/include
 
 
+# Generate configure for GNU file if missing
+third_party/file/configure:
+	@echo "  [PRECONF-FILE] Generowanie configure dla GNU file..."
+	@cd third_party/file && autoreconf -fi > /dev/null 2>&1 || true
+
 # Build GNU file using its original Autotools configure & Makefile
-$(FILE_BUILD_DIR)/Makefile: $(SYSROOT_DIR)/usr/include | $(FILE_BUILD_DIR)
+$(FILE_BUILD_DIR)/Makefile: third_party/file/configure $(SYSROOT_DIR)/usr/include | $(FILE_BUILD_DIR)
 	@echo "  [CONF-FILE] Konfiguracja GNU file (Autotools cross-compile)..."
 	@cd $(FILE_BUILD_DIR) && \
 	../../../third_party/file/configure \
@@ -771,7 +769,7 @@ $(FASTFETCH_BUILD_DIR)/Makefile: $(SYSROOT_DIR)/usr/include $(LIBC_A) $(CRT0_O) 
 	cmake ../../../third_party/fastfetch \
 	    -DCMAKE_SYSTEM_NAME=Linux \
 	    -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
-	    -DCMAKE_C_COMPILER="$(shell which $(CC) 2>/dev/null || echo $(CC))" \
+	    -DCMAKE_C_COMPILER="$(shell which -a $(CC) 2>/dev/null | grep -v '\.bear' | head -n 1 || which $(CC) 2>/dev/null || echo $(CC))" \
 	    -DCMAKE_C_FLAGS="-isystem $(abspath $(SYSROOT_DIR))/usr/include $(LINUX_COMPAT_CFLAGS) -D__linux__=1 -ffreestanding -fno-builtin -O2" \
 	    -DCMAKE_EXE_LINKER_FLAGS="-nostdlib -L$(abspath $(SYSROOT_DIR))/usr/lib -B$(abspath $(SYSROOT_DIR))/usr/lib $(abspath $(SYSROOT_DIR))/usr/lib/crt0.o" \
 	    -DCMAKE_C_STANDARD_LIBRARIES="-Wl,--start-group $(abspath $(SYSROOT_DIR))/usr/lib/libc.a $(abspath $(SYSROOT_DIR))/usr/lib/libm.a $(abspath $(SYSROOT_DIR))/usr/lib/libdl.a -Wl,--end-group" \
@@ -872,6 +870,18 @@ run: iso
 # Run in graphical QEMU with Virtio-VGA
 run-virtio: iso
 	@./scripts/run_qemu.sh $(ISO_IMAGE) --virtio
+
+# Run in graphical QEMU with Bare Metal PS/2 simulation
+run-ps2: iso
+	@./scripts/run_qemu.sh $(ISO_IMAGE) --baremetal-ps2
+
+# Run in graphical QEMU with Pure USB xHCI (UEFI Modern Bare Metal)
+run-usb: iso
+	@./scripts/run_qemu.sh $(ISO_IMAGE) --baremetal-usb
+
+# Run with realistic timing and instruction cycle stress test
+run-stress: iso
+	@./scripts/run_qemu.sh $(ISO_IMAGE) --timing-stress
 
 # Run in headless QEMU (terminal only)
 run-cli: iso

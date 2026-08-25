@@ -32,7 +32,8 @@ static uint32_t g_tmpfs_next_inode = 10000;
 
 static tmpfs_node_t *tmpfs_alloc_node(const char *name, uint32_t flags, mode_t mode, uid_t uid, gid_t gid) {
     tmpfs_node_t *tnode = (tmpfs_node_t *)kzalloc(sizeof(tmpfs_node_t));
-    if (!tnode) return NULL;
+    if (!tnode)
+        return NULL;
 
     strncpy(tnode->node.name, name, sizeof(tnode->node.name) - 1);
     tnode->node.flags = flags;
@@ -57,7 +58,8 @@ static tmpfs_node_t *tmpfs_alloc_node(const char *name, uint32_t flags, mode_t m
 
 static ssize_t tmpfs_file_read(vfs_node_t *node, off_t offset, size_t size, void *buffer) {
     tmpfs_node_t *tnode = (tmpfs_node_t *)node;
-    if (!tnode || !buffer) return 0;
+    if (!tnode || !buffer)
+        return 0;
 
     spinlock_acquire(&tnode->lock);
     if (offset >= (off_t)tnode->node.length) {
@@ -78,7 +80,8 @@ static ssize_t tmpfs_file_read(vfs_node_t *node, off_t offset, size_t size, void
 
 static ssize_t tmpfs_file_write(vfs_node_t *node, off_t offset, size_t size, const void *buffer) {
     tmpfs_node_t *tnode = (tmpfs_node_t *)node;
-    if (!tnode || !buffer) return -1;
+    if (!tnode || !buffer)
+        return -1;
 
     spinlock_acquire(&tnode->lock);
     size_t required = (size_t)offset + size;
@@ -109,7 +112,8 @@ static ssize_t tmpfs_file_write(vfs_node_t *node, off_t offset, size_t size, con
 
 static struct vfs_dirent *tmpfs_dir_readdir(vfs_node_t *node, uint32_t index) {
     tmpfs_node_t *tnode = (tmpfs_node_t *)node;
-    if (!tnode) return NULL;
+    if (!tnode)
+        return NULL;
 
     spinlock_acquire(&tnode->lock);
     if (index >= tnode->child_count) {
@@ -129,7 +133,8 @@ static struct vfs_dirent *tmpfs_dir_readdir(vfs_node_t *node, uint32_t index) {
 
 static vfs_node_t *tmpfs_dir_finddir(vfs_node_t *node, const char *name) {
     tmpfs_node_t *tnode = (tmpfs_node_t *)node;
-    if (!tnode || !name) return NULL;
+    if (!tnode || !name)
+        return NULL;
 
     spinlock_acquire(&tnode->lock);
     for (size_t i = 0; i < tnode->child_count; i++) {
@@ -166,35 +171,40 @@ static int tmpfs_add_child(tmpfs_node_t *parent, tmpfs_node_t *child) {
 
 static int tmpfs_dir_create(vfs_node_t *parent, const char *name, mode_t mode) {
     tmpfs_node_t *pnode = (tmpfs_node_t *)parent;
-    if (!pnode || !name) return -1;
+    if (!pnode || !name)
+        return -1;
 
     process_t *proc = sched_get_current_process();
     uid_t uid = proc ? proc->euid : 0;
     gid_t gid = proc ? proc->egid : 0;
 
     tmpfs_node_t *child = tmpfs_alloc_node(name, VFS_TYPE_FILE, mode, uid, gid);
-    if (!child) return -1;
+    if (!child)
+        return -1;
 
     return tmpfs_add_child(pnode, child);
 }
 
 static int tmpfs_dir_mkdir(vfs_node_t *parent, const char *name, mode_t mode) {
     tmpfs_node_t *pnode = (tmpfs_node_t *)parent;
-    if (!pnode || !name) return -1;
+    if (!pnode || !name)
+        return -1;
 
     process_t *proc = sched_get_current_process();
     uid_t uid = proc ? proc->euid : 0;
     gid_t gid = proc ? proc->egid : 0;
 
     tmpfs_node_t *child = tmpfs_alloc_node(name, VFS_TYPE_DIRECTORY, mode, uid, gid);
-    if (!child) return -1;
+    if (!child)
+        return -1;
 
     return tmpfs_add_child(pnode, child);
 }
 
 static int tmpfs_dir_unlink(vfs_node_t *parent, const char *name) {
     tmpfs_node_t *pnode = (tmpfs_node_t *)parent;
-    if (!pnode || !name) return -1;
+    if (!pnode || !name)
+        return -1;
 
     spinlock_acquire(&pnode->lock);
     for (size_t i = 0; i < pnode->child_count; i++) {
@@ -222,7 +232,8 @@ static int tmpfs_dir_unlink(vfs_node_t *parent, const char *name) {
 }
 
 static int tmpfs_chmod(vfs_node_t *node, mode_t mode) {
-    if (!node) return -1;
+    if (!node)
+        return -1;
     tmpfs_node_t *tnode = (tmpfs_node_t *)node;
     spinlock_acquire(&tnode->lock);
     node->permissions = mode;
@@ -231,33 +242,32 @@ static int tmpfs_chmod(vfs_node_t *node, mode_t mode) {
 }
 
 static int tmpfs_chown(vfs_node_t *node, uid_t uid, gid_t gid) {
-    if (!node) return -1;
+    if (!node)
+        return -1;
     tmpfs_node_t *tnode = (tmpfs_node_t *)node;
     spinlock_acquire(&tnode->lock);
-    if (uid != (uid_t)-1) node->uid = uid;
-    if (gid != (gid_t)-1) node->gid = gid;
+    if (uid != (uid_t)-1)
+        node->uid = uid;
+    if (gid != (gid_t)-1)
+        node->gid = gid;
     spinlock_release(&tnode->lock);
     return 0;
 }
 
-static vfs_ops_t g_tmpfs_file_ops = {
-    .read   = tmpfs_file_read,
-    .write  = tmpfs_file_write,
-    .open   = NULL,
-    .close  = NULL,
-    .chmod  = tmpfs_chmod,
-    .chown  = tmpfs_chown
-};
+static vfs_ops_t g_tmpfs_file_ops = {.read = tmpfs_file_read,
+                                     .write = tmpfs_file_write,
+                                     .open = NULL,
+                                     .close = NULL,
+                                     .chmod = tmpfs_chmod,
+                                     .chown = tmpfs_chown};
 
-static vfs_ops_t g_tmpfs_dir_ops = {
-    .readdir = tmpfs_dir_readdir,
-    .finddir = tmpfs_dir_finddir,
-    .create  = tmpfs_dir_create,
-    .mkdir   = tmpfs_dir_mkdir,
-    .unlink  = tmpfs_dir_unlink,
-    .chmod   = tmpfs_chmod,
-    .chown   = tmpfs_chown
-};
+static vfs_ops_t g_tmpfs_dir_ops = {.readdir = tmpfs_dir_readdir,
+                                    .finddir = tmpfs_dir_finddir,
+                                    .create = tmpfs_dir_create,
+                                    .mkdir = tmpfs_dir_mkdir,
+                                    .unlink = tmpfs_dir_unlink,
+                                    .chmod = tmpfs_chmod,
+                                    .chown = tmpfs_chown};
 
 vfs_node_t *tmpfs_create_fs(const char *name, mode_t mode, uid_t uid, gid_t gid) {
     tmpfs_node_t *root = tmpfs_alloc_node(name, VFS_TYPE_DIRECTORY, mode, uid, gid);

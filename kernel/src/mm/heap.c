@@ -8,12 +8,12 @@
 
 #define HEAP_ALIGNMENT 16
 #define HEAP_MAGIC_ALLOC 0x5A504F4E /* "SZPON" */
-#define HEAP_MAGIC_FREE  0x46524545 /* "FREE" */
+#define HEAP_MAGIC_FREE 0x46524545  /* "FREE" */
 
 typedef struct heap_block {
     uint32_t magic;
     uint32_t is_free;
-    size_t   size; /* Usable data size */
+    size_t size; /* Usable data size */
     struct heap_block *next;
     struct heap_block *prev;
 } heap_block_t;
@@ -60,7 +60,8 @@ void heap_init(size_t initial_size) {
 }
 
 void *kmalloc(size_t size) {
-    if (size == 0) return NULL;
+    if (size == 0)
+        return NULL;
 
     size = ALIGN_UP(size, HEAP_ALIGNMENT);
 
@@ -144,7 +145,8 @@ void *kcalloc(size_t num, size_t size) {
 }
 
 void kfree(void *ptr) {
-    if (!ptr) return;
+    if (!ptr)
+        return;
 
     spinlock_acquire(&g_heap_lock);
 
@@ -187,7 +189,8 @@ void kfree(void *ptr) {
 }
 
 void *krealloc(void *ptr, size_t new_size) {
-    if (!ptr) return kmalloc(new_size);
+    if (!ptr)
+        return kmalloc(new_size);
     if (new_size == 0) {
         kfree(ptr);
         return NULL;
@@ -207,8 +210,6 @@ void *krealloc(void *ptr, size_t new_size) {
 }
 
 void heap_dump_stats(void) {
-    klog_info("Heap stats: %lu KiB total, %lu KiB allocated, %lu KiB free",
-              g_heap_total_bytes / 1024,
-              g_heap_allocated_bytes / 1024,
-              (g_heap_total_bytes - g_heap_allocated_bytes) / 1024);
+    klog_info("Heap stats: %lu KiB total, %lu KiB allocated, %lu KiB free", g_heap_total_bytes / 1024,
+              g_heap_allocated_bytes / 1024, (g_heap_total_bytes - g_heap_allocated_bytes) / 1024);
 }

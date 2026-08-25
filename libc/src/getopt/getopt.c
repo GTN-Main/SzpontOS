@@ -9,12 +9,11 @@ int optopt = '?';
 
 static char *next_char = NULL;
 
-int getopt(int argc, char * const argv[], const char *optstring) {
+int getopt(int argc, char *const argv[], const char *optstring) {
     return getopt_long(argc, argv, optstring, NULL, NULL);
 }
 
-int getopt_long(int argc, char * const argv[], const char *optstring,
-                const struct option *longopts, int *longindex) {
+int getopt_long(int argc, char *const argv[], const char *optstring, const struct option *longopts, int *longindex) {
     if (optind >= argc || !argv[optind]) {
         return -1;
     }
@@ -39,7 +38,8 @@ int getopt_long(int argc, char * const argv[], const char *optstring,
             for (int i = 0; longopts[i].name != NULL; i++) {
                 if (strncmp(longopts[i].name, opt_name, name_len) == 0 && strlen(longopts[i].name) == name_len) {
                     optind++;
-                    if (longindex) *longindex = i;
+                    if (longindex)
+                        *longindex = i;
 
                     if (longopts[i].has_arg == required_argument) {
                         if (eq) {
@@ -47,7 +47,8 @@ int getopt_long(int argc, char * const argv[], const char *optstring,
                         } else if (optind < argc) {
                             optarg = argv[optind++];
                         } else {
-                            if (opterr) printf("%s: option '--%s' requires an argument\n", argv[0], longopts[i].name);
+                            if (opterr)
+                                printf("%s: option '--%s' requires an argument\n", argv[0], longopts[i].name);
                             return ':';
                         }
                     } else if (longopts[i].has_arg == optional_argument) {
@@ -64,7 +65,8 @@ int getopt_long(int argc, char * const argv[], const char *optstring,
                 }
             }
 
-            if (opterr) printf("%s: unrecognized option '--%s'\n", argv[0], opt_name);
+            if (opterr)
+                printf("%s: unrecognized option '--%s'\n", argv[0], opt_name);
             optind++;
             return '?';
         }
@@ -77,8 +79,10 @@ int getopt_long(int argc, char * const argv[], const char *optstring,
 
     if (!match || c == ':') {
         optopt = c;
-        if (opterr) printf("%s: invalid option -- '%c'\n", argv[0], c);
-        if (!*next_char) optind++;
+        if (opterr)
+            printf("%s: invalid option -- '%c'\n", argv[0], c);
+        if (!*next_char)
+            optind++;
         return '?';
     }
 
@@ -92,19 +96,21 @@ int getopt_long(int argc, char * const argv[], const char *optstring,
             optarg = argv[optind++];
         } else {
             optopt = c;
-            if (opterr) printf("%s: option requires an argument -- '%c'\n", argv[0], c);
+            if (opterr)
+                printf("%s: option requires an argument -- '%c'\n", argv[0], c);
             optind++;
             return (optstring[0] == ':') ? ':' : '?';
         }
     } else {
         optarg = NULL;
-        if (!*next_char) optind++;
+        if (!*next_char)
+            optind++;
     }
 
     return c;
 }
 
-int getopt_long_only(int argc, char * const argv[], const char *optstring,
-                     const struct option *longopts, int *longindex) {
+int getopt_long_only(int argc, char *const argv[], const char *optstring, const struct option *longopts,
+                     int *longindex) {
     return getopt_long(argc, argv, optstring, longopts, longindex);
 }

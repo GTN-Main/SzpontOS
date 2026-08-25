@@ -14,7 +14,8 @@ struct spawn_action {
 };
 
 int posix_spawn_file_actions_init(posix_spawn_file_actions_t *file_actions) {
-    if (!file_actions) return EINVAL;
+    if (!file_actions)
+        return EINVAL;
     file_actions->allocated = 8;
     file_actions->used = 0;
     file_actions->actions = malloc(8 * sizeof(struct spawn_action));
@@ -22,7 +23,8 @@ int posix_spawn_file_actions_init(posix_spawn_file_actions_t *file_actions) {
 }
 
 int posix_spawn_file_actions_destroy(posix_spawn_file_actions_t *file_actions) {
-    if (!file_actions) return EINVAL;
+    if (!file_actions)
+        return EINVAL;
     if (file_actions->actions) {
         free(file_actions->actions);
         file_actions->actions = NULL;
@@ -33,7 +35,8 @@ int posix_spawn_file_actions_destroy(posix_spawn_file_actions_t *file_actions) {
 }
 
 int posix_spawn_file_actions_adddup2(posix_spawn_file_actions_t *file_actions, int fd, int newfd) {
-    if (!file_actions) return EINVAL;
+    if (!file_actions)
+        return EINVAL;
     if (file_actions->used >= file_actions->allocated) {
         file_actions->allocated *= 2;
         file_actions->actions = realloc(file_actions->actions, file_actions->allocated * sizeof(struct spawn_action));
@@ -48,7 +51,8 @@ int posix_spawn_file_actions_adddup2(posix_spawn_file_actions_t *file_actions, i
 }
 
 int posix_spawn_file_actions_addclose(posix_spawn_file_actions_t *file_actions, int fd) {
-    if (!file_actions) return EINVAL;
+    if (!file_actions)
+        return EINVAL;
     if (file_actions->used >= file_actions->allocated) {
         file_actions->allocated *= 2;
         file_actions->actions = realloc(file_actions->actions, file_actions->allocated * sizeof(struct spawn_action));
@@ -61,8 +65,10 @@ int posix_spawn_file_actions_addclose(posix_spawn_file_actions_t *file_actions, 
     return 0;
 }
 
-int posix_spawn_file_actions_addopen(posix_spawn_file_actions_t *file_actions, int fd, const char *path, int oflag, mode_t mode) {
-    if (!file_actions) return EINVAL;
+int posix_spawn_file_actions_addopen(posix_spawn_file_actions_t *file_actions, int fd, const char *path, int oflag,
+                                     mode_t mode) {
+    if (!file_actions)
+        return EINVAL;
     if (file_actions->used >= file_actions->allocated) {
         file_actions->allocated *= 2;
         file_actions->actions = realloc(file_actions->actions, file_actions->allocated * sizeof(struct spawn_action));
@@ -77,10 +83,8 @@ int posix_spawn_file_actions_addopen(posix_spawn_file_actions_t *file_actions, i
     return 0;
 }
 
-int posix_spawn(pid_t *pid, const char *path,
-                const posix_spawn_file_actions_t *file_actions,
-                const posix_spawnattr_t *attrp,
-                char *const argv[], char *const envp[]) {
+int posix_spawn(pid_t *pid, const char *path, const posix_spawn_file_actions_t *file_actions,
+                const posix_spawnattr_t *attrp, char *const argv[], char *const envp[]) {
     (void)attrp;
     pid_t child = fork();
     if (child < 0) {
@@ -106,14 +110,13 @@ int posix_spawn(pid_t *pid, const char *path,
         execve(path, argv, envp ? envp : environ);
         _exit(127);
     }
-    if (pid) *pid = child;
+    if (pid)
+        *pid = child;
     return 0;
 }
 
-int posix_spawnp(pid_t *pid, const char *file,
-                 const posix_spawn_file_actions_t *file_actions,
-                 const posix_spawnattr_t *attrp,
-                 char *const argv[], char *const envp[]) {
+int posix_spawnp(pid_t *pid, const char *file, const posix_spawn_file_actions_t *file_actions,
+                 const posix_spawnattr_t *attrp, char *const argv[], char *const envp[]) {
     (void)attrp;
     pid_t child = fork();
     if (child < 0) {
@@ -139,6 +142,7 @@ int posix_spawnp(pid_t *pid, const char *file,
         execvp(file, argv);
         _exit(127);
     }
-    if (pid) *pid = child;
+    if (pid)
+        *pid = child;
     return 0;
 }

@@ -21,21 +21,23 @@ void block_device_init(void) {
 }
 
 int block_device_register(block_device_t *dev) {
-    if (!dev) return -1;
+    if (!dev)
+        return -1;
     spinlock_acquire(&g_block_dev_lock);
     if (g_block_dev_count >= MAX_BLOCK_DEVS) {
         spinlock_release(&g_block_dev_lock);
         return -1;
     }
     g_block_devices[g_block_dev_count++] = dev;
-    klog_info("BlockDev: Registered '%s' (%lu sectors, %lu MiB)",
-              dev->name, dev->sector_count, (dev->sector_count * dev->sector_size) / (1024 * 1024));
+    klog_info("BlockDev: Registered '%s' (%lu sectors, %lu MiB)", dev->name, dev->sector_count,
+              (dev->sector_count * dev->sector_size) / (1024 * 1024));
     spinlock_release(&g_block_dev_lock);
     return 0;
 }
 
 block_device_t *block_device_get(const char *name) {
-    if (!name) return NULL;
+    if (!name)
+        return NULL;
     for (size_t i = 0; i < g_block_dev_count; i++) {
         if (g_block_devices[i] && strcmp(g_block_devices[i]->name, name) == 0) {
             return g_block_devices[i];
@@ -49,7 +51,8 @@ size_t block_device_get_count(void) {
 }
 
 block_device_t *block_device_get_by_index(size_t index) {
-    if (index >= g_block_dev_count) return NULL;
+    if (index >= g_block_dev_count)
+        return NULL;
     return g_block_devices[index];
 }
 
@@ -86,13 +89,15 @@ static int ata_wait_not_busy(uint16_t io_base) {
 
 static int ata_block_dev_read(block_device_t *dev, uint64_t lba, uint32_t count, void *buf) {
     ata_drive_t *drive = (ata_drive_t *)dev->driver_data;
-    if (!drive || !buf) return -1;
+    if (!drive || !buf)
+        return -1;
     return ata_read_sectors(drive, (uint32_t)lba, (uint8_t)count, buf);
 }
 
 static int ata_block_dev_write(block_device_t *dev, uint64_t lba, uint32_t count, const void *buf) {
     ata_drive_t *drive = (ata_drive_t *)dev->driver_data;
-    if (!drive || !buf) return -1;
+    if (!drive || !buf)
+        return -1;
     return ata_write_sectors(drive, (uint32_t)lba, (uint8_t)count, buf);
 }
 
@@ -159,7 +164,8 @@ static int ata_identify(ata_drive_t *drive) {
 }
 
 int ata_read_sectors(ata_drive_t *drive, uint32_t lba, uint8_t count, void *buf) {
-    if (!drive || !drive->present || !buf || count == 0) return -1;
+    if (!drive || !drive->present || !buf || count == 0)
+        return -1;
 
     spinlock_acquire(&g_ata_lock);
     uint16_t io = drive->io_base;
@@ -198,7 +204,8 @@ int ata_read_sectors(ata_drive_t *drive, uint32_t lba, uint8_t count, void *buf)
 }
 
 int ata_write_sectors(ata_drive_t *drive, uint32_t lba, uint8_t count, const void *buf) {
-    if (!drive || !drive->present || !buf || count == 0) return -1;
+    if (!drive || !drive->present || !buf || count == 0)
+        return -1;
 
     spinlock_acquire(&g_ata_lock);
     uint16_t io = drive->io_base;
@@ -250,10 +257,10 @@ void ata_init(void) {
         bool is_slave;
         const char *name;
     } configs[4] = {
-        { ATA_PRIMARY_IO, ATA_PRIMARY_CTRL, false, "hda" },
-        { ATA_PRIMARY_IO, ATA_PRIMARY_CTRL, true,  "hdb" },
-        { ATA_SECONDARY_IO, ATA_SECONDARY_CTRL, false, "hdc" },
-        { ATA_SECONDARY_IO, ATA_SECONDARY_CTRL, true,  "hdd" },
+        {ATA_PRIMARY_IO, ATA_PRIMARY_CTRL, false, "hda"},
+        {ATA_PRIMARY_IO, ATA_PRIMARY_CTRL, true, "hdb"},
+        {ATA_SECONDARY_IO, ATA_SECONDARY_CTRL, false, "hdc"},
+        {ATA_SECONDARY_IO, ATA_SECONDARY_CTRL, true, "hdd"},
     };
 
     for (int i = 0; i < 4; i++) {
@@ -263,9 +270,8 @@ void ata_init(void) {
         g_ata_drives[i].is_slave = configs[i].is_slave;
 
         if (ata_identify(&g_ata_drives[i]) == 0) {
-            klog_info("ATA: Found drive '/dev/%s' (Model: %s, Sectors: %lu, Size: %lu MiB)",
-                      configs[i].name, g_ata_drives[i].model, g_ata_drives[i].sectors,
-                      (g_ata_drives[i].sectors * 512) / (1024 * 1024));
+            klog_info("ATA: Found drive '/dev/%s' (Model: %s, Sectors: %lu, Size: %lu MiB)", configs[i].name,
+                      g_ata_drives[i].model, g_ata_drives[i].sectors, (g_ata_drives[i].sectors * 512) / (1024 * 1024));
 
             strncpy(g_ata_drives[i].block_dev.name, configs[i].name, BLOCK_DEV_NAME_LEN - 1);
             g_ata_drives[i].block_dev.sector_size = 512;

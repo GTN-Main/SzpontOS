@@ -7,12 +7,14 @@
 
 static void remove_entry_from_file(const char *filepath, const char *prefix) {
     int fd = open(filepath, O_RDONLY);
-    if (fd < 0) return;
+    if (fd < 0)
+        return;
 
     char file_buf[4096];
     ssize_t bytes = read(fd, file_buf, sizeof(file_buf) - 1);
     close(fd);
-    if (bytes <= 0) return;
+    if (bytes <= 0)
+        return;
     file_buf[bytes] = '\0';
 
     char new_buf[4096];
@@ -21,7 +23,8 @@ static void remove_entry_from_file(const char *filepath, const char *prefix) {
     char *line = file_buf;
     while (*line) {
         char *eol = strchr(line, '\n');
-        if (eol) *eol = '\0';
+        if (eol)
+            *eol = '\0';
 
         if (strncmp(line, prefix, strlen(prefix)) != 0 && *line) {
             strcat(new_buf, line);

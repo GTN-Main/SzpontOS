@@ -12,10 +12,10 @@ struct in_addr {
 };
 
 struct sockaddr_in {
-    sa_family_t    sin_family;
-    in_port_t      sin_port;
+    sa_family_t sin_family;
+    in_port_t sin_port;
     struct in_addr sin_addr;
-    char           sin_zero[8];
+    char sin_zero[8];
 };
 
 struct in6_addr {
@@ -23,33 +23,30 @@ struct in6_addr {
 };
 
 struct sockaddr_in6 {
-    sa_family_t     sin6_family;
-    in_port_t       sin6_port;
-    uint32_t        sin6_flowinfo;
+    sa_family_t sin6_family;
+    in_port_t sin6_port;
+    uint32_t sin6_flowinfo;
     struct in6_addr sin6_addr;
-    uint32_t        sin6_scope_id;
+    uint32_t sin6_scope_id;
 };
 
-#define INADDR_ANY          ((in_addr_t) 0x00000000)
-#define INADDR_LOOPBACK     ((in_addr_t) 0x7f000001)
-#define INADDR_BROADCAST    ((in_addr_t) 0xffffffff)
-#define INADDR_NONE         ((in_addr_t) 0xffffffff)
+#define INADDR_ANY ((in_addr_t)0x00000000)
+#define INADDR_LOOPBACK ((in_addr_t)0x7f000001)
+#define INADDR_BROADCAST ((in_addr_t)0xffffffff)
+#define INADDR_NONE ((in_addr_t)0xffffffff)
 
-#define INET_ADDRSTRLEN  16
+#define INET_ADDRSTRLEN 16
 #define INET6_ADDRSTRLEN 46
 
-#define IPPROTO_IP   0
+#define IPPROTO_IP 0
 #define IPPROTO_ICMP 1
-#define IPPROTO_TCP  6
-#define IPPROTO_UDP  17
+#define IPPROTO_TCP 6
+#define IPPROTO_UDP 17
 #define IPPROTO_IPV6 41
-#define IPPROTO_RAW  255
+#define IPPROTO_RAW 255
 
 #endif /* _NETINET_IN_H */
 
-#define IN6_IS_ADDR_UNSPECIFIED(a) \
-    (((const uint32_t *) (a))[0] == 0 && \
-     ((const uint32_t *) (a))[1] == 0 && \
-     ((const uint32_t *) (a))[2] == 0 && \
-     ((const uint32_t *) (a))[3] == 0)
-
+#define IN6_IS_ADDR_UNSPECIFIED(a)                                                                                     \
+    (((const uint32_t *)(a))[0] == 0 && ((const uint32_t *)(a))[1] == 0 && ((const uint32_t *)(a))[2] == 0 &&          \
+     ((const uint32_t *)(a))[3] == 0)

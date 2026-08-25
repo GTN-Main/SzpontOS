@@ -11,10 +11,10 @@
 int strcasecmp(const char *s1, const char *s2);
 int strncasecmp(const char *s1, const char *s2, size_t n);
 
-#define bcmp(s1, s2, n)    memcmp((s1), (s2), (size_t)(n))
+#define bcmp(s1, s2, n) memcmp((s1), (s2), (size_t)(n))
 #define bcopy(src, dst, n) memcpy((dst), (src), (size_t)(n))
-#define bzero(s, n)        memset((s), 0, (size_t)(n))
-#define index(s, c)        strchr((s), (c))
-#define rindex(s, c)       strrchr((s), (c))
+#define bzero(s, n) memset((s), 0, (size_t)(n))
+#define index(s, c) strchr((s), (c))
+#define rindex(s, c) strrchr((s), (c))
 
 #endif /* _STRINGS_H */

@@ -77,8 +77,7 @@ int main(int argc, char *argv[]) {
     }
 
     char line[256];
-    int len = snprintf(line, sizeof(line), "%s:x:%d:%d:%s:%s:%s\n",
-                       username, uid, gid, username, homedir, shell);
+    int len = snprintf(line, sizeof(line), "%s:x:%d:%d:%s:%s:%s\n", username, uid, gid, username, homedir, shell);
     write(fd_passwd, line, len);
     close(fd_passwd);
 
@@ -95,7 +94,6 @@ int main(int argc, char *argv[]) {
     mkdir(homedir, 0700);
     chown(homedir, (uid_t)uid, (gid_t)gid);
 
-    printf("useradd: user '%s' (UID %d, GID %d, Home: %s) created successfully.\n",
-           username, uid, gid, homedir);
+    printf("useradd: user '%s' (UID %d, GID %d, Home: %s) created successfully.\n", username, uid, gid, homedir);
     return 0;
 }

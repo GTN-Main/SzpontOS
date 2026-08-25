@@ -4,10 +4,10 @@
 #include <sys/types.h>
 
 struct group {
-    char   *gr_name;   /* Group name */
-    char   *gr_passwd; /* Group password */
-    gid_t   gr_gid;    /* Group ID */
-    char  **gr_mem;    /* Member list NULL-terminated */
+    char *gr_name;   /* Group name */
+    char *gr_passwd; /* Group password */
+    gid_t gr_gid;    /* Group ID */
+    char **gr_mem;   /* Member list NULL-terminated */
 };
 
 struct group *getgrnam(const char *name);

@@ -1,13 +1,13 @@
 #ifndef _LOCALE_H
 #define _LOCALE_H
 
-#define LC_CTYPE           0
-#define LC_NUMERIC         1
-#define LC_TIME            2
-#define LC_COLLATE         3
-#define LC_MONETARY        4
-#define LC_MESSAGES        5
-#define LC_ALL             6
+#define LC_CTYPE 0
+#define LC_NUMERIC 1
+#define LC_TIME 2
+#define LC_COLLATE 3
+#define LC_MONETARY 4
+#define LC_MESSAGES 5
+#define LC_ALL 6
 
 struct lconv {
     char *decimal_point;
@@ -30,33 +30,7 @@ struct lconv {
     char n_sign_posn;
 };
 
-static inline char *setlocale(int category, const char *locale) {
-    (void)category; (void)locale;
-    return "C";
-}
-
-static inline struct lconv *localeconv(void) {
-    static struct lconv c_locale = {
-        .decimal_point = ".",
-        .thousands_sep = "",
-        .grouping = "",
-        .int_curr_symbol = "",
-        .currency_symbol = "",
-        .mon_decimal_point = "",
-        .mon_thousands_sep = "",
-        .mon_grouping = "",
-        .positive_sign = "",
-        .negative_sign = "",
-        .int_frac_digits = 127,
-        .frac_digits = 127,
-        .p_cs_precedes = 127,
-        .p_sep_by_space = 127,
-        .n_cs_precedes = 127,
-        .n_sep_by_space = 127,
-        .p_sign_posn = 127,
-        .n_sign_posn = 127
-    };
-    return &c_locale;
-}
+char *setlocale(int category, const char *locale);
+struct lconv *localeconv(void);
 
 #endif /* _LOCALE_H */

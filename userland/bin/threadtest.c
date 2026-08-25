@@ -6,14 +6,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <sched.h>
 #include <pthread.h>
 #include <semaphore.h>
 
 #define NUM_THREADS 4
-#define ITERATIONS  5000
+#define ITERATIONS 5000
 
 static pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t  g_cond  = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t g_cond = PTHREAD_COND_INITIALIZER;
 static pthread_barrier_t g_barrier;
 static sem_t g_sem;
 static pthread_key_t g_tls_key;
@@ -80,7 +81,8 @@ static void *tls_worker(void *arg) {
 }
 
 int main(int argc, char *argv[]) {
-    (void)argc; (void)argv;
+    (void)argc;
+    (void)argv;
 
     printf("========================================\n");
     printf("  SzpontOS POSIX Threads Test Suite     \n");
@@ -105,8 +107,8 @@ int main(int argc, char *argv[]) {
     }
 
     int expected = NUM_THREADS * ITERATIONS;
-    printf("  -> Final Counter = %d (expected %d) %s\n\n",
-           g_counter, expected, (g_counter == expected) ? "[PASSED]" : "[FAILED]");
+    printf("  -> Final Counter = %d (expected %d) %s\n\n", g_counter, expected,
+           (g_counter == expected) ? "[PASSED]" : "[FAILED]");
 
     /* 2. Condition Variable Test */
     printf("[2] Testing Condition Variables (pthread_cond_wait / signal):\n");
@@ -126,8 +128,8 @@ int main(int argc, char *argv[]) {
     pthread_mutex_unlock(&g_mutex);
 
     pthread_join(cons, NULL);
-    printf("  -> Condition Variable Ping-Pong %s (state = %d)\n\n",
-           (g_ping_pong == 2) ? "[PASSED]" : "[FAILED]", g_ping_pong);
+    printf("  -> Condition Variable Ping-Pong %s (state = %d)\n\n", (g_ping_pong == 2) ? "[PASSED]" : "[FAILED]",
+           g_ping_pong);
 
     /* 3. Barrier Test */
     printf("[3] Testing POSIX Barriers (pthread_barrier_wait):\n");

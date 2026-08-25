@@ -8,21 +8,21 @@
 
 /* Address Families */
 #define AF_UNSPEC 0
-#define AF_UNIX   1
-#define AF_LOCAL  1
-#define AF_INET   2
-#define AF_INET6  10
+#define AF_UNIX 1
+#define AF_LOCAL 1
+#define AF_INET 2
+#define AF_INET6 10
 
 /* Socket Types */
 #define SOCK_STREAM 1
-#define SOCK_DGRAM  2
-#define SOCK_RAW    3
+#define SOCK_DGRAM 2
+#define SOCK_RAW 3
 
 /* Protocol constants */
-#define IPPROTO_IP   0
+#define IPPROTO_IP 0
 #define IPPROTO_ICMP 1
-#define IPPROTO_TCP  6
-#define IPPROTO_UDP  17
+#define IPPROTO_TCP 6
+#define IPPROTO_UDP 17
 
 /* Socket States */
 typedef enum {
@@ -53,7 +53,7 @@ typedef enum {
 /* Standard POSIX sockaddr structures for Kernel */
 struct sockaddr {
     uint16_t sa_family;
-    char     sa_data[14];
+    char sa_data[14];
 };
 
 struct in_addr {
@@ -61,26 +61,26 @@ struct in_addr {
 };
 
 struct sockaddr_in {
-    uint16_t       sin_family;
-    uint16_t       sin_port;
+    uint16_t sin_family;
+    uint16_t sin_port;
     struct in_addr sin_addr;
-    char           sin_zero[8];
+    char sin_zero[8];
 };
 
 struct sockaddr_un {
     uint16_t sun_family;
-    char     sun_path[108];
+    char sun_path[108];
 };
 
 #define SOCK_RX_BUF_SIZE 65536
 #define SOCK_TX_BUF_SIZE 65536
 
 typedef struct socket {
-    int          domain;
-    int          type;
-    int          protocol;
+    int domain;
+    int type;
+    int protocol;
     sock_state_t state;
-    tcp_state_t  tcp_state;
+    tcp_state_t tcp_state;
 
     /* Addressing */
     uint32_t local_ip;
@@ -101,9 +101,9 @@ typedef struct socket {
 
     /* Buffers */
     uint8_t rx_buf[SOCK_RX_BUF_SIZE];
-    size_t  rx_head;
-    size_t  rx_tail;
-    size_t  rx_len;
+    size_t rx_head;
+    size_t rx_tail;
+    size_t rx_len;
 
     /* Listen backlog */
     int backlog;

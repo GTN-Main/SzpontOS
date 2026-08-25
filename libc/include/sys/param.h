@@ -13,6 +13,6 @@
 
 #define howmany(x, y) (((x) + ((y) - 1)) / (y))
 #define roundup(x, y) ((((x) + ((y) - 1)) / (y)) * (y))
-#define powerof2(x)   ((((x) - 1) & (x)) == 0)
+#define powerof2(x) ((((x) - 1) & (x)) == 0)
 
 #endif /* _SYS_PARAM_H */

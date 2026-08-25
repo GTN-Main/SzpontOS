@@ -61,7 +61,7 @@ int main(int argc, char *argv[]) {
     printf("  sinh(0)  = %.6f (expected 0.000000)\n", sinh(0.0));
     printf("  cosh(0)  = %.6f (expected 1.000000)\n", cosh(0.0));
     printf("  tanh(0)  = %.6f (expected 0.000000)\n", tanh(0.0));
-    printf("  cosh(1)^2 - sinh(1)^2 = %.6f (identity = 1.000000)\n\n", cosh(1.0)*cosh(1.0) - sinh(1.0)*sinh(1.0));
+    printf("  cosh(1)^2 - sinh(1)^2 = %.6f (identity = 1.000000)\n\n", cosh(1.0) * cosh(1.0) - sinh(1.0) * sinh(1.0));
 
     /* 6. Rounding & Utility */
     printf("[6] Rounding & Special Numbers:\n");

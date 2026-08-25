@@ -4,13 +4,13 @@
 #include <sys/types.h>
 
 struct passwd {
-    char   *pw_name;   /* Username */
-    char   *pw_passwd; /* User password / x */
-    uid_t   pw_uid;    /* User ID */
-    gid_t   pw_gid;    /* Group ID */
-    char   *pw_gecos;  /* Real name */
-    char   *pw_dir;    /* Home directory */
-    char   *pw_shell;  /* Shell program */
+    char *pw_name;   /* Username */
+    char *pw_passwd; /* User password / x */
+    uid_t pw_uid;    /* User ID */
+    gid_t pw_gid;    /* Group ID */
+    char *pw_gecos;  /* Real name */
+    char *pw_dir;    /* Home directory */
+    char *pw_shell;  /* Shell program */
 };
 
 struct passwd *getpwnam(const char *name);

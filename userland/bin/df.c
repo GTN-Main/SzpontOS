@@ -17,7 +17,8 @@ static void format_size(uint64_t bytes, char *buf, size_t buf_size) {
 
 static void print_df_entry(const char *fs_name, const char *mount_point, int human) {
     struct statfs s;
-    if (statfs(mount_point, &s) != 0) return;
+    if (statfs(mount_point, &s) != 0)
+        return;
 
     uint64_t total_bytes = s.f_blocks * s.f_bsize;
     uint64_t free_bytes = s.f_bfree * s.f_bsize;
@@ -29,14 +30,12 @@ static void print_df_entry(const char *fs_name, const char *mount_point, int hum
         format_size(total_bytes, s_total, sizeof(s_total));
         format_size(used_bytes, s_used, sizeof(s_used));
         format_size(free_bytes, s_avail, sizeof(s_avail));
-        printf("%-15s %8s %8s %8s %4d%%  %s\n",
-               fs_name, s_total, s_used, s_avail, use_pct, mount_point);
+        printf("%-15s %8s %8s %8s %4d%%  %s\n", fs_name, s_total, s_used, s_avail, use_pct, mount_point);
     } else {
         uint64_t total_kb = total_bytes / 1024;
         uint64_t used_kb = used_bytes / 1024;
         uint64_t avail_kb = free_bytes / 1024;
-        printf("%-15s %10lu %10lu %10lu %4d%%  %s\n",
-               fs_name, total_kb, used_kb, avail_kb, use_pct, mount_point);
+        printf("%-15s %10lu %10lu %10lu %4d%%  %s\n", fs_name, total_kb, used_kb, avail_kb, use_pct, mount_point);
     }
 }
 
@@ -49,11 +48,9 @@ int main(int argc, char *argv[]) {
     }
 
     if (human) {
-        printf("%-15s %8s %8s %8s %5s  %s\n",
-               "Filesystem", "Size", "Used", "Avail", "Use%", "Mounted on");
+        printf("%-15s %8s %8s %8s %5s  %s\n", "Filesystem", "Size", "Used", "Avail", "Use%", "Mounted on");
     } else {
-        printf("%-15s %10s %10s %10s %5s  %s\n",
-               "Filesystem", "1K-blocks", "Used", "Available", "Use%", "Mounted on");
+        printf("%-15s %10s %10s %10s %5s  %s\n", "Filesystem", "1K-blocks", "Used", "Available", "Use%", "Mounted on");
     }
 
     print_df_entry("rootfs", "/", human);

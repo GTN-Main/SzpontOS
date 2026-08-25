@@ -14,11 +14,26 @@
 static void print_interface(struct ifaddrs *ifa) {
     printf("%-8s  flags=%u<", ifa->ifa_name, ifa->ifa_flags);
     int first = 1;
-    if (ifa->ifa_flags & IFF_UP) { printf("%sUP", first ? "" : ","); first = 0; }
-    if (ifa->ifa_flags & IFF_BROADCAST) { printf("%sBROADCAST", first ? "" : ","); first = 0; }
-    if (ifa->ifa_flags & IFF_LOOPBACK) { printf("%sLOOPBACK", first ? "" : ","); first = 0; }
-    if (ifa->ifa_flags & IFF_RUNNING) { printf("%sRUNNING", first ? "" : ","); first = 0; }
-    if (ifa->ifa_flags & IFF_MULTICAST) { printf("%sMULTICAST", first ? "" : ","); first = 0; }
+    if (ifa->ifa_flags & IFF_UP) {
+        printf("%sUP", first ? "" : ",");
+        first = 0;
+    }
+    if (ifa->ifa_flags & IFF_BROADCAST) {
+        printf("%sBROADCAST", first ? "" : ",");
+        first = 0;
+    }
+    if (ifa->ifa_flags & IFF_LOOPBACK) {
+        printf("%sLOOPBACK", first ? "" : ",");
+        first = 0;
+    }
+    if (ifa->ifa_flags & IFF_RUNNING) {
+        printf("%sRUNNING", first ? "" : ",");
+        first = 0;
+    }
+    if (ifa->ifa_flags & IFF_MULTICAST) {
+        printf("%sMULTICAST", first ? "" : ",");
+        first = 0;
+    }
     printf(">\n");
 
     if (ifa->ifa_addr && ifa->ifa_addr->sa_family == AF_INET) {

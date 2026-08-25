@@ -54,7 +54,8 @@ static int remove_directory_contents(const char *dir_path) {
 static int remove_path(const char *path) {
     struct stat st;
     if (stat(path, &st) != 0) {
-        if (g_force) return 0;
+        if (g_force)
+            return 0;
         fprintf(stderr, "rm: cannot remove '%s': No such file or directory\n", path);
         return -1;
     }
@@ -125,10 +126,14 @@ int main(int argc, char *argv[]) {
             }
 
             while (*flag) {
-                if (*flag == 'r' || *flag == 'R') g_recursive = 1;
-                else if (*flag == 'f') g_force = 1;
-                else if (*flag == 'v') g_verbose = 1;
-                else if (*flag == 'd') g_dir = 1;
+                if (*flag == 'r' || *flag == 'R')
+                    g_recursive = 1;
+                else if (*flag == 'f')
+                    g_force = 1;
+                else if (*flag == 'v')
+                    g_verbose = 1;
+                else if (*flag == 'd')
+                    g_dir = 1;
                 else {
                     fprintf(stderr, "rm: invalid option -- '%c'\n", *flag);
                     return 1;

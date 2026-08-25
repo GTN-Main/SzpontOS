@@ -38,7 +38,8 @@ int main(int argc, char *argv[]) {
             arg_idx = 2;
         } else if (strcmp(argv[1], "-s") == 0 && argc > 2) {
             sig = atoi(argv[2]);
-            if (sig == 0 && strcmp(argv[2], "KILL") == 0) sig = SIGKILL;
+            if (sig == 0 && strcmp(argv[2], "KILL") == 0)
+                sig = SIGKILL;
             arg_idx = 3;
         }
     }
@@ -61,7 +62,8 @@ int main(int argc, char *argv[]) {
         for (int i = 0; i < count; i++) {
             const char *pname = procs[i].name;
             const char *slash = strrchr(pname, '/');
-            if (slash) pname = slash + 1;
+            if (slash)
+                pname = slash + 1;
 
             if (strcmp(pname, target_name) == 0 || strcmp(procs[i].name, target_name) == 0) {
                 if (procs[i].pid > 1 && procs[i].pid != getpid()) {

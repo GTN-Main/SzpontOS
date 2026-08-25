@@ -5,11 +5,15 @@
 #include <arch/x86_64/pit.h>
 #include <drivers/framebuffer.h>
 #include <drivers/keyboard.h>
+#include <drivers/ps2_mouse.h>
+#include <drivers/speaker.h>
+#include <drivers/tty.h>
 #include <drivers/serial.h>
 #include <drivers/random.h>
 #include <drivers/pty.h>
 #include <drivers/block.h>
 #include <drivers/ata.h>
+#include <drivers/ahci.h>
 #include <drivers/pci.h>
 #include <net/net.h>
 #include <fs/vfs.h>
@@ -34,21 +38,25 @@
 #include <mm/heap.h>
 #include <mm/pmm.h>
 #include <mm/vmm.h>
+#include <drivers/acpi.h>
+#include <drivers/ioapic.h>
+#include <drivers/usb.h>
+#include <drivers/rtc.h>
 
 /* Limine Requests */
 __attribute__((used, section(".requests"))) static volatile LIMINE_BASE_REVISION(3);
 
-__attribute__((used, section(".requests"))) static volatile struct limine_framebuffer_request
-    g_framebuffer_request = {.id = LIMINE_FRAMEBUFFER_REQUEST, .revision = 0};
+__attribute__((used, section(".requests"))) static volatile struct limine_framebuffer_request g_framebuffer_request = {
+    .id = LIMINE_FRAMEBUFFER_REQUEST, .revision = 0};
 
-__attribute__((used, section(".requests"))) static volatile struct limine_memmap_request
-    g_memmap_request = {.id = LIMINE_MEMMAP_REQUEST, .revision = 0};
+__attribute__((used, section(".requests"))) static volatile struct limine_memmap_request g_memmap_request = {
+    .id = LIMINE_MEMMAP_REQUEST, .revision = 0};
 
-__attribute__((used, section(".requests"))) static volatile struct limine_hhdm_request
-    g_hhdm_request = {.id = LIMINE_HHDM_REQUEST, .revision = 0};
+__attribute__((used, section(".requests"))) static volatile struct limine_hhdm_request g_hhdm_request = {
+    .id = LIMINE_HHDM_REQUEST, .revision = 0};
 
-__attribute__((used, section(".requests"))) static volatile struct limine_module_request
-    g_module_request = {.id = LIMINE_MODULE_REQUEST, .revision = 0};
+__attribute__((used, section(".requests"))) static volatile struct limine_module_request g_module_request = {
+    .id = LIMINE_MODULE_REQUEST, .revision = 0};
 
 __attribute__((used, section(".requests_start_marker"))) static volatile LIMINE_REQUESTS_START_MARKER;
 __attribute__((used, section(".requests_end_marker"))) static volatile LIMINE_REQUESTS_END_MARKER;
@@ -66,7 +74,7 @@ static void print_banner(void) {
     kprintf("            |_|                                  \n");
     fb_console_set_color(FB_COLOR_YELLOW, FB_COLOR_BG);
     kprintf(" ========================================================\n");
-    kprintf("  SzpontOS v0.1.0 (x86_64 Higher-Half)\n");
+    kprintf("  SzpontOS v0.1.0 (x86_64 Higher-Half UNIX Kernel)\n");
     kprintf("  (C) Copyright by Szpont Industries. All rights reserved.\n");
     kprintf(" ========================================================\n\n");
     fb_console_set_color(FB_COLOR_WHITE, FB_COLOR_BG);
@@ -108,8 +116,7 @@ void _start(void) {
     }
 
     /* Step 2: Framebuffer Console */
-    if (g_framebuffer_request.response != NULL &&
-        g_framebuffer_request.response->framebuffer_count > 0) {
+    if (g_framebuffer_request.response != NULL && g_framebuffer_request.response->framebuffer_count > 0) {
         struct limine_framebuffer *fb = g_framebuffer_request.response->framebuffers[0];
         framebuffer_init(fb);
     }
@@ -133,21 +140,29 @@ void _start(void) {
     uint64_t hhdm_offset = g_hhdm_request.response->offset;
     pmm_init(g_memmap_request.response, hhdm_offset);
     vmm_init(hhdm_offset);
+    pic_enable_apic_extint();
+    acpi_init();
+    ioapic_init();
     heap_init(8 * 1024 * 1024); /* 8 MiB initial heap */
+
+    /* Step 5b: Timers & Real-Time Clock calibration for precise driver delays */
+    pit_init(1000);
+    rtc_init();
 
     run_heap_self_test();
 
     /* Initialize in-RAM Shadow Backbuffer & Write-Combining for blazing fast Framebuffer */
     framebuffer_init_backbuffer();
 
-    /* Step 6: Virtual File System & Root FS (Initramfs) */
+    /* Step 6: Virtual File System, UNIX TTY & Root FS (Initramfs) */
     vfs_init();
+    tty_init();
 
     /* Check for loaded boot modules (Initramfs) */
     if (g_module_request.response && g_module_request.response->module_count > 0) {
         struct limine_file *mod = g_module_request.response->modules[0];
-        klog_info("Initramfs module loaded at %p (%lu bytes, path: %s)",
-                  mod->address, mod->size, mod->path ? mod->path : "unknown");
+        klog_info("Initramfs module loaded at %p (%lu bytes, path: %s)", mod->address, mod->size,
+                  mod->path ? mod->path : "unknown");
 
         vfs_node_t *root_fs = initramfs_init(mod->address, mod->size);
         if (root_fs) {
@@ -171,22 +186,28 @@ void _start(void) {
     /* Mount TmpFS at /tmp and /run */
     tmpfs_init();
 
-    /* Step 7: Block Devices, Buffer Cache & ATA/ext2 Storage */
+    /* Step 7: Block Devices, Buffer Cache, ATA & AHCI SATA Storage */
     bcache_init();
     ata_init();
 
-    block_device_t *hda = block_device_get("hda");
-    if (hda) {
-        vfs_node_t *ext2_root = ext2_mount(hda);
+    /* Step 8: PCI Bus Enumeration, AHCI SATA, USB & Networking */
+    pci_init();
+    ahci_init();
+    usb_init();
+    net_init();
+
+    /* Mount primary hard disk (/dev/sda or /dev/hda) at /mnt */
+    block_device_t *root_disk = block_device_get("sda");
+    if (!root_disk)
+        root_disk = block_device_get("hda");
+
+    if (root_disk) {
+        vfs_node_t *ext2_root = ext2_mount(root_disk);
         if (ext2_root) {
             vfs_mount("/mnt", ext2_root);
-            klog_info("ext2: Mounted '/dev/hda' at '/mnt'");
+            klog_info("ext2: Mounted '/dev/%s' at '/mnt'", root_disk->name);
         }
     }
-
-    /* Step 8: PCI Bus Enumeration & Networking */
-    pci_init();
-    net_init();
 
     /* Step 9: Sysctl MIB & Fast Syscalls Subsystem */
     sysctl_init();
@@ -198,14 +219,11 @@ void _start(void) {
     module_init_subsystem();
     sched_init();
 
-#include <drivers/rtc.h>
-
-    /* Step 9: Timers, Real-Time Clock & Keyboard */
-    pit_init(1000); /* 1000 Hz tick rate (1 ms tick resolution) */
-    rtc_init();     /* CMOS Real-Time Clock */
+    /* Step 11: PS/2 Keyboard & Mouse Drivers */
     keyboard_init();
+    ps2_mouse_init();
 
-    /* Step 10: Launch First Userland Process (/bin/init or /bin/sh) */
+    /* Step 12: Launch First Userland Process (/bin/init or /bin/sh) */
     process_t *init_proc = elf_spawn("/bin/init", "init");
     if (!init_proc) {
         klog_warn("Could not spawn /bin/init, attempting /bin/sh...");

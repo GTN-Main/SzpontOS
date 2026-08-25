@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <termios.h>
 #include <sys/wait.h>
 
 #define MAX_LINE 256
@@ -12,16 +13,16 @@
 #define HISTORY_SIZE 32
 
 /* ANSI Color definitions */
-#define COLOR_RESET   "\033[0m"
-#define COLOR_BOLD    "\033[1m"
-#define COLOR_RED     "\033[1;31m"
-#define COLOR_GREEN   "\033[1;32m"
-#define COLOR_YELLOW  "\033[1;33m"
-#define COLOR_BLUE    "\033[1;34m"
+#define COLOR_RESET "\033[0m"
+#define COLOR_BOLD "\033[1m"
+#define COLOR_RED "\033[1;31m"
+#define COLOR_GREEN "\033[1;32m"
+#define COLOR_YELLOW "\033[1;33m"
+#define COLOR_BLUE "\033[1;34m"
 #define COLOR_MAGENTA "\033[1;35m"
-#define COLOR_CYAN    "\033[1;36m"
-#define COLOR_WHITE   "\033[1;37m"
-#define COLOR_GRAY    "\033[0;90m"
+#define COLOR_CYAN "\033[1;36m"
+#define COLOR_WHITE "\033[1;37m"
+#define COLOR_GRAY "\033[0;90m"
 
 static char g_history[HISTORY_SIZE][MAX_LINE];
 static int g_history_count = 0;
@@ -30,7 +31,8 @@ static int g_history_pos = 0;
 #include <pwd.h>
 
 static void history_add(const char *cmd) {
-    if (!cmd || !*cmd) return;
+    if (!cmd || !*cmd)
+        return;
     if (g_history_count > 0 && strcmp(g_history[(g_history_count - 1) % HISTORY_SIZE], cmd) == 0) {
         return; /* Do not duplicate consecutive commands */
     }
@@ -51,11 +53,13 @@ static void print_prompt(void) {
 
     uid_t euid = geteuid();
     if (euid == 0) {
-        printf(COLOR_RED "root" COLOR_RESET "@" COLOR_GREEN "%s" COLOR_RESET ":" COLOR_BLUE "%s" COLOR_RESET "# ", hostname, cwd);
+        printf(COLOR_RED "root" COLOR_RESET "@" COLOR_GREEN "%s" COLOR_RESET ":" COLOR_BLUE "%s" COLOR_RESET "# ",
+               hostname, cwd);
     } else {
         struct passwd *pw = getpwuid(euid);
         const char *name = (pw && pw->pw_name) ? pw->pw_name : "user";
-        printf(COLOR_CYAN "%s" COLOR_RESET "@" COLOR_GREEN "%s" COLOR_RESET ":" COLOR_BLUE "%s" COLOR_RESET "$ ", name, hostname, cwd);
+        printf(COLOR_CYAN "%s" COLOR_RESET "@" COLOR_GREEN "%s" COLOR_RESET ":" COLOR_BLUE "%s" COLOR_RESET "$ ", name,
+               hostname, cwd);
     }
 }
 
@@ -87,12 +91,6 @@ static void cmd_help(void) {
     printf("  " COLOR_WHITE "Ctrl+U" COLOR_RESET "          - Clear entire input line\n");
 }
 
-
-
-
-
-
-
 static void cmd_pwd(void) {
     char buf[256];
     if (getcwd(buf, sizeof(buf))) {
@@ -101,16 +99,16 @@ static void cmd_pwd(void) {
 }
 
 static void cmd_cd(const char *path) {
-    if (!path || !*path) path = "/";
+    if (!path || !*path)
+        path = "/";
     if (chdir(path) != 0) {
         printf(COLOR_RED "cd: %s: No such directory" COLOR_RESET "\n", path);
     }
 }
 
-
-
 static void execute_command(int argc, char *argv[]) {
-    if (argc == 0) return;
+    if (argc == 0)
+        return;
 
     if (strcmp(argv[0], "help") == 0) {
         cmd_help();
@@ -135,14 +133,8 @@ static void execute_command(int argc, char *argv[]) {
             } else {
                 snprintf(exec_path, sizeof(exec_path), "/bin/%s", argv[0]);
             }
-            char *default_envp[] = {
-                "PATH=/bin",
-                "TERM=xterm-256color",
-                "USER=root",
-                "HOME=/root",
-                "SHELL=/bin/sh",
-                NULL
-            };
+            char *default_envp[] = {"PATH=/bin",  "TERM=xterm-256color", "USER=root",
+                                    "HOME=/root", "SHELL=/bin/sh",       NULL};
             execve(exec_path, argv, default_envp);
             printf(COLOR_RED "sh: command not found: %s" COLOR_RESET "\n", argv[0]);
             exit(127);
@@ -246,8 +238,14 @@ static bool read_input_line(char *line, size_t max_len) {
                         const char *hist = g_history[g_history_pos % HISTORY_SIZE];
 
                         /* Erase current line */
-                        while (cursor > 0) { printf("\b \b"); cursor--; }
-                        while (len > 0) { printf(" \b"); len--; }
+                        while (cursor > 0) {
+                            printf("\b \b");
+                            cursor--;
+                        }
+                        while (len > 0) {
+                            printf(" \b");
+                            len--;
+                        }
 
                         strcpy(line, hist);
                         len = strlen(line);
@@ -261,12 +259,18 @@ static bool read_input_line(char *line, size_t max_len) {
                 if (c2 == 'B') {
                     if (g_history_pos < g_history_count) {
                         g_history_pos++;
-                        const char *hist = (g_history_pos < g_history_count) ?
-                                           g_history[g_history_pos % HISTORY_SIZE] : "";
+                        const char *hist =
+                            (g_history_pos < g_history_count) ? g_history[g_history_pos % HISTORY_SIZE] : "";
 
                         /* Erase current line */
-                        while (cursor > 0) { printf("\b \b"); cursor--; }
-                        while (len > 0) { printf(" \b"); len--; }
+                        while (cursor > 0) {
+                            printf("\b \b");
+                            cursor--;
+                        }
+                        while (len > 0) {
+                            printf(" \b");
+                            len--;
+                        }
 
                         strcpy(line, hist);
                         len = strlen(line);
@@ -358,10 +362,18 @@ static bool read_input_line(char *line, size_t max_len) {
 }
 
 int main(int argc, char *argv[]) {
-    (void)argc; (void)argv;
+    (void)argc;
+    (void)argv;
 
     /* Ignore SIGINT in the shell process itself so Ctrl+C cancels the prompt line without terminating sh */
     signal(SIGINT, SIG_IGN);
+
+    /* Configure terminal in raw/non-canonical mode for live line editing */
+    struct termios term;
+    if (tcgetattr(STDIN_FILENO, &term) == 0) {
+        term.c_lflag &= ~(ICANON | ECHO);
+        tcsetattr(STDIN_FILENO, TCSANOW, &term);
+    }
 
     printf(COLOR_CYAN "SzpontOS Unix Shell (sh) v0.1.0" COLOR_RESET "\n");
     printf(COLOR_GRAY "Type 'help' for built-in commands & keyboard shortcuts." COLOR_RESET "\n\n");
@@ -380,27 +392,32 @@ int main(int argc, char *argv[]) {
         int arg_count = 0;
         char *p = line;
         while (*p) {
-            while (*p == ' ' || *p == '\t') p++;
-            if (!*p) break;
+            while (*p == ' ' || *p == '\t')
+                p++;
+            if (!*p)
+                break;
 
             char *token_start;
             if (*p == '\'' || *p == '"') {
                 char quote = *p++;
                 token_start = p;
-                while (*p && *p != quote) p++;
+                while (*p && *p != quote)
+                    p++;
                 if (*p == quote) {
                     *p++ = '\0';
                 }
             } else {
                 token_start = p;
-                while (*p && *p != ' ' && *p != '\t') p++;
+                while (*p && *p != ' ' && *p != '\t')
+                    p++;
                 if (*p) {
                     *p++ = '\0';
                 }
             }
 
             args[arg_count++] = token_start;
-            if (arg_count >= MAX_ARGS - 1) break;
+            if (arg_count >= MAX_ARGS - 1)
+                break;
         }
         args[arg_count] = NULL;
 

@@ -9,7 +9,7 @@ void *kmalloc(size_t size);
 void *kzalloc(size_t size);
 void *kcalloc(size_t num, size_t size);
 void *krealloc(void *ptr, size_t new_size);
-void  kfree(void *ptr);
+void kfree(void *ptr);
 
 void heap_dump_stats(void);
 

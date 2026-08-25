@@ -9,14 +9,15 @@
 
 #define USER_STACK_BASE 0x00007FFFF0000000ULL
 #define USER_STACK_SIZE (4 * 1024 * 1024)
-#define SO_BASE_START   0x0000700000000000ULL
-#define MAX_LOADED_SO   16
+#define SO_BASE_START 0x0000700000000000ULL
+#define MAX_LOADED_SO 16
 
 extern void arch_enter_user_mode(uintptr_t rip, uintptr_t rsp);
 
 static void user_thread_trampoline(void) {
     thread_t *curr = sched_get_current_thread();
-    if (!curr) return;
+    if (!curr)
+        return;
     arch_enter_user_mode(curr->user_entry, curr->user_stack);
 }
 
@@ -27,7 +28,8 @@ static void elf_write_user_mem(pagemap_t *map, uintptr_t vaddr, const void *src,
         uintptr_t page_vaddr = ALIGN_DOWN(cur_vaddr, PAGE_SIZE);
         size_t page_off = cur_vaddr - page_vaddr;
         size_t chunk = PAGE_SIZE - page_off;
-        if (chunk > (len - written)) chunk = len - written;
+        if (chunk > (len - written))
+            chunk = len - written;
 
         uintptr_t phys = vmm_virt_to_phys(map, page_vaddr);
         if (!phys) {
@@ -49,7 +51,8 @@ static void elf_read_user_mem(pagemap_t *map, uintptr_t vaddr, void *dst, size_t
         uintptr_t page_vaddr = ALIGN_DOWN(cur_vaddr, PAGE_SIZE);
         size_t page_off = cur_vaddr - page_vaddr;
         size_t chunk = PAGE_SIZE - page_off;
-        if (chunk > (len - read_bytes)) chunk = len - read_bytes;
+        if (chunk > (len - read_bytes))
+            chunk = len - read_bytes;
 
         uintptr_t phys = vmm_virt_to_phys(map, page_vaddr);
         if (phys) {
@@ -62,14 +65,14 @@ static void elf_read_user_mem(pagemap_t *map, uintptr_t vaddr, void *dst, size_t
     }
 }
 
-static int elf_load_segments(vfs_node_t *file, pagemap_t *map, uintptr_t base_vaddr, uintptr_t *out_memsz, Elf64_Phdr **out_phdrs, size_t *out_phnum, uintptr_t *out_dyn_vaddr) {
+static int elf_load_segments(vfs_node_t *file, pagemap_t *map, uintptr_t base_vaddr, uintptr_t *out_memsz,
+                             Elf64_Phdr **out_phdrs, size_t *out_phnum, uintptr_t *out_dyn_vaddr) {
     Elf64_Ehdr ehdr;
     if (file->ops->read(file, 0, sizeof(Elf64_Ehdr), &ehdr) != sizeof(Elf64_Ehdr)) {
         return -1;
     }
 
-    if (ehdr.e_ident[0] != 0x7F || ehdr.e_ident[1] != 'E' ||
-        ehdr.e_ident[2] != 'L'  || ehdr.e_ident[3] != 'F') {
+    if (ehdr.e_ident[0] != 0x7F || ehdr.e_ident[1] != 'E' || ehdr.e_ident[2] != 'L' || ehdr.e_ident[3] != 'F') {
         return -1;
     }
 
@@ -80,7 +83,8 @@ static int elf_load_segments(vfs_node_t *file, pagemap_t *map, uintptr_t base_va
     size_t phdr_size = ehdr.e_phnum * sizeof(Elf64_Phdr);
     Elf64_Phdr *phdrs = (Elf64_Phdr *)kmalloc(phdr_size);
     if (!phdrs || file->ops->read(file, ehdr.e_phoff, phdr_size, phdrs) != (ssize_t)phdr_size) {
-        if (phdrs) kfree(phdrs);
+        if (phdrs)
+            kfree(phdrs);
         return -1;
     }
 
@@ -93,20 +97,23 @@ static int elf_load_segments(vfs_node_t *file, pagemap_t *map, uintptr_t base_va
             dyn_vaddr = base_vaddr + p->p_vaddr;
         }
 
-        if (p->p_type != PT_LOAD) continue;
+        if (p->p_type != PT_LOAD)
+            continue;
 
         uintptr_t seg_vaddr = base_vaddr + p->p_vaddr;
         uintptr_t vaddr_start = ALIGN_DOWN(seg_vaddr, PAGE_SIZE);
-        uintptr_t vaddr_end   = ALIGN_UP(seg_vaddr + p->p_memsz, PAGE_SIZE);
-        size_t page_count     = (vaddr_end - vaddr_start) / PAGE_SIZE;
+        uintptr_t vaddr_end = ALIGN_UP(seg_vaddr + p->p_memsz, PAGE_SIZE);
+        size_t page_count = (vaddr_end - vaddr_start) / PAGE_SIZE;
 
         if (vaddr_end > max_vaddr) {
             max_vaddr = vaddr_end;
         }
 
         uint64_t vmm_flags = VMM_FLAG_USER | VMM_FLAG_PRESENT;
-        if (p->p_flags & PF_W) vmm_flags |= VMM_FLAG_WRITABLE;
-        if (!(p->p_flags & PF_X)) vmm_flags |= VMM_FLAG_NO_EXECUTE;
+        if (p->p_flags & PF_W)
+            vmm_flags |= VMM_FLAG_WRITABLE;
+        if (!(p->p_flags & PF_X))
+            vmm_flags |= VMM_FLAG_NO_EXECUTE;
 
         for (size_t pg = 0; pg < page_count; pg++) {
             uintptr_t vpage = vaddr_start + pg * PAGE_SIZE;
@@ -120,10 +127,10 @@ static int elf_load_segments(vfs_node_t *file, pagemap_t *map, uintptr_t base_va
             void *kptr = PHYS_TO_VIRT(ppage);
 
             uintptr_t seg_file_start = seg_vaddr;
-            uintptr_t seg_file_end   = seg_vaddr + p->p_filesz;
+            uintptr_t seg_file_end = seg_vaddr + p->p_filesz;
 
             uintptr_t page_file_start = MAX(vpage, seg_file_start);
-            uintptr_t page_file_end   = MIN(vpage + PAGE_SIZE, seg_file_end);
+            uintptr_t page_file_end = MIN(vpage + PAGE_SIZE, seg_file_end);
 
             if (page_file_start < page_file_end) {
                 size_t copy_len = page_file_end - page_file_start;
@@ -134,17 +141,23 @@ static int elf_load_segments(vfs_node_t *file, pagemap_t *map, uintptr_t base_va
         }
     }
 
-    if (out_memsz) *out_memsz = (max_vaddr > base_vaddr) ? (max_vaddr - base_vaddr) : 0;
-    if (out_phdrs) *out_phdrs = phdrs;
-    else kfree(phdrs);
-    if (out_phnum) *out_phnum = ehdr.e_phnum;
-    if (out_dyn_vaddr) *out_dyn_vaddr = dyn_vaddr;
+    if (out_memsz)
+        *out_memsz = (max_vaddr > base_vaddr) ? (max_vaddr - base_vaddr) : 0;
+    if (out_phdrs)
+        *out_phdrs = phdrs;
+    else
+        kfree(phdrs);
+    if (out_phnum)
+        *out_phnum = ehdr.e_phnum;
+    if (out_dyn_vaddr)
+        *out_dyn_vaddr = dyn_vaddr;
 
     return 0;
 }
 
 static int elf_parse_dynamic(pagemap_t *map, uintptr_t dyn_vaddr, uintptr_t base_vaddr, elf_loaded_so_t *so) {
-    if (!dyn_vaddr) return 0;
+    if (!dyn_vaddr)
+        return 0;
 
     Elf64_Dyn dyn;
     uintptr_t cur = dyn_vaddr;
@@ -160,19 +173,40 @@ static int elf_parse_dynamic(pagemap_t *map, uintptr_t dyn_vaddr, uintptr_t base
 
     while (1) {
         elf_read_user_mem(map, cur, &dyn, sizeof(Elf64_Dyn));
-        if (dyn.d_tag == DT_NULL) break;
+        if (dyn.d_tag == DT_NULL)
+            break;
 
         switch (dyn.d_tag) {
-            case DT_STRTAB:   strtab_vaddr = base_vaddr + dyn.d_un.d_ptr; break;
-            case DT_STRSZ:    strsz = dyn.d_un.d_val; break;
-            case DT_SYMTAB:   symtab_vaddr = base_vaddr + dyn.d_un.d_ptr; break;
-            case DT_SYMENT:   syment = dyn.d_un.d_val ? dyn.d_un.d_val : sizeof(Elf64_Sym); break;
-            case DT_RELA:     rela_vaddr = base_vaddr + dyn.d_un.d_ptr; break;
-            case DT_RELASZ:   relasz = dyn.d_un.d_val; break;
-            case DT_JMPREL:   jmprel_vaddr = base_vaddr + dyn.d_un.d_ptr; break;
-            case DT_PLTRELSZ: pltrelsz = dyn.d_un.d_val; break;
-            case DT_INIT:     so->init_func = base_vaddr + dyn.d_un.d_ptr; break;
-            case DT_FINI:     so->fini_func = base_vaddr + dyn.d_un.d_ptr; break;
+        case DT_STRTAB:
+            strtab_vaddr = base_vaddr + dyn.d_un.d_ptr;
+            break;
+        case DT_STRSZ:
+            strsz = dyn.d_un.d_val;
+            break;
+        case DT_SYMTAB:
+            symtab_vaddr = base_vaddr + dyn.d_un.d_ptr;
+            break;
+        case DT_SYMENT:
+            syment = dyn.d_un.d_val ? dyn.d_un.d_val : sizeof(Elf64_Sym);
+            break;
+        case DT_RELA:
+            rela_vaddr = base_vaddr + dyn.d_un.d_ptr;
+            break;
+        case DT_RELASZ:
+            relasz = dyn.d_un.d_val;
+            break;
+        case DT_JMPREL:
+            jmprel_vaddr = base_vaddr + dyn.d_un.d_ptr;
+            break;
+        case DT_PLTRELSZ:
+            pltrelsz = dyn.d_un.d_val;
+            break;
+        case DT_INIT:
+            so->init_func = base_vaddr + dyn.d_un.d_ptr;
+            break;
+        case DT_FINI:
+            so->fini_func = base_vaddr + dyn.d_un.d_ptr;
+            break;
         }
         cur += sizeof(Elf64_Dyn);
     }
@@ -186,7 +220,8 @@ static int elf_parse_dynamic(pagemap_t *map, uintptr_t dyn_vaddr, uintptr_t base
     if (symtab_vaddr && syment) {
         /* Estimate symbol count by strtab if symtab precedes strtab or using typical size */
         size_t est_syms = (strtab_vaddr > symtab_vaddr) ? (strtab_vaddr - symtab_vaddr) / syment : 1024;
-        if (est_syms == 0 || est_syms > 4096) est_syms = 1024;
+        if (est_syms == 0 || est_syms > 4096)
+            est_syms = 1024;
         so->symtab = (Elf64_Sym *)kmalloc(est_syms * sizeof(Elf64_Sym));
         so->sym_count = est_syms;
         elf_read_user_mem(map, symtab_vaddr, so->symtab, est_syms * sizeof(Elf64_Sym));
@@ -208,15 +243,18 @@ static int elf_parse_dynamic(pagemap_t *map, uintptr_t dyn_vaddr, uintptr_t base
 }
 
 static uintptr_t elf_resolve_symbol(const char *name, elf_loaded_so_t *so_list, size_t so_count) {
-    if (!name || !*name) return 0;
+    if (!name || !*name)
+        return 0;
 
     for (size_t i = 0; i < so_count; i++) {
         elf_loaded_so_t *so = &so_list[i];
-        if (!so->symtab || !so->strtab) continue;
+        if (!so->symtab || !so->strtab)
+            continue;
 
         for (size_t s = 0; s < so->sym_count; s++) {
             Elf64_Sym *sym = &so->symtab[s];
-            if (sym->st_name >= so->str_size) continue;
+            if (sym->st_name >= so->str_size)
+                continue;
 
             const char *sym_name = so->strtab + sym->st_name;
             if (strcmp(sym_name, name) == 0) {
@@ -230,7 +268,8 @@ static uintptr_t elf_resolve_symbol(const char *name, elf_loaded_so_t *so_list, 
 }
 
 static int elf_apply_relocations(pagemap_t *map, elf_loaded_so_t *target, elf_loaded_so_t *so_list, size_t so_count) {
-    if (!target) return -1;
+    if (!target)
+        return -1;
 
     /* Process .rela.dyn */
     if (target->rela && target->rela_count) {
@@ -254,23 +293,23 @@ static int elf_apply_relocations(pagemap_t *map, elf_loaded_so_t *target, elf_lo
 
             uint64_t val = 0;
             switch (type) {
-                case R_X86_64_NONE:
-                    break;
-                case R_X86_64_RELATIVE:
-                    val = target->base_vaddr + rel->r_addend;
-                    elf_write_user_mem(map, dest_vaddr, &val, sizeof(uint64_t));
-                    break;
-                case R_X86_64_GLOB_DAT:
-                case R_X86_64_JUMP_SLOT:
-                    val = sym_val;
-                    elf_write_user_mem(map, dest_vaddr, &val, sizeof(uint64_t));
-                    break;
-                case R_X86_64_64:
-                    val = sym_val + rel->r_addend;
-                    elf_write_user_mem(map, dest_vaddr, &val, sizeof(uint64_t));
-                    break;
-                default:
-                    break;
+            case R_X86_64_NONE:
+                break;
+            case R_X86_64_RELATIVE:
+                val = target->base_vaddr + rel->r_addend;
+                elf_write_user_mem(map, dest_vaddr, &val, sizeof(uint64_t));
+                break;
+            case R_X86_64_GLOB_DAT:
+            case R_X86_64_JUMP_SLOT:
+                val = sym_val;
+                elf_write_user_mem(map, dest_vaddr, &val, sizeof(uint64_t));
+                break;
+            case R_X86_64_64:
+                val = sym_val + rel->r_addend;
+                elf_write_user_mem(map, dest_vaddr, &val, sizeof(uint64_t));
+                break;
+            default:
+                break;
             }
         }
     }
@@ -297,17 +336,17 @@ static int elf_apply_relocations(pagemap_t *map, elf_loaded_so_t *target, elf_lo
 
             uint64_t val = 0;
             switch (type) {
-                case R_X86_64_JUMP_SLOT:
-                case R_X86_64_GLOB_DAT:
-                    val = sym_val;
-                    elf_write_user_mem(map, dest_vaddr, &val, sizeof(uint64_t));
-                    break;
-                case R_X86_64_RELATIVE:
-                    val = target->base_vaddr + rel->r_addend;
-                    elf_write_user_mem(map, dest_vaddr, &val, sizeof(uint64_t));
-                    break;
-                default:
-                    break;
+            case R_X86_64_JUMP_SLOT:
+            case R_X86_64_GLOB_DAT:
+                val = sym_val;
+                elf_write_user_mem(map, dest_vaddr, &val, sizeof(uint64_t));
+                break;
+            case R_X86_64_RELATIVE:
+                val = target->base_vaddr + rel->r_addend;
+                elf_write_user_mem(map, dest_vaddr, &val, sizeof(uint64_t));
+                break;
+            default:
+                break;
             }
         }
     }
@@ -316,7 +355,8 @@ static int elf_apply_relocations(pagemap_t *map, elf_loaded_so_t *target, elf_lo
 }
 
 int elf_load_binary(vfs_node_t *file, pagemap_t *map, uintptr_t *out_entry, uintptr_t *out_user_stack) {
-    if (!file || !file->ops || !file->ops->read || !map) return -1;
+    if (!file || !file->ops || !file->ops->read || !map)
+        return -1;
 
     Elf64_Ehdr ehdr;
     if (file->ops->read(file, 0, sizeof(Elf64_Ehdr), &ehdr) != sizeof(Elf64_Ehdr)) {
@@ -354,7 +394,8 @@ int elf_load_binary(vfs_node_t *file, pagemap_t *map, uintptr_t *out_entry, uint
 
         while (1) {
             elf_read_user_mem(map, cur, &dyn, sizeof(Elf64_Dyn));
-            if (dyn.d_tag == DT_NULL) break;
+            if (dyn.d_tag == DT_NULL)
+                break;
 
             if (dyn.d_tag == DT_NEEDED && loaded_so_count < MAX_LOADED_SO) {
                 const char *so_name = loaded_sos[0].strtab + dyn.d_un.d_val;
@@ -379,8 +420,8 @@ int elf_load_binary(vfs_node_t *file, pagemap_t *map, uintptr_t *out_entry, uint
                         so_entry->mem_size = so_memsz;
 
                         elf_parse_dynamic(map, so_dyn_vaddr, cur_so_base, so_entry);
-                        klog_info("ELF: Loaded shared library '%s' at 0x%016lx (Size: %lu KiB)",
-                                  so_name, cur_so_base, (so_memsz + 1023) / 1024);
+                        klog_info("ELF: Loaded shared library '%s' at 0x%016lx (Size: %lu KiB)", so_name, cur_so_base,
+                                  (so_memsz + 1023) / 1024);
 
                         cur_so_base = ALIGN_UP(cur_so_base + so_memsz + PAGE_SIZE, 0x200000); /* 2MB alignment */
                     } else {
@@ -401,12 +442,17 @@ int elf_load_binary(vfs_node_t *file, pagemap_t *map, uintptr_t *out_entry, uint
 
     /* Clean up temporary kernel heap buffers */
     for (size_t i = 0; i < loaded_so_count; i++) {
-        if (loaded_sos[i].symtab) kfree(loaded_sos[i].symtab);
-        if (loaded_sos[i].strtab) kfree(loaded_sos[i].strtab);
-        if (loaded_sos[i].rela) kfree(loaded_sos[i].rela);
-        if (loaded_sos[i].jmprel) kfree(loaded_sos[i].jmprel);
+        if (loaded_sos[i].symtab)
+            kfree(loaded_sos[i].symtab);
+        if (loaded_sos[i].strtab)
+            kfree(loaded_sos[i].strtab);
+        if (loaded_sos[i].rela)
+            kfree(loaded_sos[i].rela);
+        if (loaded_sos[i].jmprel)
+            kfree(loaded_sos[i].jmprel);
     }
-    if (exe_phdrs) kfree(exe_phdrs);
+    if (exe_phdrs)
+        kfree(exe_phdrs);
 
     /* Allocate and map User Stack */
     size_t stack_pages = USER_STACK_SIZE / PAGE_SIZE;
@@ -443,7 +489,7 @@ process_t *elf_spawn(const char *path, const char *name) {
     t->user_entry = entry;
     t->user_stack = user_stack;
 
-    klog_info("ELF: Spawned process '%s' (PID %d, Entry: 0x%016lx, Stack: 0x%016lx)",
-              proc->name, proc->pid, entry, user_stack);
+    klog_info("ELF: Spawned process '%s' (PID %d, Entry: 0x%016lx, Stack: 0x%016lx)", proc->name, proc->pid, entry,
+              user_stack);
     return proc;
 }

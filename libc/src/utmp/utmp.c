@@ -2,15 +2,13 @@
 #include <utmpx.h>
 #include <string.h>
 
-static struct utmp g_dummy_utmp = {
-    .ut_type = USER_PROCESS,
-    .ut_pid = 1,
-    .ut_line = "tty1",
-    .ut_id = "1",
-    .ut_user = "root",
-    .ut_host = "szpontos",
-    .ut_tv = { 1771718400, 0 }
-};
+static struct utmp g_dummy_utmp = {.ut_type = USER_PROCESS,
+                                   .ut_pid = 1,
+                                   .ut_line = "tty1",
+                                   .ut_id = "1",
+                                   .ut_user = "root",
+                                   .ut_host = "szpontos",
+                                   .ut_tv = {1771718400, 0}};
 
 static int g_utmp_idx = 0;
 

@@ -5,9 +5,9 @@
 
 #define GDT_KERNEL_CODE_SEL 0x08
 #define GDT_KERNEL_DATA_SEL 0x10
-#define GDT_USER_DATA_SEL   (0x18 | 3)
-#define GDT_USER_CODE_SEL   (0x20 | 3)
-#define GDT_TSS_SEL         0x28
+#define GDT_USER_DATA_SEL (0x18 | 3)
+#define GDT_USER_CODE_SEL (0x20 | 3)
+#define GDT_TSS_SEL 0x28
 
 struct __attribute__((packed)) tss_entry {
     uint32_t reserved0;

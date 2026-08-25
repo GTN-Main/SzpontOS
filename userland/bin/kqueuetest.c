@@ -31,7 +31,7 @@ int main(int argc, char *argv[]) {
     struct timespec timeout;
 
     /* Register 50ms periodic timer */
-    EV_SET(&change_event, 1, EVFILT_TIMER, EV_ADD | EV_ENABLE, 0, 50, (void*)0x1234);
+    EV_SET(&change_event, 1, EVFILT_TIMER, EV_ADD | EV_ENABLE, 0, 50, (void *)0x1234);
 
     timeout.tv_sec = 1;
     timeout.tv_nsec = 0;
@@ -43,8 +43,8 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    printf("  Triggered EVFILT_TIMER event: ident=%lu, filter=%d, udata=%p\n",
-           (unsigned long)event.ident, (int)event.filter, event.udata);
+    printf("  Triggered EVFILT_TIMER event: ident=%lu, filter=%d, udata=%p\n", (unsigned long)event.ident,
+           (int)event.filter, event.udata);
 
     /* 3. Test EVFILT_READ on pipe */
     int pipefds[2];
@@ -54,7 +54,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    EV_SET(&change_event, pipefds[0], EVFILT_READ, EV_ADD | EV_ENABLE | EV_ONESHOT, 0, 0, (void*)0x5678);
+    EV_SET(&change_event, pipefds[0], EVFILT_READ, EV_ADD | EV_ENABLE | EV_ONESHOT, 0, 0, (void *)0x5678);
     kevent(kq, &change_event, 1, NULL, 0, NULL);
 
     /* Write data into pipe */
@@ -74,8 +74,8 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    printf("  Triggered EVFILT_READ on pipe: ident=%lu (fd=%d), udata=%p, data=%ld bytes\n",
-           (unsigned long)event.ident, pipefds[0], event.udata, (long)event.data);
+    printf("  Triggered EVFILT_READ on pipe: ident=%lu (fd=%d), udata=%p, data=%ld bytes\n", (unsigned long)event.ident,
+           pipefds[0], event.udata, (long)event.data);
 
     char read_buf[32];
     memset(read_buf, 0, sizeof(read_buf));

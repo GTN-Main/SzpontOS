@@ -6,11 +6,7 @@
 
 #define MODULE_NAME_LEN 64
 
-typedef enum {
-    MODULE_STATE_LIVE = 0,
-    MODULE_STATE_COMING = 1,
-    MODULE_STATE_GOING = 2
-} module_state_t;
+typedef enum { MODULE_STATE_LIVE = 0, MODULE_STATE_COMING = 1, MODULE_STATE_GOING = 2 } module_state_t;
 
 typedef struct kernel_symbol {
     const char *name;
@@ -38,15 +34,17 @@ typedef struct module {
     list_node_t list;
 } module_t;
 
-#define EXPORT_SYMBOL(sym) \
-    __attribute__((used, section("__ksymtab"))) \
-    static const kernel_symbol_t __ksymtab_##sym = { #sym, (uintptr_t)&sym }
+#define EXPORT_SYMBOL(sym)                                                                                             \
+    __attribute__((used, section("__ksymtab"))) static const kernel_symbol_t __ksymtab_##sym = {#sym, (uintptr_t)&sym}
 
-#define MODULE_NAME(str)        static const char __mod_name[] __attribute__((used, section(".modinfo"))) = "name=" str
-#define MODULE_AUTHOR(str)      static const char __mod_author[] __attribute__((used, section(".modinfo"))) = "author=" str
-#define MODULE_DESCRIPTION(str) static const char __mod_desc[] __attribute__((used, section(".modinfo"))) = "description=" str
-#define MODULE_LICENSE(str)     static const char __mod_license[] __attribute__((used, section(".modinfo"))) = "license=" str
-#define MODULE_VERSION(str)     static const char __mod_version[] __attribute__((used, section(".modinfo"))) = "version=" str
+#define MODULE_NAME(str) static const char __mod_name[] __attribute__((used, section(".modinfo"))) = "name=" str
+#define MODULE_AUTHOR(str) static const char __mod_author[] __attribute__((used, section(".modinfo"))) = "author=" str
+#define MODULE_DESCRIPTION(str)                                                                                        \
+    static const char __mod_desc[] __attribute__((used, section(".modinfo"))) = "description=" str
+#define MODULE_LICENSE(str)                                                                                            \
+    static const char __mod_license[] __attribute__((used, section(".modinfo"))) = "license=" str
+#define MODULE_VERSION(str)                                                                                            \
+    static const char __mod_version[] __attribute__((used, section(".modinfo"))) = "version=" str
 
 #define module_init(fn) int init_module(void) __attribute__((alias(#fn)))
 #define module_exit(fn) void cleanup_module(void) __attribute__((alias(#fn)))
