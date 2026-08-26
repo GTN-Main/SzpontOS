@@ -5,6 +5,7 @@
 #include <arch/x86_64/pit.h>
 #include <drivers/framebuffer.h>
 #include <drivers/keyboard.h>
+#include <drivers/mouse.h>
 #include <drivers/ps2_mouse.h>
 #include <drivers/speaker.h>
 #include <drivers/tty.h>
@@ -220,6 +221,7 @@ void _start(void) {
     sched_init();
 
     /* Step 11: PS/2 Keyboard & Mouse Drivers */
+    mouse_init();
     keyboard_init();
     ps2_mouse_init();
 

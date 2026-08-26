@@ -6,6 +6,7 @@
 
 #include <drivers/ps2_mouse.h>
 #include <drivers/keyboard.h>
+#include <drivers/ioapic.h>
 #include <drivers/acpi.h>
 #include <arch/x86_64/idt.h>
 #include <arch/x86_64/io.h>
@@ -124,11 +125,12 @@ static void mouse_enqueue_packet(const mouse_packet_t *pkt) {
     spinlock_release(&g_mouse_lock);
 }
 
+#include <drivers/mouse.h>
+
 void ps2_mouse_handle_byte(uint8_t byte) {
     /* Byte 0 must have bit 3 always set (Sync bit) */
     if (g_packet_idx == 0 && !(byte & 0x08)) {
-        /* Fallback: Misdirected keyboard scancode on multiplexed laptop EC */
-        keyboard_handle_incoming_byte(byte);
+        /* Discard out-of-sync byte — NEVER forward to keyboard handler */
         return;
     }
 
@@ -165,34 +167,27 @@ void ps2_mouse_handle_byte(uint8_t byte) {
         pkt.dz = dz;
 
         mouse_enqueue_packet(&pkt);
+
+        /* Push to generic mouse subsystem */
+        mouse_event_t ev;
+        ev.buttons = flags & 0x07;
+        ev.dx = dx;
+        ev.dy = dy;
+        ev.dz = dz;
+        ev.abs_x = 0;
+        ev.abs_y = 0;
+        ev.is_absolute = false;
+        mouse_push_event(&ev);
     }
 }
 
 static void mouse_irq_handler(interrupt_frame_t *frame) {
     UNUSED(frame);
-
-    for (int i = 0; i < 16; i++) {
-        uint8_t status = inb(I8042_STATUS_PORT);
-        if (status == 0xFF || !(status & I8042_STATUS_OBF)) {
-            break;
-        }
-
-        uint8_t byte = inb(I8042_DATA_PORT);
-        if (status & I8042_STATUS_AUX_OBF) {
-            ps2_mouse_handle_byte(byte);
-        } else {
-            keyboard_handle_incoming_byte(byte);
-        }
-    }
+    keyboard_poll_hardware();
 }
 
 void ps2_mouse_init(void) {
     spinlock_init(&g_mouse_lock);
-
-    if (!acpi_has_8042_controller()) {
-        g_mouse_initialized = false;
-        return;
-    }
 
     uint8_t status = inb(I8042_STATUS_PORT);
     if (status == 0xFF) {
@@ -200,29 +195,14 @@ void ps2_mouse_init(void) {
         return;
     }
 
-    /* 1. Test AUX Port (Command 0xA9) before touching device */
-    if (ps2_mouse_wait_write()) {
-        outb(I8042_COMMAND_PORT, I8042_CMD_TEST_AUX);
-        io_wait();
-        if (ps2_mouse_wait_read()) {
-            uint8_t aux_test = inb(I8042_DATA_PORT);
-            if (aux_test != 0x00) {
-                /* AUX port not functioning or not present */
-                goto no_mouse;
-            }
-        } else {
-            goto no_mouse;
-        }
-    }
-
-    /* 2. Enable AUX Port Clock (Command 0xA8) */
+    /* 1. Enable AUX Port Clock (Command 0xA8) */
     if (ps2_mouse_wait_write()) {
         outb(I8042_COMMAND_PORT, I8042_CMD_ENABLE_AUX);
         io_wait();
     }
     udelay(10000);
 
-    /* 3. Read and update controller configuration byte (Enable IRQ 12 & IRQ 1) */
+    /* 2. Read and update controller configuration byte (Enable IRQ 12 & IRQ 1) */
     uint8_t config = 0x47;
     if (ps2_mouse_wait_write()) {
         outb(I8042_COMMAND_PORT, I8042_CMD_READ_CONFIG);
@@ -246,10 +226,14 @@ void ps2_mouse_init(void) {
         }
     }
 
-    /* 4. Reset Mouse Device & Verify BAT response */
-    if (!ps2_mouse_send_cmd(MOUSE_CMD_RESET)) {
+    /* 3. Send Reset to Pointing Device (Command 0xFF via 0xD4) */
+    int reset_res = ps2_mouse_send_cmd(MOUSE_CMD_RESET);
+    if (reset_res < 0) {
+        /* No mouse responded to reset */
         goto no_mouse;
     }
+    udelay(50000); /* 50ms BAT delay */
+    keyboard_drain_buffers();
 
     uint8_t bat = ps2_mouse_read();
     uint8_t dev_id = ps2_mouse_read();
@@ -278,23 +262,25 @@ void ps2_mouse_init(void) {
     ps2_mouse_send_cmd(3); /* 8 counts/mm */
     ps2_mouse_send_cmd(MOUSE_CMD_ENABLE_DATA);
 
-    /* 7. Register Interrupt Handler & Unmask PIC IRQ 12 */
+    /* 7. Register Interrupt Handler & Route IRQ 12 */
     isr_register_handler(IRQ12, mouse_irq_handler);
-    pic_clear_mask(12);
+    if (!ioapic_is_active()) {
+        pic_clear_mask(12);
+    }
+    ioapic_map_irq(12, 0x2C, 0, false, false);
 
     g_mouse_initialized = true;
     klog_info("PS/2 Mouse: Driver initialized successfully (IRQ 12 active)");
     return;
 
 no_mouse:
-    /* Clean up: Disable AUX port and disable AUX IRQs in 8042 CCB */
-    if (ps2_mouse_wait_write()) {
-        outb(I8042_COMMAND_PORT, I8042_CMD_DISABLE_AUX); /* Disable AUX port */
-        io_wait();
-    }
-
-    /* Read current config to avoid clobbering keyboard settings */
-    config = 0x45;
+    /*
+     * Dell Latitude / Laptop EC safety rule:
+     * Never send 0xA7 (Disable AUX Port) or set Bit 5 (AUX Clock Disable) in CCB!
+     * On Dell Latitudes and laptops with multiplexed ECs, disabling AUX clock
+     * shuts down the shared scan matrix clock for the keyboard.
+     */
+    config = 0x47;
     if (ps2_mouse_wait_write()) {
         outb(I8042_COMMAND_PORT, I8042_CMD_READ_CONFIG);
         io_wait();
@@ -303,10 +289,9 @@ no_mouse:
         }
     }
 
-    config &= ~(1 << 1); /* Clear AUX IRQ 12 */
-    config |= (1 << 5);  /* Set AUX clock disable */
-    config |= (1 << 0) | (1 << 6); /* Keep KBD IRQ 1 & Translation enabled */
-    config &= ~(1 << 4); /* Keep KBD clock enabled */
+    /* Enable KBD IRQ 1, Keep both KBD and AUX clocks active, Enable Translation */
+    config |= (1 << 0) | (1 << 6);
+    config &= ~((1 << 4) | (1 << 5)); /* Ensure both clocks remain ENABLED */
 
     if (ps2_mouse_wait_write()) {
         outb(I8042_COMMAND_PORT, I8042_CMD_WRITE_CONFIG);
@@ -317,11 +302,18 @@ no_mouse:
             io_wait();
         }
     }
-    pic_set_mask(12);
+
+    /* Ensure Keyboard Port (0xAE) remains enabled */
+    if (ps2_mouse_wait_write()) {
+        outb(I8042_COMMAND_PORT, 0xAE);
+        io_wait();
+    }
+
+    pic_clear_mask(1);
     g_mouse_initialized = false;
     keyboard_drain_buffers();
 
-    klog_info("PS/2 Mouse: No PS/2 mouse detected on AUX port (AUX disabled cleanly)");
+    klog_info("PS/2 Mouse: No PS/2 mouse detected on AUX port (Controller left in safe dual-clock mode)");
 }
 
 bool ps2_mouse_is_enabled(void) {

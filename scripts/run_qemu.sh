@@ -44,6 +44,10 @@ for arg in "$@"; do
             MACHINE_OPT="q35,i8042=on"
             ENABLE_USB_KBD=false
             ;;
+        --baremetal-ehci|--ehci)
+            echo "[*] Tryb Bare Metal EHCI USB 2.0: Włączono kontroler usb-ehci"
+            ENABLE_USB_KBD=true
+            ;;
         --baremetal-usb|--usb)
             echo "[*] Tryb Bare Metal USB: Wyłączono i8042 (czysty natywny USB xHCI / UEFI)"
             MACHINE_OPT="q35,i8042=off"
@@ -97,11 +101,12 @@ fi
 EXTRA_FLAGS+=("-netdev" "user,id=net0,hostfwd=tcp::${HTTP_PORT}-:80" "-device" "e1000,netdev=net0")
 
 
-# xHCI USB 3.0 Host Controller & USB HID Devices
-EXTRA_FLAGS+=("-device" "qemu-xhci,id=xhci")
+# xHCI USB 3.0 & EHCI USB 2.0 Host Controllers with USB HID Devices
+EXTRA_FLAGS+=("-device" "qemu-xhci,id=xhci" "-device" "usb-ehci,id=ehci")
 if [ "$ENABLE_USB_KBD" = true ]; then
-    EXTRA_FLAGS+=("-device" "usb-kbd,bus=xhci.0" "-device" "usb-tablet,bus=xhci.0")
+    EXTRA_FLAGS+=("-device" "usb-kbd,bus=xhci.0" "-device" "usb-mouse,bus=xhci.0")
 fi
+
 
 exec $QEMU_CMD \
     -M "$MACHINE_OPT" \

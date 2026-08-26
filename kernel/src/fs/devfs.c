@@ -2,6 +2,7 @@
 #include <drivers/serial.h>
 #include <drivers/framebuffer.h>
 #include <drivers/keyboard.h>
+#include <drivers/mouse.h>
 #include <drivers/ps2_mouse.h>
 #include <drivers/speaker.h>
 #include <drivers/tty.h>
@@ -111,6 +112,20 @@ static ssize_t devfs_psaux_read(vfs_node_t *node, off_t offset, size_t size, voi
 }
 
 static ssize_t devfs_psaux_write(vfs_node_t *node, off_t offset, size_t size, const void *buffer) {
+    UNUSED(node);
+    UNUSED(offset);
+    UNUSED(buffer);
+    return (ssize_t)size;
+}
+
+/* /dev/mouse (Universal Mouse) */
+static ssize_t devfs_mouse_read(vfs_node_t *node, off_t offset, size_t size, void *buffer) {
+    UNUSED(node);
+    UNUSED(offset);
+    return mouse_devfs_read(buffer, size);
+}
+
+static ssize_t devfs_mouse_write(vfs_node_t *node, off_t offset, size_t size, const void *buffer) {
     UNUSED(node);
     UNUSED(offset);
     UNUSED(buffer);
@@ -265,6 +280,10 @@ void devfs_init(void) {
     g_psaux_ops.read = devfs_psaux_read;
     g_psaux_ops.write = devfs_psaux_write;
 
+    static vfs_ops_t g_mouse_ops;
+    g_mouse_ops.read = devfs_mouse_read;
+    g_mouse_ops.write = devfs_mouse_write;
+
     g_speaker_ops.write = devfs_speaker_write;
 
     g_block_ops.read = devfs_block_read;
@@ -307,11 +326,16 @@ void devfs_init(void) {
     psaux_dev->ops = &g_psaux_ops;
     devfs_register_device("psaux", psaux_dev);
 
+    vfs_node_t *mouse_dev = (vfs_node_t *)kzalloc(sizeof(vfs_node_t));
+    mouse_dev->flags = VFS_TYPE_CHARDEVICE;
+    mouse_dev->ops = &g_mouse_ops;
+    devfs_register_device("mouse", mouse_dev);
+
     vfs_node_t *speaker_dev = (vfs_node_t *)kzalloc(sizeof(vfs_node_t));
     speaker_dev->flags = VFS_TYPE_CHARDEVICE;
     speaker_dev->ops = &g_speaker_ops;
     devfs_register_device("speaker", speaker_dev);
 
     vfs_mount("/dev", g_devfs_root);
-    klog_info("DevFS mounted at /dev with devices: null, zero, serial, tty, console, psaux, speaker");
+    klog_info("DevFS mounted at /dev with devices: null, zero, serial, tty, console, psaux, mouse, speaker");
 }

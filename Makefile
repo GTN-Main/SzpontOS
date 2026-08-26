@@ -6,6 +6,13 @@ OS_NAME := szpontos
 ARCH    := x86_64
 
 # ==============================================================================
+# Parallel Build Configuration
+# ==============================================================================
+NPROC := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
+JOBS ?= $(NPROC)
+MAKEFLAGS += -j$(JOBS)
+
+# ==============================================================================
 # Toolchain Auto-detection (Prefer GCC, fallback to Clang)
 # ==============================================================================
 
@@ -63,8 +70,10 @@ XORRISO := xorriso
 QEMU    := qemu-system-x86_64
 
 # ==============================================================================
-# Compilation Flags
+# Compilation Flags & Directories
 # ==============================================================================
+
+BUILD_DIR := build
 
 # Kernel Flags
 CFLAGS := \
@@ -86,6 +95,7 @@ CFLAGS := \
     -O2 \
     -g \
     -I kernel/include \
+    -I $(BUILD_DIR)/include \
     -I .
 
 ifeq ($(TOOLCHAIN_TYPE),clang)
@@ -168,6 +178,7 @@ KERNEL_C_SRCS := \
     kernel/src/drivers/font8x16.c \
     kernel/src/drivers/framebuffer.c \
     kernel/src/drivers/keyboard.c \
+    kernel/src/drivers/mouse.c \
     kernel/src/drivers/ps2_mouse.c \
     kernel/src/drivers/speaker.c \
     kernel/src/drivers/tty.c \
@@ -175,6 +186,7 @@ KERNEL_C_SRCS := \
     kernel/src/drivers/ioapic.c \
     kernel/src/drivers/usb/usb.c \
     kernel/src/drivers/usb/xhci.c \
+    kernel/src/drivers/usb/ehci.c \
     kernel/src/drivers/usb/hid.c \
     kernel/src/drivers/rtc.c \
     kernel/src/drivers/ata.c \
@@ -255,7 +267,8 @@ LIBC_ASM_OBJS := $(patsubst %.asm, $(BUILD_DIR)/%.o, $(LIBC_ASM_SRCS))
 LIBC_OBJS     := $(LIBC_C_OBJS) $(LIBC_ASM_OBJS)
 
 # Sysroot Definition
-SYSROOT_DIR := $(BUILD_DIR)/sysroot
+SYSROOT_DIR   := $(BUILD_DIR)/sysroot
+SYSROOT_STAMP := $(SYSROOT_DIR)/.sysroot_installed
 
 # GNU Ncurses (Cross-compiled via original Autotools)
 NCURSES_BUILD_DIR := $(BUILD_DIR)/third_party/ncurses
@@ -347,25 +360,36 @@ USER_PROGS := \
     $(ROOTFS_DIR)/bin/ls \
     $(ROOTFS_DIR)/bin/lspci \
     $(ROOTFS_DIR)/bin/lsusb \
-    $(ROOTFS_DIR)/bin/donut
+    $(ROOTFS_DIR)/bin/donut \
+    $(ROOTFS_DIR)/bin/mousetest
 
 
 MODULE_DIR    := $(ROOTFS_DIR)/lib/modules
 MODULE_CFLAGS := $(CFLAGS) -mcmodel=kernel -fno-pic -fno-pie
 MODULES       := $(MODULE_DIR)/hello.sko $(MODULE_DIR)/dummy_dev.sko
 
-.PHONY: all build iso run run-virtio run-cli debug clean distclean limine initramfs libc userland compile_commands.json compile-commands bear toolchain-info
+.PHONY: all build iso initramfs run run-virtio run-ps2 run-usb run-stress run-cli debug clean distclean limine libc userland compile_commands.json compile-commands bear toolchain-info disk sysroot
 
-all: iso
+all: $(ISO_IMAGE)
 
 toolchain-info:
-	@echo "  [TOOLCHAIN] CC:  $(CC) ($(TOOLCHAIN_TYPE))"
-	@echo "  [TOOLCHAIN] LD:  $(LD)"
-	@echo "  [TOOLCHAIN] AR:  $(AR)"
-	@echo "  [TOOLCHAIN] ASM: $(NASM)"
-	@echo "  [TOOLCHAIN] ISO: $(XORRISO)"
+	@echo "  [TOOLCHAIN] CC:    $(CC) ($(TOOLCHAIN_TYPE))"
+	@echo "  [TOOLCHAIN] LD:    $(LD)"
+	@echo "  [TOOLCHAIN] AR:    $(AR)"
+	@echo "  [TOOLCHAIN] ASM:   $(NASM)"
+	@echo "  [TOOLCHAIN] ISO:   $(XORRISO)"
+	@echo "  [TOOLCHAIN] CORES: $(NPROC) (Parallel Jobs: $(JOBS))"
 
 build: toolchain-info libc userland $(KERNEL_ELF)
+
+GEN_PANIC_IMAGE := $(BUILD_DIR)/include/drivers/panic_image.h
+
+$(GEN_PANIC_IMAGE): artwork/szpont-detected.jpg scripts/generate_panic_image.py
+	@mkdir -p $(dir $@)
+	@python3 scripts/generate_panic_image.py $< $@
+
+$(BUILD_DIR)/kernel/src/drivers/framebuffer.o: $(GEN_PANIC_IMAGE)
+$(BUILD_DIR)/kernel/src/panic.o: $(GEN_PANIC_IMAGE)
 
 # Compile Kernel C sources
 $(BUILD_DIR)/kernel/%.o: kernel/%.c
@@ -595,7 +619,7 @@ $(ROOTFS_DIR)/bin/donut: userland/bin/donut.c $(CRT0_O) $(LIBC_SO) $(LIBM_SO) | 
 	@$(LD) $(USER_LDFLAGS) -pie $(CRT0_O) $(BUILD_DIR)/userland/bin/donut.o $(LIBM_SO) $(LIBC_SO) -o $@
 
 # GNU Ncurses Targets (Autotools cross-compile)
-$(NCURSES_BUILD_DIR)/Makefile: $(SYSROOT_DIR)/usr/include | $(NCURSES_BUILD_DIR)
+$(NCURSES_BUILD_DIR)/Makefile: $(SYSROOT_STAMP) | $(NCURSES_BUILD_DIR)
 	@echo "  [CONF-NCURSES] Konfiguracja GNU Ncurses (Autotools cross-compile)..."
 	@cd $(NCURSES_BUILD_DIR) && \
 	../../../third_party/ncurses/configure \
@@ -624,7 +648,7 @@ $(NCURSES_BUILD_DIR)/Makefile: $(SYSROOT_DIR)/usr/include | $(NCURSES_BUILD_DIR)
 	    CFLAGS="-O2 -ffreestanding -fno-builtin -isystem $(abspath $(SYSROOT_DIR))/usr/include -B$(abspath $(SYSROOT_DIR))/usr/lib" \
 	    CPPFLAGS="-isystem $(abspath $(SYSROOT_DIR))/usr/include" \
 	    LDFLAGS="-nostdlib -L$(abspath $(SYSROOT_DIR))/usr/lib -B$(abspath $(SYSROOT_DIR))/usr/lib" \
-	    LIBS="-lc" > /dev/null
+	    LIBS="-lc"
 	@sed -i '' 's/mkdir $$@/mkdir -p $$@/g' $(NCURSES_BUILD_DIR)/ncurses/Makefile 2>/dev/null || sed -i 's/mkdir $$@/mkdir -p $$@/g' $(NCURSES_BUILD_DIR)/ncurses/Makefile 2>/dev/null || true
 
 $(NCURSES_BUILD_DIR):
@@ -635,7 +659,8 @@ $(LIBNCURSES_A): $(NCURSES_BUILD_DIR)/Makefile $(LIBC_A) $(CRT0_O)
 	@python3 scripts/generate_ncurses_fallbacks.py $(NCURSES_BUILD_DIR)/ncurses/fallback.c
 	@sed -i '' 's/mkdir $$@/mkdir -p $$@/g' $(NCURSES_BUILD_DIR)/ncurses/Makefile 2>/dev/null || sed -i 's/mkdir $$@/mkdir -p $$@/g' $(NCURSES_BUILD_DIR)/ncurses/Makefile 2>/dev/null || true
 	@echo "  [MAKE-NCURSES] Kompilacja GNU Ncurses..."
-	@$(MAKE) -C $(NCURSES_BUILD_DIR)/ncurses > /dev/null
+	@$(MAKE) -C $(NCURSES_BUILD_DIR)/include
+	@$(MAKE) -C $(NCURSES_BUILD_DIR)/ncurses
 	@mkdir -p $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include $(ROOTFS_DIR)/lib
 	@cp $(NCURSES_BUILD_DIR)/lib/libncurses.a $(SYSROOT_DIR)/usr/lib/
 	@cp $(NCURSES_BUILD_DIR)/lib/libncurses.a $(ROOTFS_DIR)/lib/
@@ -644,11 +669,18 @@ $(LIBNCURSES_A): $(NCURSES_BUILD_DIR)/Makefile $(LIBC_A) $(CRT0_O)
 	@cp $(SYSROOT_DIR)/usr/include/curses.h $(SYSROOT_DIR)/usr/include/ncurses.h 2>/dev/null || true
 
 # GNU nano Targets (Direct Compilation against libc & libncurses)
+$(NANO_BUILD_DIR)/revision.h: | $(NANO_BUILD_DIR)
+	@mkdir -p $(NANO_BUILD_DIR)
+	@echo '#define REVISION "GNU nano 9.2.4"' > $@
+
+$(NANO_BUILD_DIR):
+	@mkdir -p $@
+
 NANO_SRCS := $(wildcard third_party/nano/src/*.c)
-$(ROOTFS_DIR)/bin/nano: $(NANO_SRCS) $(LIBNCURSES_A) $(LIBC_A) $(CRT0_O) | $(ROOTFS_DIR)
-	@mkdir -p $(ROOTFS_DIR)/bin $(BUILD_DIR)/third_party/nano
+$(ROOTFS_DIR)/bin/nano: $(NANO_SRCS) $(NANO_BUILD_DIR)/revision.h $(LIBNCURSES_A) $(LIBC_A) $(CRT0_O) | $(ROOTFS_DIR)
+	@mkdir -p $(ROOTFS_DIR)/bin $(NANO_BUILD_DIR)
 	@echo "  [MAKE-NANO] Kompilacja GNU nano..."
-	@$(CC) $(USER_CFLAGS) -nostdlib -Ithird_party/nano/src -isystem $(abspath $(SYSROOT_DIR))/usr/include \
+	@$(CC) $(USER_CFLAGS) -nostdlib -I$(NANO_BUILD_DIR) -Ithird_party/nano/src -isystem $(abspath $(SYSROOT_DIR))/usr/include \
 	    -DPACKAGE=\"nano\" -DVERSION=\"7.2\" -DENABLE_UTF8=1 -DENABLE_COLOR=1 -DENABLE_NANORC=1 \
 	    -DENABLE_MULTIBUFFER=1 -DHAVE_NCURSES_H=1 -DHAVE_CURSES_H=1 -DHAVE_LIMITS_H=1 -DHAVE_SYS_PARAM_H=1 \
 	    -DHAVE_TERMIOS_H=1 -DHAVE_UNISTD_H=1 -DHAVE_FCNTL_H=1 -DHAVE_DIRENT_H=1 -DHAVE_PWD_H=1 -DHAVE_GRP_H=1 \
@@ -668,22 +700,22 @@ $(MODULE_DIR)/dummy_dev.sko: modules/dummy_dev/dummy_dev.c | $(ROOTFS_DIR)
 	@$(CC) $(MODULE_CFLAGS) -c $< -o $@
 
 # Sysroot Target (cross-compilation root for third-party libraries)
-$(SYSROOT_DIR)/usr/include: $(LIBC_A) $(CRT0_O) $(LIBM_A) $(LIBDL_A)
+$(SYSROOT_STAMP): $(LIBC_A) $(CRT0_O) $(LIBM_A) $(LIBDL_A)
 	@mkdir -p $(SYSROOT_DIR)/usr/include $(SYSROOT_DIR)/usr/lib
 	@cp -r libc/include/* $(SYSROOT_DIR)/usr/include/
 	@cp $(LIBC_A) $(CRT0_O) $(LIBM_A) $(LIBDL_A) $(SYSROOT_DIR)/usr/lib/ 2>/dev/null || true
 	@touch $@
 
-sysroot: $(SYSROOT_DIR)/usr/include
+sysroot: $(SYSROOT_STAMP)
 
 
 # Generate configure for GNU file if missing
 third_party/file/configure:
 	@echo "  [PRECONF-FILE] Generowanie configure dla GNU file..."
-	@cd third_party/file && autoreconf -fi > /dev/null 2>&1 || true
+	@cd third_party/file && autoreconf -fi || true
 
 # Build GNU file using its original Autotools configure & Makefile
-$(FILE_BUILD_DIR)/Makefile: third_party/file/configure $(SYSROOT_DIR)/usr/include | $(FILE_BUILD_DIR)
+$(FILE_BUILD_DIR)/Makefile: third_party/file/configure $(SYSROOT_STAMP) | $(FILE_BUILD_DIR)
 	@echo "  [CONF-FILE] Konfiguracja GNU file (Autotools cross-compile)..."
 	@cd $(FILE_BUILD_DIR) && \
 	../../../third_party/file/configure \
@@ -708,7 +740,7 @@ $(FILE_BUILD_DIR)/Makefile: third_party/file/configure $(SYSROOT_DIR)/usr/includ
 	    RANLIB="$(RANLIB)" \
 	    CFLAGS="-O2 -ffreestanding -fno-builtin -isystem $(abspath $(SYSROOT_DIR))/usr/include -B$(abspath $(SYSROOT_DIR))/usr/lib" \
 	    LDFLAGS="-nostdlib -L$(abspath $(SYSROOT_DIR))/usr/lib -B$(abspath $(SYSROOT_DIR))/usr/lib" \
-	    LIBS="-lc" > /dev/null
+	    LIBS="-lc"
 
 $(FILE_BUILD_DIR):
 	@mkdir -p $@
@@ -716,7 +748,7 @@ $(FILE_BUILD_DIR):
 $(ROOTFS_DIR)/bin/file: $(FILE_BUILD_DIR)/Makefile $(LIBC_A) $(CRT0_O) $(LIBM_A) | $(ROOTFS_DIR)
 	@mkdir -p $(ROOTFS_DIR)/bin $(ROOTFS_DIR)/lib
 	@echo "  [MAKE-FILE] Kompilacja GNU file za pomocą oryginalnego Makefile..."
-	@$(MAKE) -C $(FILE_BUILD_DIR)/src file_LDADD="$(abspath $(SYSROOT_DIR))/usr/lib/crt0.o libmagic.la -lm" > /dev/null
+	@$(MAKE) -C $(FILE_BUILD_DIR)/src file_LDADD="$(abspath $(SYSROOT_DIR))/usr/lib/crt0.o libmagic.la -lm"
 	@cp $(FILE_BUILD_DIR)/src/file $@
 	@cp $(FILE_BUILD_DIR)/src/.libs/libmagic.a $(ROOTFS_DIR)/lib/ 2>/dev/null || true
 
@@ -730,9 +762,9 @@ $(MAGIC_DB): scripts/build_magic_db.py | $(ROOTFS_DIR)
 # Zsh Targets (Autotools cross-compile)
 third_party/zsh/configure:
 	@echo "  [PRECONF-ZSH] Generowanie configure dla Zsh..."
-	@cd third_party/zsh && ./Util/preconfig > /dev/null 2>&1 || (autoconf && autoheader && echo > stamp-h.in)
+	@cd third_party/zsh && (./Util/preconfig || (autoconf && autoheader && echo > stamp-h.in))
 
-$(ZSH_BUILD_DIR)/Makefile: third_party/zsh/configure $(LIBNCURSES_A) $(SYSROOT_DIR)/usr/include | $(ZSH_BUILD_DIR)
+$(ZSH_BUILD_DIR)/Makefile: third_party/zsh/configure $(LIBNCURSES_A) $(SYSROOT_STAMP) | $(ZSH_BUILD_DIR)
 	@echo "  [CONF-ZSH] Konfiguracja Zsh (Autotools cross-compile)..."
 	@cd $(ZSH_BUILD_DIR) && \
 	../../../third_party/zsh/configure \
@@ -751,7 +783,7 @@ $(ZSH_BUILD_DIR)/Makefile: third_party/zsh/configure $(LIBNCURSES_A) $(SYSROOT_D
 	    CFLAGS="-O2 -ffreestanding -fno-builtin -isystem $(abspath $(SYSROOT_DIR))/usr/include -B$(abspath $(SYSROOT_DIR))/usr/lib" \
 	    CPPFLAGS="-isystem $(abspath $(SYSROOT_DIR))/usr/include" \
 	    LDFLAGS="-nostdlib -L$(abspath $(SYSROOT_DIR))/usr/lib -B$(abspath $(SYSROOT_DIR))/usr/lib" \
-	    LIBS="$(abspath $(SYSROOT_DIR))/usr/lib/crt0.o -lncurses -lc -lm" > /dev/null
+	    LIBS="$(abspath $(SYSROOT_DIR))/usr/lib/crt0.o -lncurses -lc -lm"
 
 $(ZSH_BUILD_DIR):
 	@mkdir -p $@
@@ -759,11 +791,11 @@ $(ZSH_BUILD_DIR):
 $(ROOTFS_DIR)/bin/zsh: $(ZSH_BUILD_DIR)/Makefile $(LIBNCURSES_A) $(LIBC_A) $(CRT0_O) $(LIBM_A) | $(ROOTFS_DIR)
 	@mkdir -p $(ROOTFS_DIR)/bin
 	@echo "  [MAKE-ZSH] Kompilacja powłoki Zsh..."
-	@$(MAKE) -C $(ZSH_BUILD_DIR)/Src zsh > /dev/null
+	@$(MAKE) -C $(ZSH_BUILD_DIR)/Src zsh
 	@cp $(ZSH_BUILD_DIR)/Src/zsh $@
 
 # Fastfetch Targets (CMake cross-compile)
-$(FASTFETCH_BUILD_DIR)/Makefile: $(SYSROOT_DIR)/usr/include $(LIBC_A) $(CRT0_O) $(LIBM_A) $(LIBDL_A) | $(FASTFETCH_BUILD_DIR)
+$(FASTFETCH_BUILD_DIR)/Makefile: $(SYSROOT_STAMP) $(LIBC_A) $(CRT0_O) $(LIBM_A) $(LIBDL_A) | $(FASTFETCH_BUILD_DIR)
 	@echo "  [CONF-FASTFETCH] Konfiguracja Fastfetch (CMake cross-compile)..."
 	@cd $(FASTFETCH_BUILD_DIR) && \
 	cmake ../../../third_party/fastfetch \
@@ -798,17 +830,15 @@ $(FASTFETCH_BUILD_DIR)/Makefile: $(SYSROOT_DIR)/usr/include $(LIBC_A) $(CRT0_O) 
 	    -DENABLE_DDCUTIL=OFF \
 	    -DENABLE_THREADS=OFF \
 	    -DBUILD_TESTS=OFF \
-	    -DBUILD_FLASHFETCH=OFF > /dev/null
-
-
+	    -DBUILD_FLASHFETCH=OFF
 
 $(FASTFETCH_BUILD_DIR):
 	@mkdir -p $@
 
-$(ROOTFS_DIR)/bin/fastfetch: $(FASTFETCH_BUILD_DIR)/Makefile $(SYSROOT_DIR)/usr/include $(LIBC_A) $(CRT0_O) $(LIBM_A) $(LIBDL_A) | $(ROOTFS_DIR)
+$(ROOTFS_DIR)/bin/fastfetch: $(FASTFETCH_BUILD_DIR)/Makefile $(SYSROOT_STAMP) $(LIBC_A) $(CRT0_O) $(LIBM_A) $(LIBDL_A) | $(ROOTFS_DIR)
 	@mkdir -p $(ROOTFS_DIR)/bin
 	@echo "  [MAKE-FASTFETCH] Kompilacja narzędzia Fastfetch..."
-	@$(MAKE) -C $(FASTFETCH_BUILD_DIR) fastfetch > /dev/null
+	@$(MAKE) -C $(FASTFETCH_BUILD_DIR) fastfetch
 	@cp $(FASTFETCH_BUILD_DIR)/fastfetch $@
 
 
@@ -821,18 +851,24 @@ $(KERNEL_ELF): $(KERNEL_ALL_OBJS) kernel/linker.ld
 	@$(LD) $(LDFLAGS) $(KERNEL_ALL_OBJS) -o $@
 
 # Download and prepare Limine bootloader
-limine:
+limine-bin/limine-bios.sys:
 	@if [ ! -d limine-bin ]; then \
 		echo "  [GIT] Pobieranie Limine bootloader v8.x-binary..."; \
 		git clone https://github.com/limine-bootloader/limine.git --branch=v8.x-binary --depth=1 limine-bin; \
-		make -C limine-bin; \
+	fi
+	@if [ -d limine-bin ] && [ ! -f limine-bin/limine-bios.sys ]; then \
+		$(MAKE) -C limine-bin; \
 	fi
 
+limine: limine-bin/limine-bios.sys
+
 # Build initramfs archive
-initramfs: userland
+$(BUILD_DIR)/initramfs.tar: $(USER_PROGS) $(MODULES) $(MAGIC_DB) $(LIBC_SO) $(LIBM_SO) $(LIBCALC_SO) $(LIBNCURSES_A) | $(ROOTFS_DIR)
 	@mkdir -p $(BUILD_DIR)
 	@if [ -d $(ROOTFS_SKELETON_DIR) ]; then cp -r $(ROOTFS_SKELETON_DIR)/* $(ROOTFS_DIR)/ 2>/dev/null || true; fi
 	@./scripts/make_initramfs.py $(ROOTFS_DIR) $(BUILD_DIR)/initramfs.tar
+
+initramfs: $(BUILD_DIR)/initramfs.tar
 
 # Generate ext2 Disk Image
 $(DISK_IMAGE): scripts/make_ext2_disk.py
@@ -843,7 +879,7 @@ $(DISK_IMAGE): scripts/make_ext2_disk.py
 disk: $(DISK_IMAGE)
 
 # Build bootable ISO
-iso: build initramfs limine $(DISK_IMAGE)
+$(ISO_IMAGE): $(KERNEL_ELF) $(BUILD_DIR)/initramfs.tar limine-bin/limine-bios.sys $(DISK_IMAGE)
 	@echo "  [ISO] Tworzenie obrazu rozruchowego $(ISO_IMAGE)..."
 	@rm -rf $(ISO_DIR)
 	@mkdir -p $(ISO_DIR)/boot $(ISO_DIR)/boot/limine $(ISO_DIR)/EFI/BOOT
@@ -863,32 +899,34 @@ iso: build initramfs limine $(DISK_IMAGE)
 	@./limine-bin/limine bios-install $(ISO_IMAGE) >/dev/null 2>&1 || true
 	@echo "  [OK]  Obraz ISO gotowy: $(ISO_IMAGE)"
 
+iso: $(ISO_IMAGE)
+
 # Run in graphical QEMU
-run: iso
+run: $(ISO_IMAGE)
 	@./scripts/run_qemu.sh $(ISO_IMAGE)
 
 # Run in graphical QEMU with Virtio-VGA
-run-virtio: iso
+run-virtio: $(ISO_IMAGE)
 	@./scripts/run_qemu.sh $(ISO_IMAGE) --virtio
 
 # Run in graphical QEMU with Bare Metal PS/2 simulation
-run-ps2: iso
+run-ps2: $(ISO_IMAGE)
 	@./scripts/run_qemu.sh $(ISO_IMAGE) --baremetal-ps2
 
 # Run in graphical QEMU with Pure USB xHCI (UEFI Modern Bare Metal)
-run-usb: iso
+run-usb: $(ISO_IMAGE)
 	@./scripts/run_qemu.sh $(ISO_IMAGE) --baremetal-usb
 
 # Run with realistic timing and instruction cycle stress test
-run-stress: iso
+run-stress: $(ISO_IMAGE)
 	@./scripts/run_qemu.sh $(ISO_IMAGE) --timing-stress
 
 # Run in headless QEMU (terminal only)
-run-cli: iso
+run-cli: $(ISO_IMAGE)
 	@./scripts/run_qemu.sh $(ISO_IMAGE) --headless
 
 # Run in graphical QEMU with GDB debug stub
-debug: iso
+debug: $(ISO_IMAGE)
 	@./scripts/run_qemu.sh $(ISO_IMAGE) --debug
 
 compile_commands.json compile-commands bear:

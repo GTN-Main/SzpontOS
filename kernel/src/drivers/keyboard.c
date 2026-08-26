@@ -8,6 +8,7 @@
 #include <drivers/keyboard.h>
 #include <drivers/ps2_mouse.h>
 #include <drivers/xhci.h>
+#include <drivers/ehci.h>
 #include <drivers/acpi.h>
 #include <drivers/ioapic.h>
 #include <arch/x86_64/idt.h>
@@ -101,7 +102,19 @@ static bool g_extended = false;      /* 0xE0 prefix received */
 static int g_e1_pause_state = 0;     /* 0xE1 pause key sequence counter */
 static bool g_set2_release = false;  /* 0xF0 prefix received in Set 2 */
 static bool g_i8042_present = false;
-static volatile uint32_t g_i8042_in_poll = 0; /* Concurrency protection */
+static spinlock_t g_i8042_lock = SPINLOCK_INIT;
+
+static inline uint64_t kbd_irqsave(void) {
+    uint64_t rflags;
+    __asm__ volatile("pushfq; popq %0; cli" : "=r"(rflags) :: "memory");
+    return rflags;
+}
+
+static inline void kbd_irqrestore(uint64_t rflags) {
+    if (rflags & (1 << 9)) {
+        __asm__ volatile("sti" ::: "memory");
+    }
+}
 
 /* ==============================================================================
  * XT Scancode Set 1 Tables (Translated Mode)
@@ -219,6 +232,8 @@ void keyboard_drain_buffers(void) {
         uint8_t byte = kbd_read_data();
         if ((status & KBDS_AUX_OBF) && ps2_mouse_is_enabled()) {
             ps2_mouse_handle_byte(byte);
+        } else if (!(status & KBDS_AUX_OBF)) {
+            process_scancode(byte);
         }
     }
 }
@@ -347,94 +362,106 @@ void keyboard_set_leds(bool numlock, bool capslock, bool scrolllock) {
 /* ==============================================================================
  * Native Set 2 to Set 1 Conversion Table (Fallback for non-translating controllers)
  * ============================================================================== */
-static uint8_t set2_to_set1(uint8_t set2_code) {
-    switch (set2_code) {
-    case 0x1C: return 0x1E; /* A */
-    case 0x32: return 0x30; /* B */
-    case 0x21: return 0x2E; /* C */
-    case 0x23: return 0x20; /* D */
-    case 0x24: return 0x12; /* E */
-    case 0x2B: return 0x21; /* F */
-    case 0x34: return 0x22; /* G */
-    case 0x33: return 0x23; /* H */
-    case 0x43: return 0x17; /* I */
-    case 0x3B: return 0x24; /* J */
-    case 0x42: return 0x25; /* K */
-    case 0x4B: return 0x26; /* L */
-    case 0x3A: return 0x32; /* M */
-    case 0x31: return 0x31; /* N */
-    case 0x44: return 0x18; /* O */
-    case 0x4D: return 0x19; /* P */
-    case 0x15: return 0x10; /* Q */
-    case 0x2D: return 0x13; /* R */
-    case 0x1B: return 0x1F; /* S */
-    case 0x2C: return 0x14; /* T */
-    case 0x3C: return 0x16; /* U */
-    case 0x2A: return 0x2F; /* V */
-    case 0x1D: return 0x11; /* W */
-    case 0x22: return 0x2D; /* X */
-    case 0x35: return 0x15; /* Y */
-    case 0x1A: return 0x2C; /* Z */
-    case 0x45: return 0x0B; /* 0 */
-    case 0x16: return 0x02; /* 1 */
-    case 0x1E: return 0x03; /* 2 */
-    case 0x26: return 0x04; /* 3 */
-    case 0x25: return 0x05; /* 4 */
-    case 0x2E: return 0x06; /* 5 */
-    case 0x36: return 0x07; /* 6 */
-    case 0x3D: return 0x08; /* 7 */
-    case 0x3E: return 0x09; /* 8 */
-    case 0x46: return 0x0A; /* 9 */
-    case 0x4E: return 0x0C; /* - */
-    case 0x55: return 0x0D; /* = */
-    case 0x54: return 0x1A; /* [ */
-    case 0x5B: return 0x1B; /* ] */
-    case 0x5D: return 0x2B; /* \ */
-    case 0x4C: return 0x27; /* ; */
-    case 0x52: return 0x28; /* ' */
-    case 0x0E: return 0x29; /* ` */
-    case 0x41: return 0x33; /* , */
-    case 0x49: return 0x34; /* . */
-    case 0x4A: return 0x35; /* / */
-    case 0x29: return 0x39; /* Space */
-    case 0x5A: return 0x1C; /* Enter */
-    case 0x66: return 0x0E; /* Backspace */
-    case 0x0D: return 0x0F; /* Tab */
-    case 0x76: return 0x01; /* ESC */
-    case 0x12: return 0x2A; /* LShift */
-    case 0x59: return 0x36; /* RShift */
-    case 0x14: return 0x1D; /* LCtrl */
-    case 0x11: return 0x38; /* LAlt */
-    case 0x58: return 0x3A; /* Caps Lock */
-    case 0x77: return 0x45; /* Num Lock */
-    case 0x7E: return 0x46; /* Scroll Lock */
-    case 0x05: return 0x3B; /* F1 */
-    case 0x06: return 0x3C; /* F2 */
-    case 0x04: return 0x3D; /* F3 */
-    case 0x0C: return 0x3E; /* F4 */
-    case 0x03: return 0x3F; /* F5 */
-    case 0x0B: return 0x40; /* F6 */
-    case 0x83: return 0x41; /* F7 */
-    case 0x0A: return 0x42; /* F8 */
-    case 0x01: return 0x43; /* F9 */
-    case 0x09: return 0x44; /* F10 */
-    case 0x78: return 0x57; /* F11 */
-    case 0x07: return 0x58; /* F12 */
-    default: return set2_code;
-    }
+static bool g_is_set2_mode = false;
+
+static const uint8_t g_set2_to_set1_table[256] = {
+    [0x01] = 0x43, /* F9 */
+    [0x03] = 0x3F, /* F5 */
+    [0x04] = 0x3D, /* F3 */
+    [0x05] = 0x3B, /* F1 */
+    [0x06] = 0x3C, /* F2 */
+    [0x07] = 0x58, /* F12 */
+    [0x09] = 0x44, /* F10 */
+    [0x0A] = 0x42, /* F8 */
+    [0x0B] = 0x40, /* F6 */
+    [0x0C] = 0x3E, /* F4 */
+    [0x0D] = 0x0F, /* Tab */
+    [0x0E] = 0x29, /* ` */
+    [0x11] = 0x38, /* LAlt */
+    [0x12] = 0x2A, /* LShift */
+    [0x14] = 0x1D, /* LCtrl */
+    [0x15] = 0x10, /* Q */
+    [0x16] = 0x02, /* 1 */
+    [0x1A] = 0x2C, /* Z */
+    [0x1B] = 0x1F, /* S */
+    [0x1C] = 0x1E, /* A */
+    [0x1D] = 0x11, /* W */
+    [0x1E] = 0x03, /* 2 */
+    [0x21] = 0x2E, /* C */
+    [0x22] = 0x2D, /* X */
+    [0x23] = 0x20, /* D */
+    [0x24] = 0x12, /* E */
+    [0x25] = 0x05, /* 4 */
+    [0x26] = 0x04, /* 3 */
+    [0x29] = 0x39, /* Space */
+    [0x2A] = 0x2F, /* V */
+    [0x2B] = 0x21, /* F */
+    [0x2C] = 0x14, /* T */
+    [0x2D] = 0x13, /* R */
+    [0x2E] = 0x06, /* 5 */
+    [0x31] = 0x31, /* N */
+    [0x32] = 0x30, /* B */
+    [0x33] = 0x23, /* H */
+    [0x34] = 0x22, /* G */
+    [0x35] = 0x15, /* Y */
+    [0x36] = 0x07, /* 6 */
+    [0x3A] = 0x32, /* M */
+    [0x3B] = 0x24, /* J */
+    [0x3C] = 0x16, /* U */
+    [0x3D] = 0x08, /* 7 */
+    [0x3E] = 0x09, /* 8 */
+    [0x41] = 0x33, /* , */
+    [0x42] = 0x25, /* K */
+    [0x43] = 0x17, /* I */
+    [0x44] = 0x18, /* O */
+    [0x45] = 0x0B, /* 0 */
+    [0x46] = 0x0A, /* 9 */
+    [0x49] = 0x34, /* . */
+    [0x4A] = 0x35, /* / */
+    [0x4B] = 0x26, /* L */
+    [0x4C] = 0x27, /* ; */
+    [0x4D] = 0x19, /* P */
+    [0x4E] = 0x0C, /* - */
+    [0x52] = 0x28, /* ' */
+    [0x54] = 0x1A, /* [ */
+    [0x55] = 0x0D, /* = */
+    [0x58] = 0x3A, /* Caps Lock */
+    [0x59] = 0x36, /* RShift */
+    [0x5A] = 0x1C, /* Enter */
+    [0x5B] = 0x1B, /* ] */
+    [0x5D] = 0x2B, /* \ */
+    [0x66] = 0x0E, /* Backspace */
+    [0x69] = 0x4F, /* End */
+    [0x6B] = 0x4B, /* Left */
+    [0x6C] = 0x47, /* Home */
+    [0x70] = 0x52, /* Insert */
+    [0x71] = 0x53, /* Delete */
+    [0x72] = 0x50, /* Down */
+    [0x73] = 0x4C, /* Keypad 5 */
+    [0x74] = 0x4D, /* Right */
+    [0x75] = 0x48, /* Up */
+    [0x76] = 0x01, /* Escape */
+    [0x77] = 0x45, /* Num Lock */
+    [0x78] = 0x57, /* F11 */
+    [0x79] = 0x4E, /* Keypad + */
+    [0x7A] = 0x51, /* Page Down */
+    [0x7B] = 0x4A, /* Keypad - */
+    [0x7C] = 0x37, /* Keypad * */
+    [0x7D] = 0x49, /* Page Up */
+    [0x7E] = 0x46, /* Scroll Lock */
+    [0x83] = 0x41, /* F7 */
+};
+
+static inline uint8_t set2_to_set1(uint8_t set2_code) {
+    uint8_t mapped = g_set2_to_set1_table[set2_code];
+    return mapped ? mapped : set2_code;
 }
 
 /* ==============================================================================
  * Deterministic Scancode Decoder (Set 1 XT & Set 2 Native)
  * ============================================================================== */
 static void process_scancode(uint8_t scancode) {
-    /* 1. Filter hardware handshaking codes */
-    if (scancode == KBD_RESP_ACK || scancode == KBD_RESP_RESEND ||
-        scancode == KBD_CMD_ECHO || scancode == KBD_RESP_BAT_OK) {
-        return;
-    }
-
-    /* 2. Extended Prefix 0xE0 */
+    /* 1. Extended Prefix 0xE0 */
     if (scancode == 0xE0) {
         g_extended = true;
         return;
@@ -450,17 +477,21 @@ static void process_scancode(uint8_t scancode) {
         return;
     }
 
-    /* 4. Set 2 Break Code Prefix 0xF0 */
-    if (scancode == 0xF0) {
+    /* 4. Set 2 Break Code Prefix 0xF0 (only in native Set 2 mode) */
+    if (g_is_set2_mode && scancode == 0xF0) {
         g_set2_release = true;
         return;
     }
 
-    /* 5. Handle Set 2 Translation if release flag was set */
-    if (g_set2_release) {
-        g_set2_release = false;
-        uint8_t set1 = set2_to_set1(scancode);
-        scancode = set1 | 0x80; /* Mark as released */
+    /* 5. Handle Set 2 Translation if in Set 2 mode */
+    if (g_is_set2_mode) {
+        if (g_set2_release) {
+            g_set2_release = false;
+            uint8_t set1 = set2_to_set1(scancode);
+            scancode = set1 | 0x80; /* Mark as released */
+        } else {
+            scancode = set2_to_set1(scancode);
+        }
     }
 
     /* 6. Extended Keys (0xE0 Prefix) */
@@ -508,6 +539,7 @@ static void process_scancode(uint8_t scancode) {
         default: return;
         }
     }
+
 
     /* 7. Standard Set 1 Key Releases (Bit 7 Set) */
     if (scancode & 0x80) {
@@ -661,33 +693,40 @@ void keyboard_handle_incoming_byte(uint8_t scancode) {
  * Hardware Polling Engine with Re-entrancy Protection
  * ============================================================================== */
 void keyboard_poll_hardware(void) {
-    if (!g_i8042_present)
-        return;
-
-    /* Guard against concurrent port 0x60/0x64 access from IRQ & threads */
-    if (__atomic_exchange_n(&g_i8042_in_poll, 1, __ATOMIC_ACQUIRE) != 0) {
+    uint8_t quick_status = kbd_read_status();
+    if (quick_status == 0xFF || !(quick_status & KBDS_OBF)) {
         return;
     }
 
-    uint8_t status = kbd_read_status();
-    if (status != 0xFF && (status & KBDS_OBF)) {
-        for (int i = 0; i < 64; i++) {
-            uint8_t data = kbd_read_data();
+    uint64_t flags = kbd_irqsave();
+    spinlock_acquire(&g_i8042_lock);
 
-            if ((status & KBDS_AUX_OBF) && ps2_mouse_is_enabled()) {
+    for (int retry = 0; retry < 64; retry++) {
+        for (volatile int d = 0; d < 10; d++) {
+            __asm__ volatile("pause");
+        }
+
+        uint8_t status = kbd_read_status();
+        if (status == 0xFF || !(status & KBDS_OBF)) {
+            break;
+        }
+
+        uint8_t data = kbd_read_data();
+
+        if (status & KBDS_AUX_OBF) {
+            /* AUX/Mouse data — route to mouse driver or fallback to keyboard */
+            if (ps2_mouse_is_enabled()) {
                 ps2_mouse_handle_byte(data);
             } else {
                 keyboard_handle_incoming_byte(data);
             }
-
-            status = kbd_read_status();
-            if (status == 0xFF || !(status & KBDS_OBF)) {
-                break;
-            }
+        } else {
+            keyboard_handle_incoming_byte(data);
         }
     }
 
-    __atomic_store_n(&g_i8042_in_poll, 0, __ATOMIC_RELEASE);
+    spinlock_release(&g_i8042_lock);
+    kbd_irqrestore(flags);
 }
 
 static void keyboard_irq_handler(interrupt_frame_t *frame) {
@@ -699,125 +738,129 @@ static void keyboard_irq_handler(interrupt_frame_t *frame) {
  * Fault-Tolerant, Bare-Metal & Laptop EC Proof i8042 Initialization Sequence
  * ============================================================================== */
 void keyboard_init(void) {
-    /* 1. ACPI FADT Check & Floating Bus Probe */
-    if (!acpi_has_8042_controller()) {
-        klog_info("atkbdc: ACPI FADT indicates no 8042 PS/2 controller present (Native USB xHCI platform)");
-        g_i8042_present = false;
-        return;
-    }
-
-    uint8_t initial_status = 0xFF;
-    for (int retry = 0; retry < 50; retry++) {
-        initial_status = kbd_read_status();
-        if (initial_status != 0xFF) {
-            break;
+    /* 1. Flush any stale data first */
+    for (int i = 0; i < 100; i++) {
+        if (inb(KBD_STATUS_PORT) & KBDS_OBF) {
+            inb(KBD_DATA_PORT);
+            io_wait();
         }
-        udelay(100);
     }
 
-    if (initial_status == 0xFF) {
-        klog_info("atkbdc: Port 0x64 is floating (0xFF), no physical i8042 hardware detected");
-        g_i8042_present = false;
-        return;
-    }
-
-    g_i8042_present = true;
-    klog_info("atkbdc: Initializing i8042 controller (status: 0x%02x)", initial_status);
-
-    /* 2. Step 1: Disable both ports during setup with bus delays */
+    /* 2. Disable both keyboard and mouse ports during setup */
     if (kbd_wait_write(100000)) {
         kbd_write_cmd(KBDC_DISABLE_KBD_PORT);
     }
-    udelay(50);
+    io_wait();
     if (kbd_wait_write(100000)) {
         kbd_write_cmd(KBDC_DISABLE_AUX_PORT);
     }
-    udelay(50);
+    io_wait();
 
-    /* 3. Step 2: Flush output buffer */
+    /* 3. Flush any pending data */
     keyboard_drain_buffers();
 
-    /* 4. Step 3: Controller Self-Test (Command 0xAA) with Linux x86 fault tolerance */
+    /* 4. Read Controller Command Byte (CCB) */
+    int ccb = kbd_read_controller_byte();
+    if (ccb < 0) {
+        ccb = KBD_CTR_XLATE | KBD_CTR_SYSFLAG;
+    } else {
+        /* Disable IRQs (bits 0,1), enable clocks (bits 4,5 = 0), enable translation (bit 6), system flag (bit 2) */
+        ccb &= ~(KBD_CTR_KBDINT | KBD_CTR_AUXINT | KBD_CTR_KBDDIS | KBD_CTR_AUXDIS);
+        ccb |= (KBD_CTR_XLATE | KBD_CTR_SYSFLAG);
+    }
+    kbd_write_controller_byte((uint8_t)ccb);
+    io_wait();
+
+    /* 5. Controller Self-Test (Command 0xAA) with non-fatal timeout */
     if (kbd_wait_write(100000)) {
         kbd_write_cmd(KBDC_SELF_TEST);
-        if (kbd_wait_read(250000)) {
-            uint8_t self_test = kbd_read_data();
+        io_wait();
+        int timeout = 10000;
+        while (!(inb(KBD_STATUS_PORT) & KBDS_OBF) && timeout > 0) {
+            io_wait();
+            timeout--;
+        }
+        if (timeout > 0) {
+            uint8_t self_test = inb(KBD_DATA_PORT);
             if (self_test == KBD_RESP_SELF_TEST_OK) {
                 klog_info("atkbdc: Controller self-test PASSED (0x55 OK)");
             } else {
-                klog_warn("atkbdc: Controller self-test returned 0x%02x (continuing anyway)", self_test);
+                klog_warn("atkbdc: Controller self-test returned 0x%02x (continuing)", self_test);
             }
-        } else {
-            klog_warn("atkbdc: Controller self-test timed out (continuing anyway)");
         }
     }
 
-    /* 5. Step 4: Configure CCB (XLATE ON, System Flag ON, Clocks ON, IRQs OFF initially) */
-    int ccb = kbd_read_controller_byte();
-    if (ccb < 0) {
-        ccb = KBD_CTR_XLATE | KBD_CTR_SYSFLAG | KBD_CTR_AUXDIS;
-    } else {
-        ccb |= (KBD_CTR_XLATE | KBD_CTR_SYSFLAG | KBD_CTR_AUXDIS);
-        ccb &= ~(KBD_CTR_KBDINT | KBD_CTR_AUXINT | KBD_CTR_KBDDIS);
-    }
+    /* Re-write CCB (some controllers reset CCB after self-test) */
     kbd_write_controller_byte((uint8_t)ccb);
+    io_wait();
 
-    /* 6. Step 5: Test Keyboard Port (Command 0xAB) */
-    if (kbd_wait_write(100000)) {
-        kbd_write_cmd(KBDC_TEST_KBD_PORT);
-        if (kbd_wait_read(100000)) {
-            uint8_t port_test = kbd_read_data();
-            if (port_test == 0x00) {
-                klog_info("atkbdc: Keyboard port test PASSED (0x00 OK)");
-            } else {
-                klog_warn("atkbdc: Keyboard port test returned 0x%02x (continuing)", port_test);
-            }
-        }
-    }
-
-    /* 7. Step 6: Enable Keyboard Port (Command 0xAE) */
+    /* 6. Enable both keyboard and mouse ports */
     if (kbd_wait_write(100000)) {
         kbd_write_cmd(KBDC_ENABLE_KBD_PORT);
     }
-    udelay(50000); /* 50ms stabilization delay for Laptop EC power plane */
-    keyboard_drain_buffers();
-
-    /* 8. Step 7: Activate Keyboard Scanning (Command 0xF4) without blind 0xFF reset */
-    if (kbd_send_device_command(KBD_CMD_ENABLE_KBD) == 0) {
-        klog_info("atkbd: Keyboard scanning activated (0xF4 OK)");
-    } else {
-        if (kbd_wait_write(100000)) {
-            kbd_write_data(KBD_CMD_ENABLE_KBD);
-            kbd_wait_read(50000);
-            kbd_read_data();
-        }
+    io_wait();
+    if (kbd_wait_write(100000)) {
+        kbd_write_cmd(KBDC_ENABLE_AUX_PORT);
     }
+    io_wait();
 
-    /* 9. Step 8: Final buffer drain */
+    /* Flush output buffer */
     keyboard_drain_buffers();
 
-    /* 10. Step 9: Register Interrupt Handler in IDT */
+    /* 7. Reset keyboard to defaults (0xF6) */
+    kbd_send_device_command(KBD_CMD_SET_DEFAULTS);
+    for (int i = 0; i < 5000; i++) io_wait();
+    keyboard_drain_buffers();
+
+    /* 8. Enable keyboard scanning (0xF4) */
+    kbd_send_device_command(KBD_CMD_ENABLE_KBD);
+    for (int i = 0; i < 5000; i++) io_wait();
+    keyboard_drain_buffers();
+
+    /* 9. Register Interrupt Handler in IDT */
     isr_register_handler(IRQ1, keyboard_irq_handler);
 
-    /* 11. Step 10: Enable Keyboard IRQ in CCB */
-    ccb |= KBD_CTR_KBDINT;
+    /* 10. Enable Keyboard IRQ in CCB */
+    ccb = kbd_read_controller_byte();
+    if (ccb < 0) {
+        ccb = KBD_CTR_XLATE | KBD_CTR_SYSFLAG | KBD_CTR_KBDINT;
+    } else {
+        ccb |= (KBD_CTR_KBDINT | KBD_CTR_XLATE | KBD_CTR_SYSFLAG);
+        ccb &= ~(KBD_CTR_KBDDIS | KBD_CTR_AUXDIS);
+    }
     kbd_write_controller_byte((uint8_t)ccb);
 
-    /* 12. Step 11: Unmask IRQ 1 in PIC and route in IO-APIC */
+    /* Check if XLATE bit was retained */
+    int final_ccb = kbd_read_controller_byte();
+    if (final_ccb >= 0 && !(final_ccb & KBD_CTR_XLATE)) {
+        g_is_set2_mode = true;
+        klog_info("atkbdc: Translation XLATE is disabled by controller (using native Set 2 mode)");
+    } else {
+        g_is_set2_mode = false;
+    }
+
+    /* 11. Unmask IRQ 1 in legacy PIC and route in IO-APIC */
     pic_clear_mask(1);
     pic_clear_mask(2); /* Cascade IRQ 2 */
 
     ioapic_map_irq(1, 0x21, 0, false, false);
 
-    klog_info("atkbd: Driver attached successfully (IRQ 1 active, XT Set 1 / Set 2 active)");
+    /* Final drain */
+    keyboard_drain_buffers();
+
+    g_i8042_present = true;
+    klog_info("atkbd: Driver attached successfully (IRQ 1 active, mode: %s)",
+              g_is_set2_mode ? "Set 2 (Native)" : "Set 1 (Translated)");
 }
+
 
 /* ==============================================================================
  * Universal Character Interface
  * ============================================================================== */
 bool keyboard_has_char(void) {
-    /* 1. Poll USB Keyboards */
+    /* 1. Poll USB Keyboards (xHCI 3.0 & EHCI 2.0) */
     xhci_poll();
+    ehci_poll();
 
     /* 2. Poll Serial UART Input */
     while (serial_received()) {

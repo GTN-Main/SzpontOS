@@ -32,11 +32,10 @@ void panic(const char *fmt, ...) {
     serial_puts(buf);
     serial_puts("\nSystem halted.\n");
 
-    fb_console_set_color(FB_COLOR_WHITE, FB_COLOR_RED);
-    fb_console_clear();
-    fb_console_puts("\n  =======================================================\n");
-    fb_console_puts("  !!!                  KERNEL PANIC                   !!!\n");
-    fb_console_puts("  =======================================================\n\n");
+    fb_draw_panic_image();
+    fb_console_puts("  ============================================================================\n");
+    fb_console_puts("  !!!                       SZPONT DETECTED: KERNEL PANIC                  !!!\n");
+    fb_console_puts("  ============================================================================\n\n");
     fb_console_puts("  Reason: ");
     fb_console_puts(buf);
     fb_console_puts("\n\n");
@@ -65,11 +64,10 @@ void panic_with_frame(struct interrupt_frame *frame, const char *fmt, ...) {
     serial_puts(buf);
     serial_puts("\nSystem halted.\n");
 
-    fb_console_set_color(FB_COLOR_WHITE, FB_COLOR_RED);
-    fb_console_clear();
-    fb_console_puts("\n  =======================================================\n");
-    fb_console_puts("  !!!            KERNEL PANIC: CPU EXCEPTION          !!!\n");
-    fb_console_puts("  =======================================================\n\n");
+    fb_draw_panic_image();
+    fb_console_puts("  ============================================================================\n");
+    fb_console_puts("  !!!            SZPONT DETECTED: KERNEL PANIC (CPU EXCEPTION)             !!!\n");
+    fb_console_puts("  ============================================================================\n\n");
     fb_console_puts("  Reason: ");
     fb_console_puts(buf);
     fb_console_puts("\n\n");
@@ -77,10 +75,10 @@ void panic_with_frame(struct interrupt_frame *frame, const char *fmt, ...) {
     if (frame) {
         kprintf("  RIP: 0x%016lx  CS: 0x%04lx  RFLAGS: 0x%016lx\n", frame->rip, frame->cs, frame->rflags);
         kprintf("  RSP: 0x%016lx  SS: 0x%04lx  RBP:    0x%016lx\n", frame->rsp, frame->ss, frame->rbp);
-        kprintf("  RAX: 0x%016lx  RBX: 0x%016lx  RCX: 0x%016lx\n", frame->rax, frame->rbx, frame->rcx);
-        kprintf("  RDX: 0x%016lx  RSI: 0x%016lx  RDI: 0x%016lx\n", frame->rdx, frame->rsi, frame->rdi);
-        kprintf("  R8:  0x%016lx  R9:  0x%016lx  R10: 0x%016lx\n", frame->r8, frame->r9, frame->r10);
-        kprintf("  R11: 0x%016lx  R12: 0x%016lx  R13: 0x%016lx\n", frame->r11, frame->r12, frame->r13);
+        kprintf("  RAX: 0x%016lx  RBX: 0x%016lx  RCX:    0x%016lx\n", frame->rax, frame->rbx, frame->rcx);
+        kprintf("  RDX: 0x%016lx  RSI: 0x%016lx  RDI:    0x%016lx\n", frame->rdx, frame->rsi, frame->rdi);
+        kprintf("  R8:  0x%016lx  R9:  0x%016lx  R10:    0x%016lx\n", frame->r8, frame->r9, frame->r10);
+        kprintf("  R11: 0x%016lx  R12: 0x%016lx  R13:    0x%016lx\n", frame->r11, frame->r12, frame->r13);
         kprintf("  R14: 0x%016lx  R15: 0x%016lx\n\n", frame->r14, frame->r15);
     }
 

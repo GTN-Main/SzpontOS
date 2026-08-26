@@ -97,18 +97,21 @@ void isr_handler(interrupt_frame_t *frame) {
                          g_exception_names[frame->int_no]);
     }
 
-    /* Send End of Interrupt (EOI) to PIC and Local APIC */
-    if (frame->int_no >= 32 && frame->int_no <= 47) {
+    /* Execute registered handler FIRST so it can read hardware ports (e.g. port 0x60
+     * for PS/2 keyboard scancodes) before EOI allows the next interrupt to arrive.
+     * On real hardware (unlike QEMU), sending EOI too early causes scancode loss. */
+    if (g_interrupt_handlers[frame->int_no]) {
+        g_interrupt_handlers[frame->int_no](frame);
+    }
+
+    /* Send End of Interrupt AFTER handler has consumed hardware data */
+    if (ioapic_is_active()) {
+        lapic_eoi();
+    } else if (frame->int_no >= 32 && frame->int_no <= 47) {
         if (frame->int_no >= 40) {
             outb(0xA0, 0x20); /* Slave PIC EOI */
         }
         outb(0x20, 0x20); /* Master PIC EOI */
-    }
-    lapic_eoi();
-
-    /* Check for registered handler */
-    if (g_interrupt_handlers[frame->int_no]) {
-        g_interrupt_handlers[frame->int_no](frame);
     }
 }
 

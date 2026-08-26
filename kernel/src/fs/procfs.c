@@ -15,6 +15,7 @@
 #include <kernel/sysctl.h>
 #include <drivers/pci.h>
 #include <drivers/xhci.h>
+#include <drivers/ehci.h>
 #include <arch/x86_64/pit.h>
 
 #define PROCFS_TYPE_ROOT 0
@@ -278,7 +279,14 @@ static size_t procfs_gen_pci(char *buf, size_t max_len) {
 }
 
 static size_t procfs_gen_usb(char *buf, size_t max_len) {
-    return xhci_get_device_list_info(buf, max_len);
+    size_t pos = xhci_get_device_list_info(buf, max_len);
+    if (pos < max_len) {
+        pos += ehci_get_device_list_info(buf + pos, max_len - pos);
+    }
+    if (pos == 0) {
+        pos += ksnprintf(buf, max_len, "No active USB host controllers or devices found.\n");
+    }
+    return pos;
 }
 
 /* =========================================================================

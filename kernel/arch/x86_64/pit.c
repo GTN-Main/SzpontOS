@@ -14,14 +14,17 @@ static uint32_t g_pit_freq = 100;
 #include <sched/sched.h>
 #include <drivers/keyboard.h>
 #include <drivers/xhci.h>
+#include <drivers/ehci.h>
 
 static void pit_irq_handler(interrupt_frame_t *frame) {
     UNUSED(frame);
     g_pit_ticks++;
-    keyboard_poll_hardware();
+    keyboard_poll_hardware(); /* Drain i8042 buffer — prevents mouse data from blocking keyboard IRQs */
     xhci_poll();
+    ehci_poll();
     sched_tick();
 }
+
 
 void pit_init(uint32_t frequency_hz) {
     if (frequency_hz == 0)

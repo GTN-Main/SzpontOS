@@ -224,6 +224,17 @@ void ioapic_init(void) {
     ioapic_map_irq(1, 0x21, 0, false, false);
     ioapic_map_irq(12, 0x2C, 0, false, false);
 
+    /* Mask LINT0 (disable ExtINT legacy PIC bypass) and set LINT1 as NMI */
+    if (g_lapic_virt) {
+        volatile uint32_t *lapic_regs = (volatile uint32_t *)g_lapic_virt;
+        lapic_regs[0x350 / 4] = 0x10000; /* Mask LINT0 */
+        lapic_regs[0x360 / 4] = 0x00000400; /* LINT1 = NMI */
+    }
+
+    /* Mask all 16 IRQs on legacy 8259 PIC to prevent interrupt storms */
+    pic_disable();
+
     g_ioapic_active = true;
     klog_info("IO-APIC: Advanced Interrupt Routing active (IRQ 0->0x20, IRQ 1->0x21, IRQ 12->0x2C)");
 }
+

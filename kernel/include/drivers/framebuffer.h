@@ -30,6 +30,7 @@ void fb_console_puts(const char *str);
 void fb_console_write(const char *buf, size_t len);
 void fb_console_clear(void);
 void fb_flush(void);
+void fb_draw_panic_image(void);
 
 size_t fb_get_width(void);
 size_t fb_get_height(void);

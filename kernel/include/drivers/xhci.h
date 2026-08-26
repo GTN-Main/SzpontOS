@@ -161,6 +161,7 @@ typedef struct {
     uint16_t vendor_id;
     uint16_t product_id;
     bool is_keyboard;
+    bool is_mouse;
     uint8_t ep_in_addr;
     uint8_t ep_in_ctx_idx;
     uint16_t max_packet_size;

@@ -114,7 +114,7 @@ SzpontOS/
 > Never use `~0xFFFULL`, as bit 63 (`NX` / No Execute) or other high architectural bits will corrupt the physical pointer converted via `PHYS_TO_VIRT()`.
 
 ### 3.3 Hardware Interrupts, PIC EOI & Idle Loop
-1. **PIC EOI Ordering:** In `kernel/arch/x86_64/idt.c`, PIC EOI (`outb(0x20, 0x20)`) is sent **before** executing registered interrupt handlers. This prevents interrupt lockout across context switches.
+1. **Interrupt Handler then EOI Ordering:** In `kernel/arch/x86_64/idt.c`, registered interrupt handlers are executed **before** sending EOI (PIC `outb(0x20, 0x20)` or LAPIC EOI). This ensures hardware device handlers (e.g. keyboard port `0x60`) can read data before the next interrupt is allowed. On bare metal hardware, sending EOI before the handler causes scancode loss due to real IO-APIC/LAPIC timing.
 2. **Idle Thread CPU Halt:** In `kernel/src/sched/sched.c`, `g_idle_thread` executes `__asm__ volatile ("sti; hlt; cli");`. This ensures the CPU halts in low-power state with interrupts enabled so the PIT timer IRQ0 can wake it.
 3. **Blocking vs Spinning:** Never spin in a tight `sched_yield()` loop in syscalls. For blocking operations (e.g. `waitpid`), use `thread_sleep(10)` so the scheduler can yield to `idle_thread` and allow timer ticks (`g_pit_ticks`) to advance.
 

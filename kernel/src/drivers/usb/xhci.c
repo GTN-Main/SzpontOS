@@ -6,6 +6,7 @@
 
 #include <drivers/xhci.h>
 #include <drivers/hid.h>
+#include <drivers/mouse.h>
 #include <drivers/pci.h>
 #include <mm/vmm.h>
 #include <mm/heap.h>
@@ -217,8 +218,6 @@ static void xhci_bios_handover(xhci_controller_t *hc) {
                 }
             }
 
-            /* Clear SMI enables in USBLEGCTLSTS */
-            xhci_write32(hc->cap_base + ext_offset + 4, 0);
             klog_info("xHCI: BIOS handover complete (OS owns controller)");
             break;
         }
@@ -345,10 +344,11 @@ static void xhci_enumerate_device_on_port(xhci_controller_t *hc, uint8_t port, u
         return;
     }
 
-    /* 9. Parse Configuration Descriptors for HID Keyboard */
+    /* 9. Parse Configuration Descriptors for HID Devices (Keyboard & Mouse) */
     uint8_t *ptr = dma_buf;
     uint8_t *end = dma_buf + total_len;
     bool found_kbd = false;
+    bool found_mouse = false;
     uint8_t ep_addr = 0;
     uint16_t ep_max_packet = 8;
     uint8_t ep_interval = 10;
@@ -364,9 +364,13 @@ static void xhci_enumerate_device_on_port(xhci_controller_t *hc, uint8_t port, u
             usb_if_desc_t *if_desc = (usb_if_desc_t *)ptr;
             iface_num = if_desc->bInterfaceNumber;
             if (if_desc->bInterfaceClass == USB_CLASS_HID) {
-                found_kbd = true;
+                if (if_desc->bInterfaceProtocol == 1) {
+                    found_kbd = true;
+                } else if (if_desc->bInterfaceProtocol == 2) {
+                    found_mouse = true;
+                }
             }
-        } else if (type == USB_DESC_ENDPOINT && found_kbd) {
+        } else if (type == USB_DESC_ENDPOINT && (found_kbd || found_mouse)) {
             usb_ep_desc_t *ep_desc = (usb_ep_desc_t *)ptr;
             if (ep_desc->bEndpointAddress & 0x80) { /* IN Endpoint */
                 ep_addr = ep_desc->bEndpointAddress;
@@ -378,7 +382,7 @@ static void xhci_enumerate_device_on_port(xhci_controller_t *hc, uint8_t port, u
         ptr += len;
     }
 
-    if (!found_kbd || !ep_addr) {
+    if ((!found_kbd && !found_mouse) || !ep_addr) {
         klog_info("xHCI: Device on Port %u, Slot %u (VID: %04x, PID: %04x) initialized", port, slot_id, dev->vendor_id, dev->product_id);
         hc->device_count++;
         return;
@@ -420,6 +424,9 @@ static void xhci_enumerate_device_on_port(xhci_controller_t *hc, uint8_t port, u
             }
             interval_val = count + 3;
         }
+    } else {
+        /* High-Speed & SuperSpeed: bInterval is already exponent (2^(bInterval-1) * 125us) */
+        interval_val = (ep_interval > 0) ? (ep_interval - 1) : 3;
     }
 
     ep_in_ctx->info1 = (interval_val << 16);
@@ -455,11 +462,17 @@ static void xhci_enumerate_device_on_port(xhci_controller_t *hc, uint8_t port, u
     /* Ring Doorbell for Slot, target = DCI */
     xhci_write32(hc->db_base + slot_id * 4, dci);
 
-    dev->is_keyboard = true;
+    dev->is_keyboard = found_kbd;
+    dev->is_mouse = found_mouse;
     hc->device_count++;
 
-    klog_info("xHCI: USB Keyboard attached successfully on Port %u, Slot %u (VID: %04x, PID: %04x)",
-              port, slot_id, dev->vendor_id, dev->product_id);
+    if (found_kbd) {
+        klog_info("xHCI: USB Keyboard attached successfully on Port %u, Slot %u (VID: %04x, PID: %04x)",
+                  port, slot_id, dev->vendor_id, dev->product_id);
+    } else if (found_mouse) {
+        klog_info("xHCI: USB Mouse attached successfully on Port %u, Slot %u (VID: %04x, PID: %04x)",
+                  port, slot_id, dev->vendor_id, dev->product_id);
+    }
 }
 
 /* ==============================================================================
@@ -628,11 +641,16 @@ static void xhci_init_controller(pci_device_t *pci_dev) {
         if (portsc & XHCI_PORT_CCS) {
             /* Issue Port Reset if not enabled */
             if (!(portsc & XHCI_PORT_PED)) {
-                xhci_write32(portsc_addr, (portsc & ~XHCI_PORT_W1C_MASK) | XHCI_PORT_PP | XHCI_PORT_PR);
+                uint8_t speed_guess = (portsc >> 10) & 0xF;
+                uint32_t reset_cmd = XHCI_PORT_PR;
+                if (speed_guess == USB_SPEED_SUPER || speed_guess == USB_SPEED_SUPER_PLUS) {
+                    reset_cmd = (1U << 31); /* Warm Port Reset */
+                }
+                xhci_write32(portsc_addr, (portsc & ~XHCI_PORT_W1C_MASK) | XHCI_PORT_PP | reset_cmd);
                 for (int t = 0; t < 50; t++) {
                     mdelay(10);
                     portsc = xhci_read32(portsc_addr);
-                    if (!(portsc & XHCI_PORT_PR) && (portsc & XHCI_PORT_PED))
+                    if (!(portsc & (XHCI_PORT_PR | (1U << 31))) && (portsc & XHCI_PORT_PED))
                         break;
                 }
                 /* Clear status change bits */
@@ -719,13 +737,30 @@ void xhci_poll(void) {
             xhci_update_erdp(hc);
 
             if (trb_type == XHCI_TRB_TRANSFER_EVENT) {
+                uint8_t comp_code = (trb->status >> 24) & 0xFF;
                 for (size_t d = 0; d < hc->device_count; d++) {
                     xhci_device_t *dev = &hc->devices[d];
-                    if (dev->slot_id == slot_id && dev->is_keyboard && dci == dev->ep_in_ctx_idx) {
-                        /* Copy and process 8-byte HID report */
-                        uint8_t report[8];
-                        memcpy(report, (void *)PHYS_TO_VIRT(dev->report_buffer_phys), 8);
-                        hid_process_keyboard_report(report);
+                    if (dev->slot_id == slot_id && dci == dev->ep_in_ctx_idx) {
+                        if (comp_code == 1 || comp_code == 13 /* Success or Short Packet */) {
+                            if (dev->is_keyboard) {
+                                /* Copy and process 8-byte HID report */
+                                uint8_t report[8];
+                                memcpy(report, (void *)PHYS_TO_VIRT(dev->report_buffer_phys), 8);
+                                hid_process_keyboard_report(report);
+                            } else if (dev->is_mouse) {
+                                uint8_t report[8];
+                                memcpy(report, (void *)PHYS_TO_VIRT(dev->report_buffer_phys), 8);
+                                mouse_event_t ev;
+                                ev.buttons = report[0] & 0x07;
+                                ev.dx = (int8_t)report[1];
+                                ev.dy = (int8_t)report[2];
+                                ev.dz = (int8_t)report[3];
+                                ev.abs_x = 0;
+                                ev.abs_y = 0;
+                                ev.is_absolute = false;
+                                mouse_push_event(&ev);
+                            }
+                        }
 
                         /* Re-enqueue Normal TRB */
                         xhci_enqueue_trb(&dev->ep_in_ring, dev->report_buffer_phys, 8,

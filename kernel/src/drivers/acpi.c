@@ -74,9 +74,12 @@ bool acpi_has_8042_controller(void) {
     if (!g_fadt)
         return true; /* Default to true if FADT absent */
 
-    /* If FADT revision is ACPI 2.0+ (length >= 116), check IA-PC Boot Architecture Flags */
-    if (g_fadt->header.length >= 116) {
-        /* Bit 1: 8042 (PS/2) controller is present on the motherboard */
+    /*
+     * In ACPI 1.0 (rev 1) and ACPI 2.0 (rev 2), the 8042 bit in IA-PC Boot Architecture Flags
+     * does not exist (reserved/zero). All legacy PCs and VMs (e.g. QEMU) are assumed to have 8042.
+     * Only in ACPI 3.0+ (Revision >= 3 and table length >= 244) is Bit 1 defined as 8042 presence.
+     */
+    if (g_fadt->header.revision >= 3 && g_fadt->header.length >= 244) {
         return (g_fadt->ia_pc_boot_arch & (1 << 1)) != 0;
     }
 

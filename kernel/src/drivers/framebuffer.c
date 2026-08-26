@@ -1364,3 +1364,104 @@ void framebuffer_init_backbuffer(void) {
 
     klog_info("FB: Backbuffer enabled (%zu KiB in RAM, Shadow Buffer active)", total_bytes / 1024);
 }
+
+#include <drivers/panic_image.h>
+
+typedef struct {
+    uint8_t r, g, b, a;
+} fb_qoi_rgba_t;
+
+void fb_draw_panic_image(void) {
+    if (!g_fb_ptr)
+        return;
+
+    /* 1. Clear backbuffer and screen to dark panic background */
+    uint32_t bg_color = 0x00120202; /* Deep dark crimson */
+    fb_clear(bg_color);
+    fb_console_set_color(FB_COLOR_WHITE, bg_color);
+
+    const uint8_t *data = g_panic_image_qoi;
+    size_t size = g_panic_image_qoi_size;
+
+    if (size < 14 || data[0] != 'q' || data[1] != 'o' || data[2] != 'i' || data[3] != 'f')
+        return;
+
+    uint32_t width = ((uint32_t)data[4] << 24) | ((uint32_t)data[5] << 16) | ((uint32_t)data[6] << 8) | data[7];
+    uint32_t height = ((uint32_t)data[8] << 24) | ((uint32_t)data[9] << 16) | ((uint32_t)data[10] << 8) | data[11];
+
+    /* Center image horizontally */
+    size_t dest_x = (g_fb_width > width) ? (g_fb_width - width) / 2 : 0;
+    size_t dest_y = 12;
+
+    fb_qoi_rgba_t index[64];
+    memset(index, 0, sizeof(index));
+
+    fb_qoi_rgba_t px = {0, 0, 0, 255};
+    size_t p = 14;
+    size_t total_pixels = width * height;
+    size_t px_pos = 0;
+
+    uint32_t *target_buf = g_backbuffer ? g_backbuffer : g_fb_ptr;
+
+    while (p < size && px_pos < total_pixels) {
+        uint8_t b1 = data[p++];
+
+        if (b1 == 0xFE) { /* QOI_OP_RGB */
+            px.r = data[p++];
+            px.g = data[p++];
+            px.b = data[p++];
+        } else if (b1 == 0xFF) { /* QOI_OP_RGBA */
+            px.r = data[p++];
+            px.g = data[p++];
+            px.b = data[p++];
+            px.a = data[p++];
+        } else if ((b1 & 0xC0) == 0x00) { /* QOI_OP_INDEX */
+            px = index[b1 & 0x3F];
+        } else if ((b1 & 0xC0) == 0x40) { /* QOI_OP_DIFF */
+            px.r += ((b1 >> 4) & 0x03) - 2;
+            px.g += ((b1 >> 2) & 0x03) - 2;
+            px.b += (b1 & 0x03) - 2;
+        } else if ((b1 & 0xC0) == 0x80) { /* QOI_OP_LUMA */
+            uint8_t b2 = data[p++];
+            int vg = (b1 & 0x3F) - 32;
+            px.r += vg - 8 + ((b2 >> 4) & 0x0F);
+            px.g += vg;
+            px.b += vg - 8 + (b2 & 0x0F);
+        } else if ((b1 & 0xC0) == 0xC0) { /* QOI_OP_RUN */
+            int run = (b1 & 0x3F) + 1;
+            uint32_t col = ((uint32_t)px.r << 16) | ((uint32_t)px.g << 8) | px.b;
+            for (int r = 0; r < run && px_pos < total_pixels; r++) {
+                size_t x = dest_x + (px_pos % width);
+                size_t y = dest_y + (px_pos / width);
+                if (x < g_fb_width && y < g_fb_height) {
+                    target_buf[y * g_fb_pitch_pixels + x] = col;
+                }
+                px_pos++;
+            }
+            continue;
+        }
+
+        uint8_t idx_pos = (px.r * 3 + px.g * 5 + px.b * 7 + px.a * 11) % 64;
+        index[idx_pos] = px;
+
+        size_t x = dest_x + (px_pos % width);
+        size_t y = dest_y + (px_pos / width);
+        uint32_t col = ((uint32_t)px.r << 16) | ((uint32_t)px.g << 8) | px.b;
+        if (x < g_fb_width && y < g_fb_height) {
+            target_buf[y * g_fb_pitch_pixels + x] = col;
+        }
+        px_pos++;
+    }
+
+    /* Flush backbuffer to VRAM */
+    if (g_backbuffer && g_fb_ptr) {
+        size_t total_bytes = g_fb_height * g_fb_pitch_pixels * sizeof(uint32_t);
+        memcpy(g_fb_ptr, g_backbuffer, total_bytes);
+    }
+
+    /* Position console cursor nicely below the artwork */
+    g_cursor_x = 2;
+    g_cursor_y = (dest_y + height + 15) / g_char_h;
+    if (g_cursor_y >= g_rows)
+        g_cursor_y = g_rows - 1;
+}
