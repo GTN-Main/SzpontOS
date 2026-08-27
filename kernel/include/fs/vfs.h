@@ -48,6 +48,12 @@ typedef struct vfs_ops {
     int (*chown)(struct vfs_node *node, uid_t uid, gid_t gid);
     int (*unlink)(struct vfs_node *parent, const char *name);
     int (*ioctl)(struct vfs_node *node, uint64_t request, uintptr_t arg);
+    int (*rename)(struct vfs_node *old_parent, const char *old_name, struct vfs_node *new_parent, const char *new_name);
+    int (*rmdir)(struct vfs_node *parent, const char *name);
+    int (*truncate)(struct vfs_node *node, off_t length);
+    int (*symlink)(struct vfs_node *parent, const char *name, const char *target);
+    ssize_t (*readlink)(struct vfs_node *node, char *buf, size_t bufsiz);
+    int (*access)(struct vfs_node *node, int mode);
 } vfs_ops_t;
 
 typedef struct vfs_node {
@@ -79,10 +85,18 @@ typedef struct vfs_mount_info {
 void vfs_init(void);
 int vfs_mount(const char *path, vfs_node_t *node);
 vfs_node_t *vfs_lookup(const char *path);
+vfs_node_t *vfs_lookup_nofollow(const char *path);
 int vfs_unlink(const char *path);
 int vfs_mkdir(const char *path, mode_t mode);
+int vfs_rmdir(const char *path);
+int vfs_rename(const char *oldpath, const char *newpath);
+int vfs_truncate(const char *path, off_t length);
+int vfs_symlink(const char *target, const char *linkpath);
+ssize_t vfs_readlink(const char *path, char *buf, size_t bufsiz);
+int vfs_access(const char *path, int mode);
 int vfs_check_permission(vfs_node_t *node, int mask);
 void vfs_normalize_path(const char *src, char *dst, size_t dst_size);
+int vfs_resolve_path(const char *src, char *dst, size_t dst_size);
 size_t vfs_get_mount_list(vfs_mount_info_t *buf, size_t max_count);
 
 /* High level POSIX-like VFS calls */
@@ -93,6 +107,5 @@ ssize_t vfs_write(int fd, const void *buf, size_t count);
 off_t vfs_lseek(int fd, off_t offset, int whence);
 int vfs_chmod(const char *path, mode_t mode);
 int vfs_chown(const char *path, uid_t uid, gid_t gid);
-int vfs_mkdir(const char *path, mode_t mode);
 
 #endif /* SZPONTOS_FS_VFS_H */

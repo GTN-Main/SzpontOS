@@ -168,8 +168,10 @@ bool vmm_alloc_user_page(pagemap_t *map, uintptr_t virt, uint64_t flags) {
 
 pagemap_t *vmm_create_address_space(void) {
     uintptr_t pml4_phys = pmm_alloc_page();
-    if (!pml4_phys)
+    if (!pml4_phys) {
+        klog_error("vmm_create_address_space: pmm_alloc_page failed!");
         return NULL;
+    }
 
     page_table_t *pml4_virt = (page_table_t *)PHYS_TO_VIRT(pml4_phys);
     memset(pml4_virt, 0, sizeof(page_table_t));
@@ -180,6 +182,11 @@ pagemap_t *vmm_create_address_space(void) {
     }
 
     pagemap_t *map = (pagemap_t *)kmalloc(sizeof(pagemap_t));
+    if (!map) {
+        klog_error("vmm_create_address_space: kmalloc failed!");
+        pmm_free_page(pml4_phys);
+        return NULL;
+    }
     map->pml4_phys = pml4_phys;
     map->pml4_virt = pml4_virt;
     return map;
@@ -241,11 +248,17 @@ pagemap_t *vmm_clone_address_space(pagemap_t *src) {
 
             for (size_t j = 0; j < 512; j++) {
                 if (pdpt->entries[j] & VMM_FLAG_PRESENT) {
+                    if (pdpt->entries[j] & (1 << 7)) {
+                        continue; /* 1 GiB huge page */
+                    }
                     uintptr_t pd_phys = pdpt->entries[j] & PHYS_ADDR_MASK;
                     page_table_t *pd = (page_table_t *)PHYS_TO_VIRT(pd_phys);
 
                     for (size_t k = 0; k < 512; k++) {
                         if (pd->entries[k] & VMM_FLAG_PRESENT) {
+                            if (pd->entries[k] & (1 << 7)) {
+                                continue; /* 2 MiB huge page */
+                            }
                             uintptr_t pt_phys = pd->entries[k] & PHYS_ADDR_MASK;
                             page_table_t *pt = (page_table_t *)PHYS_TO_VIRT(pt_phys);
 

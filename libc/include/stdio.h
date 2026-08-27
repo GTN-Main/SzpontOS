@@ -60,6 +60,7 @@ int ungetc(int c, FILE *stream);
 #define getc(stream) fgetc(stream)
 #define putc(c, stream) fputc(c, stream)
 
+ssize_t getdelim(char **lineptr, size_t *n, int delimiter, FILE *stream);
 ssize_t getline(char **lineptr, size_t *n, FILE *stream);
 
 int printf(const char *format, ...) __attribute__((format(printf, 1, 2)));

@@ -153,4 +153,18 @@ int pthread_key_delete(pthread_key_t key);
 void *pthread_getspecific(pthread_key_t key);
 int pthread_setspecific(pthread_key_t key, const void *value);
 
+#define PTHREAD_CANCEL_ENABLE 0
+#define PTHREAD_CANCEL_DISABLE 1
+#define PTHREAD_CANCEL_DEFERRED 0
+#define PTHREAD_CANCEL_ASYNCHRONOUS 1
+#define PTHREAD_CANCELED ((void *)-1)
+
+int pthread_setcancelstate(int state, int *oldstate);
+int pthread_setcanceltype(int type, int *oldtype);
+int pthread_cancel(pthread_t thread);
+void pthread_testcancel(void);
+
+#include <signal.h>
+int pthread_sigmask(int how, const sigset_t *set, sigset_t *oldset);
+
 #endif /* _PTHREAD_H */

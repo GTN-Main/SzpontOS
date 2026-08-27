@@ -207,6 +207,10 @@ unsigned long strtoul(const char *nptr, char **endptr, int base) {
     return (unsigned long)strtoull(nptr, endptr, base);
 }
 
+uintmax_t strtoumax(const char *nptr, char **endptr, int base) {
+    return (uintmax_t)strtoull(nptr, endptr, base);
+}
+
 long long strtoll(const char *nptr, char **endptr, int base) {
     const char *s = nptr;
     while (isspace((unsigned char)*s))
@@ -226,6 +230,14 @@ long long strtoll(const char *nptr, char **endptr, int base) {
 
 long strtol(const char *nptr, char **endptr, int base) {
     return (long)strtoll(nptr, endptr, base);
+}
+
+intmax_t strtoimax(const char *nptr, char **endptr, int base) {
+    return (intmax_t)strtoll(nptr, endptr, base);
+}
+
+intmax_t imaxabs(intmax_t j) {
+    return j < 0 ? -j : j;
 }
 
 double strtod(const char *nptr, char **endptr) {
@@ -368,6 +380,19 @@ int mkstemp(char *template) {
     if (!name)
         return -1;
     return open(name, O_RDWR | O_CREAT | O_EXCL, 0600);
+}
+
+char *mkdtemp(char *template) {
+    if (!template) {
+        errno = EINVAL;
+        return NULL;
+    }
+    char *name = mktemp(template);
+    if (!name)
+        return NULL;
+    if (mkdir(name, 0700) < 0)
+        return NULL;
+    return name;
 }
 
 int mkstemps(char *template, int suffixlen) {

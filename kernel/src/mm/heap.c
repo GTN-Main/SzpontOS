@@ -90,8 +90,9 @@ void *kmalloc(size_t size) {
             curr->magic = HEAP_MAGIC_ALLOC;
             g_heap_allocated_bytes += curr->size;
 
+            void *res = (void *)((uintptr_t)curr + BLOCK_HEADER_SIZE);
             spinlock_release(&g_heap_lock);
-            return (void *)((uintptr_t)curr + BLOCK_HEADER_SIZE);
+            return res;
         }
         curr = curr->next;
     }
@@ -122,8 +123,9 @@ void *kmalloc(size_t size) {
             curr->magic = HEAP_MAGIC_ALLOC;
             g_heap_allocated_bytes += curr->size;
 
+            void *res = (void *)((uintptr_t)curr + BLOCK_HEADER_SIZE);
             spinlock_release(&g_heap_lock);
-            return (void *)((uintptr_t)curr + BLOCK_HEADER_SIZE);
+            return res;
         }
         curr = curr->next;
     }
@@ -153,7 +155,7 @@ void kfree(void *ptr) {
     heap_block_t *block = (heap_block_t *)((uintptr_t)ptr - BLOCK_HEADER_SIZE);
     if (block->magic != HEAP_MAGIC_ALLOC) {
         spinlock_release(&g_heap_lock);
-        klog_error("Heap: Corrupted block header or double-free detected at %p!", ptr);
+        klog_error("Heap: Corrupted block header or double-free detected at %p (magic=0x%x)!", ptr, block->magic);
         return;
     }
 

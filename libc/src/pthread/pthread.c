@@ -376,3 +376,29 @@ int pthread_setspecific(pthread_key_t key, const void *value) {
     self->tsd[key] = (void *)value;
     return 0;
 }
+
+int pthread_sigmask(int how, const sigset_t *set, sigset_t *oldset) {
+    return sigprocmask(how, set, oldset);
+}
+
+int pthread_setcancelstate(int state, int *oldstate) {
+    if (oldstate)
+        *oldstate = PTHREAD_CANCEL_ENABLE;
+    (void)state;
+    return 0;
+}
+
+int pthread_setcanceltype(int type, int *oldtype) {
+    if (oldtype)
+        *oldtype = PTHREAD_CANCEL_DEFERRED;
+    (void)type;
+    return 0;
+}
+
+int pthread_cancel(pthread_t thread) {
+    (void)thread;
+    return 0;
+}
+
+void pthread_testcancel(void) {
+}

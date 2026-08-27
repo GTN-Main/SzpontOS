@@ -75,7 +75,10 @@ process_t *process_create(const char *name) {
     proc->pagemap = vmm_create_address_space();
     proc->brk_start = 0x0000000000800000;
     proc->brk_current = proc->brk_start;
+    proc->mmap_current = 0x0000600000000000ULL;
     strcpy(proc->cwd, "/");
+    proc->umask = 0022;
+    proc->alarm_ticks = 0;
 
     proc->pending_signals = 0;
     proc->blocked_signals = 0;

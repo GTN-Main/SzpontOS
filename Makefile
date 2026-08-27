@@ -284,6 +284,13 @@ MAGIC_DB       := $(BUILD_DIR)/rootfs/etc/magic
 # Zsh (Cross-compiled via original Autotools)
 ZSH_BUILD_DIR := $(BUILD_DIR)/third_party/zsh
 
+# zlib (Cross-compiled via original Makefile)
+ZLIB_BUILD_DIR := $(BUILD_DIR)/third_party/zlib
+LIBZ_A         := $(SYSROOT_DIR)/usr/lib/libz.a
+
+# Git (Libre-WD-40, Cross-compiled via original Makefile & userland/config/git/config.mak)
+GIT_BUILD_DIR  := $(BUILD_DIR)/third_party/git
+
 # Linux Compatibility Layer
 LINUX_COMPAT_DIR    := compat/linux
 LINUX_COMPAT_CFLAGS := -isystem $(abspath $(LINUX_COMPAT_DIR)/include)
@@ -338,6 +345,7 @@ USER_PROGS := \
     $(ROOTFS_DIR)/bin/nano \
     $(ROOTFS_DIR)/bin/zsh \
     $(ROOTFS_DIR)/bin/fastfetch \
+    $(ROOTFS_DIR)/bin/git \
     $(ROOTFS_DIR)/bin/ifconfig \
     $(ROOTFS_DIR)/bin/ping \
     $(ROOTFS_DIR)/bin/sleep \
@@ -361,7 +369,9 @@ USER_PROGS := \
     $(ROOTFS_DIR)/bin/lspci \
     $(ROOTFS_DIR)/bin/lsusb \
     $(ROOTFS_DIR)/bin/donut \
-    $(ROOTFS_DIR)/bin/mousetest
+    $(ROOTFS_DIR)/bin/mousetest \
+    $(ROOTFS_DIR)/bin/unixtest \
+    $(ROOTFS_DIR)/bin/gittest
 
 
 MODULE_DIR    := $(ROOTFS_DIR)/lib/modules
@@ -841,8 +851,43 @@ $(ROOTFS_DIR)/bin/fastfetch: $(FASTFETCH_BUILD_DIR)/Makefile $(SYSROOT_STAMP) $(
 	@$(MAKE) -C $(FASTFETCH_BUILD_DIR) fastfetch
 	@cp $(FASTFETCH_BUILD_DIR)/fastfetch $@
 
+# zlib Targets (Cross-compiled via original Makefile)
+ZLIB_SRCS := $(wildcard third_party/zlib/*.c)
+ZLIB_OBJS := $(patsubst third_party/zlib/%.c,$(ZLIB_BUILD_DIR)/%.o,$(ZLIB_SRCS))
 
-userland: sysroot $(ROOTFS_DIR) $(LIBNCURSES_A) $(USER_PROGS) $(MAGIC_DB) $(MODULES)
+$(ZLIB_BUILD_DIR):
+	@mkdir -p $@
+
+$(ZLIB_BUILD_DIR)/%.o: third_party/zlib/%.c $(SYSROOT_STAMP) | $(ZLIB_BUILD_DIR)
+	@echo "  [CC-ZLIB] $<"
+	@$(CC) $(USER_CFLAGS) -DZ_HAVE_UNISTD_H=1 -DHAVE_UNISTD_H=1 -Ithird_party/zlib -c $< -o $@
+
+$(LIBZ_A): $(ZLIB_OBJS)
+	@mkdir -p $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include $(ROOTFS_DIR)/lib
+	@echo "  [AR-ZLIB] $@"
+	@$(AR) rcs $@ $(ZLIB_OBJS)
+	@cp third_party/zlib/zlib.h third_party/zlib/zconf.h $(SYSROOT_DIR)/usr/include/
+	@cp $@ $(ROOTFS_DIR)/lib/
+
+# Git Targets (Libre-WD-40 cross-compile using original Makefile and userland/config/git/config.mak)
+$(ROOTFS_DIR)/bin/git: $(LIBZ_A) $(SYSROOT_STAMP) $(LIBC_A) $(CRT0_O) $(LIBM_A) | $(ROOTFS_DIR)
+	@mkdir -p $(ROOTFS_DIR)/bin
+	@echo "  [MAKE-GIT] Kompilacja narzędzia Git (Libre-WD-40)..."
+	@cp userland/config/git/config.mak third_party/git/config.mak
+	@$(MAKE) -C third_party/git \
+	    CC="$(CC)" \
+	    AR="$(AR)" \
+	    RANLIB="$(RANLIB)" \
+	    CFLAGS="-O2 -ffreestanding -fno-builtin -isystem $(abspath $(SYSROOT_DIR))/usr/include -B$(abspath $(SYSROOT_DIR))/usr/lib" \
+	    LDFLAGS="-nostdlib -L$(abspath $(SYSROOT_DIR))/usr/lib -B$(abspath $(SYSROOT_DIR))/usr/lib $(abspath $(SYSROOT_DIR))/usr/lib/crt0.o" \
+	    EXTLIBS="$(abspath $(SYSROOT_DIR))/usr/lib/libz.a $(abspath $(SYSROOT_DIR))/usr/lib/libc.a $(abspath $(SYSROOT_DIR))/usr/lib/libm.a" \
+	    uname_S=Linux uname_M=x86_64 \
+	    git
+	@cp third_party/git/git $@
+	@rm -f third_party/git/config.mak
+
+
+userland: sysroot $(ROOTFS_DIR) $(LIBNCURSES_A) $(LIBZ_A) $(USER_PROGS) $(MAGIC_DB) $(MODULES)
 
 # Link kernel ELF binary
 $(KERNEL_ELF): $(KERNEL_ALL_OBJS) kernel/linker.ld
@@ -863,9 +908,10 @@ limine-bin/limine-bios.sys:
 limine: limine-bin/limine-bios.sys
 
 # Build initramfs archive
-$(BUILD_DIR)/initramfs.tar: $(USER_PROGS) $(MODULES) $(MAGIC_DB) $(LIBC_SO) $(LIBM_SO) $(LIBCALC_SO) $(LIBNCURSES_A) | $(ROOTFS_DIR)
+SKELETON_FILES := $(shell find $(ROOTFS_SKELETON_DIR) -type f 2>/dev/null)
+$(BUILD_DIR)/initramfs.tar: $(USER_PROGS) $(MODULES) $(MAGIC_DB) $(LIBC_SO) $(LIBM_SO) $(LIBCALC_SO) $(LIBNCURSES_A) $(LIBZ_A) $(SKELETON_FILES) | $(ROOTFS_DIR)
 	@mkdir -p $(BUILD_DIR)
-	@if [ -d $(ROOTFS_SKELETON_DIR) ]; then cp -r $(ROOTFS_SKELETON_DIR)/* $(ROOTFS_DIR)/ 2>/dev/null || true; fi
+	@if [ -d $(ROOTFS_SKELETON_DIR) ]; then cp -r $(ROOTFS_SKELETON_DIR)/. $(ROOTFS_DIR)/ 2>/dev/null || true; fi
 	@./scripts/make_initramfs.py $(ROOTFS_DIR) $(BUILD_DIR)/initramfs.tar
 
 initramfs: $(BUILD_DIR)/initramfs.tar

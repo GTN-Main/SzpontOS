@@ -25,19 +25,31 @@ def create_initramfs(source_dir, output_file):
         os.makedirs(os.path.join(source_dir, "proc"), exist_ok=True)
 
     def fix_ownership(tarinfo):
-        """Set proper Unix ownership for SzpontOS rootfs."""
+        """Set proper Unix ownership and permissions for SzpontOS rootfs."""
         arcname = tarinfo.name
-        # /home/user and its contents belong to uid=1000, gid=1000
-        if arcname == "home/user" or arcname.startswith("home/user/"):
+        # /home/user and /home/szpont and their contents belong to uid=1000, gid=1000
+        if arcname in ("home/user", "home/szpont") or arcname.startswith("home/user/") or arcname.startswith("home/szpont/"):
             tarinfo.uid = 1000
             tarinfo.gid = 1000
-            tarinfo.uname = "user"
-            tarinfo.gname = "user"
+            tarinfo.uname = "szpont" if "szpont" in arcname else "user"
+            tarinfo.gname = "szpont" if "szpont" in arcname else "user"
+            if tarinfo.isdir():
+                tarinfo.mode = 0o755
+        elif arcname == "tmp" or arcname == "var/tmp":
+            tarinfo.uid = 0
+            tarinfo.gid = 0
+            tarinfo.uname = "root"
+            tarinfo.gname = "root"
+            tarinfo.mode = 0o1777
         else:
             tarinfo.uid = 0
             tarinfo.gid = 0
             tarinfo.uname = "root"
             tarinfo.gname = "root"
+            if tarinfo.isdir():
+                tarinfo.mode = 0o755
+            elif arcname.startswith("bin/"):
+                tarinfo.mode = 0o755
         return tarinfo
 
     with tarfile.open(output_file, "w", format=tarfile.USTAR_FORMAT) as tar:

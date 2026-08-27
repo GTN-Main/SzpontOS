@@ -225,6 +225,9 @@ int devfs_register_device(const char *name, vfs_node_t *node) {
         return -1;
 
     strncpy(node->name, name, sizeof(node->name) - 1);
+    if (!node->permissions) {
+        node->permissions = 0666;
+    }
     g_devices[g_device_count++].node = node;
     return 0;
 }
@@ -298,41 +301,49 @@ void devfs_init(void) {
     /* Register standard character device nodes */
     vfs_node_t *null_dev = (vfs_node_t *)kzalloc(sizeof(vfs_node_t));
     null_dev->flags = VFS_TYPE_CHARDEVICE;
+    null_dev->permissions = 0666;
     null_dev->ops = &g_null_ops;
     devfs_register_device("null", null_dev);
 
     vfs_node_t *zero_dev = (vfs_node_t *)kzalloc(sizeof(vfs_node_t));
     zero_dev->flags = VFS_TYPE_CHARDEVICE;
+    zero_dev->permissions = 0666;
     zero_dev->ops = &g_zero_ops;
     devfs_register_device("zero", zero_dev);
 
     vfs_node_t *serial_dev = (vfs_node_t *)kzalloc(sizeof(vfs_node_t));
     serial_dev->flags = VFS_TYPE_CHARDEVICE;
+    serial_dev->permissions = 0666;
     serial_dev->ops = &g_serial_ops;
     devfs_register_device("serial", serial_dev);
 
     vfs_node_t *tty_dev = (vfs_node_t *)kzalloc(sizeof(vfs_node_t));
     tty_dev->flags = VFS_TYPE_CHARDEVICE;
+    tty_dev->permissions = 0666;
     tty_dev->ops = &g_tty_ops;
     devfs_register_device("tty", tty_dev);
 
     vfs_node_t *console_dev = (vfs_node_t *)kzalloc(sizeof(vfs_node_t));
     console_dev->flags = VFS_TYPE_CHARDEVICE;
+    console_dev->permissions = 0666;
     console_dev->ops = &g_tty_ops;
     devfs_register_device("console", console_dev);
 
     vfs_node_t *psaux_dev = (vfs_node_t *)kzalloc(sizeof(vfs_node_t));
     psaux_dev->flags = VFS_TYPE_CHARDEVICE;
+    psaux_dev->permissions = 0660;
     psaux_dev->ops = &g_psaux_ops;
     devfs_register_device("psaux", psaux_dev);
 
     vfs_node_t *mouse_dev = (vfs_node_t *)kzalloc(sizeof(vfs_node_t));
     mouse_dev->flags = VFS_TYPE_CHARDEVICE;
+    mouse_dev->permissions = 0660;
     mouse_dev->ops = &g_mouse_ops;
     devfs_register_device("mouse", mouse_dev);
 
     vfs_node_t *speaker_dev = (vfs_node_t *)kzalloc(sizeof(vfs_node_t));
     speaker_dev->flags = VFS_TYPE_CHARDEVICE;
+    speaker_dev->permissions = 0666;
     speaker_dev->ops = &g_speaker_ops;
     devfs_register_device("speaker", speaker_dev);
 

@@ -6,6 +6,8 @@
 #include <ctype.h>
 #include <math.h>
 #include <errno.h>
+#include <stdint.h>
+#include <sys/syscall.h>
 
 static FILE g_stdin_file = {.fd = STDIN_FILENO, .flags = 0, .error = 0, .eof = 0, .unget = 0, .has_unget = 0};
 static FILE g_stdout_file = {.fd = STDOUT_FILENO, .flags = 0, .error = 0, .eof = 0, .unget = 0, .has_unget = 0};
@@ -96,9 +98,8 @@ size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream) {
     uint8_t *dst = (uint8_t *)ptr;
 
     if (stream->has_unget) {
-        *dst++ = (uint8_t)stream->unget;
+        dst[bytes_read++] = (uint8_t)stream->unget;
         stream->has_unget = 0;
-        bytes_read++;
     }
 
     while (bytes_read < total_bytes) {
@@ -240,7 +241,7 @@ int ungetc(int c, FILE *stream) {
     return c;
 }
 
-ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
+ssize_t getdelim(char **lineptr, size_t *n, int delimiter, FILE *stream) {
     if (!lineptr || !n || !stream)
         return -1;
     if (!*lineptr || *n == 0) {
@@ -269,11 +270,15 @@ ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
         }
 
         (*lineptr)[pos++] = (char)c;
-        if (c == '\n')
+        if (c == delimiter)
             break;
     }
     (*lineptr)[pos] = '\0';
     return (ssize_t)pos;
+}
+
+ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
+    return getdelim(lineptr, n, '\n', stream);
 }
 
 static const char *hex_digits_lower = "0123456789abcdef";
@@ -512,7 +517,7 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list args) {
             p++;
             if (*p == 'l')
                 p++;
-        } else if (*p == 'z') {
+        } else if (*p == 'z' || *p == 'j' || *p == 't') {
             is_long = true;
             p++;
         } else if (*p == 'h') {
@@ -542,6 +547,11 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list args) {
         case 'i': {
             int64_t val = is_long ? va_arg(args, int64_t) : (int64_t)va_arg(args, int);
             item_len = format_int(item_buf, sizeof(item_buf), val, width, pad, left_align);
+            break;
+        }
+        case 'o': {
+            uint64_t val = is_long ? va_arg(args, uint64_t) : (uint64_t)va_arg(args, unsigned int);
+            item_len = format_uint(item_buf, sizeof(item_buf), val, 8, width, pad, left_align, false);
             break;
         }
         case 'u': {
@@ -888,25 +898,26 @@ int rename(const char *oldpath, const char *newpath) {
         errno = EINVAL;
         return -1;
     }
-    int src = open(oldpath, O_RDONLY);
-    if (src < 0)
-        return -1;
-    int dst = open(newpath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (dst < 0) {
-        close(src);
+    int64_t ret = __syscall2(SYS_rename, (int64_t)oldpath, (int64_t)newpath);
+    if (ret < 0) {
+        errno = (int)-ret;
         return -1;
     }
-    char buf[4096];
-    ssize_t r;
-    while ((r = read(src, buf, sizeof(buf))) > 0) {
-        write(dst, buf, r);
-    }
-    close(src);
-    close(dst);
-    unlink(oldpath);
     return 0;
 }
 
 int remove(const char *pathname) {
-    return unlink(pathname);
+    if (!pathname) {
+        errno = EINVAL;
+        return -1;
+    }
+    int64_t r = __syscall1(SYS_unlink, (int64_t)pathname);
+    if (r < 0) {
+        r = __syscall1(SYS_rmdir, (int64_t)pathname);
+    }
+    if (r < 0) {
+        errno = (int)-r;
+        return -1;
+    }
+    return 0;
 }

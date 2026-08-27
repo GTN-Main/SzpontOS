@@ -35,10 +35,14 @@ typedef struct process {
     pagemap_t *pagemap;
 
     file_descriptor_t *fds[MAX_FD];
+    bool fd_cloexec[MAX_FD];
     char cwd[256];
+    mode_t umask;
+    uint64_t alarm_ticks;
 
     uintptr_t brk_start;
     uintptr_t brk_current;
+    uintptr_t mmap_current;
 
     int exit_code;
 

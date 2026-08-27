@@ -59,6 +59,23 @@ int ftime(struct timeb *tp) {
     return 0;
 }
 
+int setitimer(int which, const struct itimerval *new_value, struct itimerval *old_value) {
+    (void)which;
+    (void)old_value;
+    if (new_value) {
+        alarm((unsigned int)new_value->it_value.tv_sec);
+    }
+    return 0;
+}
+
+int getitimer(int which, struct itimerval *curr_value) {
+    (void)which;
+    if (curr_value) {
+        memset(curr_value, 0, sizeof(struct itimerval));
+    }
+    return 0;
+}
+
 int utimes(const char *filename, const struct timeval times[2]) {
     (void)filename;
     (void)times;

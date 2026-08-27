@@ -230,7 +230,7 @@ static void ensure_std_fd(process_t *proc, int fd) {
 static int64_t sys_open(const char *path, int flags, mode_t mode) {
     process_t *proc = sched_get_current_process();
     if (!proc || !path)
-        return -1;
+        return -22; /* EINVAL */
 
     /* Ensure standard file descriptors 0, 1, 2 exist before allocating new ones */
     ensure_std_fd(proc, 0);
@@ -238,17 +238,10 @@ static int64_t sys_open(const char *path, int flags, mode_t mode) {
     ensure_std_fd(proc, 2);
 
     char full_path[256];
-    if (path[0] == '/') {
-        strncpy(full_path, path, sizeof(full_path) - 1);
-    } else {
-        if (strcmp(proc->cwd, "/") == 0) {
-            ksnprintf(full_path, sizeof(full_path), "/%s", path);
-        } else {
-            ksnprintf(full_path, sizeof(full_path), "%s/%s", proc->cwd, path);
-        }
-    }
-    full_path[sizeof(full_path) - 1] = '\0';
+    if (vfs_resolve_path(path, full_path, sizeof(full_path)) != 0)
+        return -2; /* ENOENT */
 
+    bool newly_created = false;
     vfs_node_t *node = vfs_lookup(full_path);
     if (!node) {
         /* File doesn't exist. Check if O_CREAT is set */
@@ -259,11 +252,8 @@ static int64_t sys_open(const char *path, int flags, mode_t mode) {
             parent_path[sizeof(parent_path) - 1] = '\0';
 
             char *last_slash = strrchr(parent_path, '/');
-            if (!last_slash) {
-                strcpy(file_name, parent_path);
-                strcpy(parent_path, ".");
-            } else if (last_slash == parent_path) {
-                strcpy(file_name, last_slash + 1);
+            if (!last_slash || last_slash == parent_path) {
+                strcpy(file_name, last_slash ? last_slash + 1 : parent_path);
                 strcpy(parent_path, "/");
             } else {
                 strcpy(file_name, last_slash + 1);
@@ -271,27 +261,37 @@ static int64_t sys_open(const char *path, int flags, mode_t mode) {
             }
 
             vfs_node_t *parent = vfs_lookup(parent_path);
-            if (!parent || parent->flags != VFS_TYPE_DIRECTORY)
-                return -1;
+            if (!parent)
+                return -2; /* ENOENT */
+            if (parent->flags != VFS_TYPE_DIRECTORY)
+                return -20; /* ENOTDIR */
 
             if (vfs_check_permission(parent, VFS_WRITE | VFS_EXEC) != 0) {
-                return -1; /* EACCES: Permission denied in parent directory */
+                return -13; /* EACCES: Permission denied in parent directory */
             }
 
             if (!parent->ops || !parent->ops->create)
-                return -1;
-            if (parent->ops->create(parent, file_name, mode) != 0)
-                return -1;
+                return -38; /* ENOSYS */
+
+            mode_t actual_mode = (mode ? mode : 0666) & ~proc->umask;
+            int r = parent->ops->create(parent, file_name, actual_mode);
+            if (r != 0)
+                return (r < 0) ? r : -5;
 
             node = vfs_lookup(full_path);
             if (!node)
-                return -1;
+                return -2;
+            newly_created = true;
         } else {
-            return -1; /* ENOENT: File not found */
+            return -2; /* ENOENT: File not found */
+        }
+    } else {
+        if ((flags & O_CREAT) && (flags & O_EXCL)) {
+            return -17; /* EEXIST */
         }
     }
 
-    /* Check access permissions */
+    /* Check access permissions (POSIX: permission check is bypassed for newly created file) */
     int access_mask = 0;
     if ((flags & 3) == O_RDONLY) {
         access_mask = VFS_READ;
@@ -301,13 +301,17 @@ static int64_t sys_open(const char *path, int flags, mode_t mode) {
         access_mask = VFS_READ | VFS_WRITE;
     }
 
-    if (vfs_check_permission(node, access_mask) != 0) {
-        return -1; /* EACCES: Permission denied */
+    if (!newly_created && vfs_check_permission(node, access_mask) != 0) {
+        return -13; /* EACCES: Permission denied */
     }
 
     /* Truncate if O_TRUNC requested with write permission */
     if ((flags & O_TRUNC) && (access_mask & VFS_WRITE)) {
-        node->length = 0;
+        if (node->ops && node->ops->truncate) {
+            node->ops->truncate(node, 0);
+        } else {
+            node->length = 0;
+        }
     }
 
     /* Call open operation if defined */
@@ -335,6 +339,7 @@ static int64_t sys_open(const char *path, int flags, mode_t mode) {
     f->refcount = 1;
 
     proc->fds[fd] = f;
+    proc->fd_cloexec[fd] = (flags & 0x80000) ? true : false; /* O_CLOEXEC */
     return fd;
 }
 
@@ -485,6 +490,7 @@ static int64_t sys_close(int fd) {
 
     file_descriptor_t *f = proc->fds[fd];
     proc->fds[fd] = NULL;
+    proc->fd_cloexec[fd] = false;
     f->refcount--;
     if (f->refcount == 0) {
         if (f->node && (f->node->flags == VFS_TYPE_PIPE) && f->node->device_data) {
@@ -496,8 +502,8 @@ static int64_t sys_close(int fd) {
             }
             if (p->readers <= 0 && p->writers <= 0) {
                 kfree(p);
+                kfree(f->node);
             }
-            kfree(f->node);
         }
         kfree(f);
     }
@@ -506,16 +512,14 @@ static int64_t sys_close(int fd) {
 
 static int64_t sys_dup(int oldfd) {
     process_t *proc = sched_get_current_process();
-    if (!proc || oldfd < 0 || oldfd >= MAX_FD)
-        return -1;
-    ensure_std_fd(proc, oldfd);
-    if (!proc->fds[oldfd])
+    if (!proc || oldfd < 0 || oldfd >= MAX_FD || !proc->fds[oldfd])
         return -1;
 
     for (int i = 0; i < MAX_FD; i++) {
         if (!proc->fds[i]) {
             proc->fds[i] = proc->fds[oldfd];
             proc->fds[i]->refcount++;
+            proc->fd_cloexec[i] = false; /* dup clears cloexec per POSIX */
             return i;
         }
     }
@@ -524,13 +528,11 @@ static int64_t sys_dup(int oldfd) {
 
 static int64_t sys_dup2(int oldfd, int newfd) {
     process_t *proc = sched_get_current_process();
-    if (!proc || oldfd < 0 || oldfd >= MAX_FD || newfd < 0 || newfd >= MAX_FD)
+    if (!proc || oldfd < 0 || oldfd >= MAX_FD || newfd < 0 || newfd >= MAX_FD || !proc->fds[oldfd])
         return -1;
+
     if (oldfd == newfd)
         return newfd;
-    ensure_std_fd(proc, oldfd);
-    if (!proc->fds[oldfd])
-        return -1;
 
     if (proc->fds[newfd]) {
         sys_close(newfd);
@@ -538,6 +540,7 @@ static int64_t sys_dup2(int oldfd, int newfd) {
 
     proc->fds[newfd] = proc->fds[oldfd];
     proc->fds[newfd]->refcount++;
+    proc->fd_cloexec[newfd] = false; /* dup2 clears cloexec per POSIX */
     return newfd;
 }
 
@@ -545,7 +548,6 @@ static int64_t sys_fcntl(int fd, int cmd, uint64_t arg) {
     process_t *proc = sched_get_current_process();
     if (!proc || fd < 0 || fd >= MAX_FD)
         return -1;
-    ensure_std_fd(proc, fd);
     if (!proc->fds[fd])
         return -1;
 
@@ -559,14 +561,16 @@ static int64_t sys_fcntl(int fd, int cmd, uint64_t arg) {
             if (!proc->fds[i]) {
                 proc->fds[i] = proc->fds[fd];
                 proc->fds[i]->refcount++;
+                proc->fd_cloexec[i] = (cmd == 1030);
                 return i;
             }
         }
         return -1;
     }
     case 1: /* F_GETFD */
-        return (proc->fds[fd]->flags & 0x80000) ? 1 : 0;
+        return proc->fd_cloexec[fd] ? 1 : 0;
     case 2: /* F_SETFD */
+        proc->fd_cloexec[fd] = (arg & 1) ? true : false;
         return 0;
     case 3: /* F_GETFL */
         return proc->fds[fd]->flags;
@@ -600,6 +604,27 @@ static int64_t sys_brk(uintptr_t new_brk) {
     return proc->brk_current;
 }
 
+static inline uint32_t vfs_type_to_dt(uint32_t vfs_type) {
+    switch (vfs_type) {
+    case 1: /* VFS_TYPE_FILE */
+        return 8; /* DT_REG */
+    case 2: /* VFS_TYPE_DIRECTORY */
+        return 4; /* DT_DIR */
+    case 3: /* VFS_TYPE_CHARDEVICE */
+        return 2; /* DT_CHR */
+    case 4: /* VFS_TYPE_BLOCKDEVICE */
+        return 6; /* DT_BLK */
+    case 5: /* VFS_TYPE_PIPE */
+        return 1; /* DT_FIFO */
+    case 6: /* VFS_TYPE_SYMLINK */
+        return 10; /* DT_LNK */
+    case 7: /* VFS_TYPE_SOCKET */
+        return 12; /* DT_SOCK */
+    default:
+        return 0; /* DT_UNKNOWN */
+    }
+}
+
 static int64_t sys_getdents(int fd, void *dirp, size_t count) {
     process_t *proc = sched_get_current_process();
     if (!proc || fd < 0 || fd >= MAX_FD || !proc->fds[fd] || !dirp)
@@ -613,35 +638,32 @@ static int64_t sys_getdents(int fd, void *dirp, size_t count) {
     if (!dent)
         return 0;
 
+    vfs_dirent_t out;
+    memset(&out, 0, sizeof(out));
+    strncpy(out.name, dent->name, sizeof(out.name) - 1);
+    out.inode = dent->inode;
+    out.type = vfs_type_to_dt(dent->type);
+
     size_t copy_size = sizeof(vfs_dirent_t);
     if (copy_size > count)
         copy_size = count;
 
-    memcpy(dirp, dent, copy_size);
+    memcpy(dirp, &out, copy_size);
     f->offset++;
     return copy_size;
 }
 
 static int64_t sys_stat(const char *path, struct stat *buf) {
     if (!path || !buf)
-        return -1;
-    process_t *proc = sched_get_current_process();
+        return -22;
 
     char full_path[256];
-    if (path[0] == '/' || !proc) {
-        strncpy(full_path, path, sizeof(full_path) - 1);
-    } else {
-        if (strcmp(proc->cwd, "/") == 0) {
-            ksnprintf(full_path, sizeof(full_path), "/%s", path);
-        } else {
-            ksnprintf(full_path, sizeof(full_path), "%s/%s", proc->cwd, path);
-        }
-    }
-    full_path[sizeof(full_path) - 1] = '\0';
+    if (vfs_resolve_path(path, full_path, sizeof(full_path)) != 0)
+        return -2;
 
     vfs_node_t *node = vfs_lookup(full_path);
     if (!node)
-        return -1;
+        return -2;
 
     memset(buf, 0, sizeof(struct stat));
     buf->st_ino = node->inode;
@@ -657,6 +679,44 @@ static int64_t sys_stat(const char *path, struct stat *buf) {
         type_flag = S_IFIFO;
     else if (node->flags == VFS_TYPE_SYMLINK)
         type_flag = S_IFLNK;
+    else if (node->flags == VFS_TYPE_SOCKET)
+        type_flag = S_IFSOCK;
+
+    buf->st_mode = type_flag | (node->permissions & 07777);
+    buf->st_size = node->length;
+    buf->st_uid = node->uid;
+    buf->st_gid = node->gid;
+    return 0;
+}
+
+static int64_t sys_lstat(const char *path, struct stat *buf) {
+    if (!path || !buf)
+        return -22;
+
+    char full_path[256];
+    if (vfs_resolve_path(path, full_path, sizeof(full_path)) != 0)
+        return -2;
+
+    vfs_node_t *node = vfs_lookup_nofollow(full_path);
+    if (!node)
+        return -2;
+
+    memset(buf, 0, sizeof(struct stat));
+    buf->st_ino = node->inode;
+
+    uint32_t type_flag = S_IFREG;
+    if (node->flags == VFS_TYPE_DIRECTORY)
+        type_flag = S_IFDIR;
+    else if (node->flags == VFS_TYPE_CHARDEVICE)
+        type_flag = S_IFCHR;
+    else if (node->flags == VFS_TYPE_BLOCKDEVICE)
+        type_flag = S_IFBLK;
+    else if (node->flags == VFS_TYPE_PIPE)
+        type_flag = S_IFIFO;
+    else if (node->flags == VFS_TYPE_SYMLINK)
+        type_flag = S_IFLNK;
+    else if (node->flags == VFS_TYPE_SOCKET)
+        type_flag = S_IFSOCK;
 
     buf->st_mode = type_flag | (node->permissions & 07777);
     buf->st_size = node->length;
@@ -688,6 +748,8 @@ static int64_t sys_fstat(int fd, struct stat *buf) {
         type_flag = S_IFIFO;
     else if (f->node->flags == VFS_TYPE_SYMLINK)
         type_flag = S_IFLNK;
+    else if (f->node->flags == VFS_TYPE_SOCKET)
+        type_flag = S_IFSOCK;
 
     buf->st_mode = type_flag | (f->node->permissions & 07777);
     buf->st_size = f->node->length;
@@ -1015,7 +1077,73 @@ static int64_t sys_fchown(int fd, uid_t uid, gid_t gid) {
 static int64_t sys_mkdir(const char *path, mode_t mode) {
     if (!path)
         return -1;
-    return vfs_mkdir(path, mode);
+    process_t *proc = sched_get_current_process();
+    mode_t actual_mode = (mode ? mode : 0777) & ~(proc ? proc->umask : 0022);
+    return vfs_mkdir(path, actual_mode);
+}
+
+static int64_t sys_access(const char *path, int mode) {
+    if (!path)
+        return -1;
+    return vfs_access(path, mode);
+}
+
+static int64_t sys_rename(const char *oldpath, const char *newpath) {
+    if (!oldpath || !newpath)
+        return -1;
+    return vfs_rename(oldpath, newpath);
+}
+
+static int64_t sys_rmdir(const char *path) {
+    if (!path)
+        return -1;
+    return vfs_rmdir(path);
+}
+
+static int64_t sys_truncate(const char *path, off_t length) {
+    if (!path || length < 0)
+        return -1;
+    return vfs_truncate(path, length);
+}
+
+static int64_t sys_ftruncate(int fd, off_t length) {
+    process_t *proc = sched_get_current_process();
+    if (!proc || fd < 0 || fd >= MAX_FD || !proc->fds[fd] || !proc->fds[fd]->node || length < 0)
+        return -1;
+    file_descriptor_t *f = proc->fds[fd];
+    if ((f->flags & 3) == O_RDONLY)
+        return -1;
+    if (f->node->ops && f->node->ops->truncate)
+        return f->node->ops->truncate(f->node, length);
+    f->node->length = (size_t)length;
+    return 0;
+}
+
+static int64_t sys_umask(mode_t mask) {
+    process_t *proc = sched_get_current_process();
+    if (!proc)
+        return 022;
+    mode_t old = proc->umask;
+    proc->umask = mask & 0777;
+    return old;
+}
+
+static int64_t sys_symlink(const char *target, const char *linkpath) {
+    if (!target || !linkpath)
+        return -1;
+    return vfs_symlink(target, linkpath);
+}
+
+static int64_t sys_readlink(const char *path, char *buf, size_t bufsiz) {
+    if (!path || !buf || bufsiz == 0)
+        return -1;
+    return vfs_readlink(path, buf, bufsiz);
+}
+
+static int64_t sys_link(const char *oldpath, const char *newpath) {
+    (void)oldpath;
+    (void)newpath;
+    return -38; /* -ENOSYS: Link not supported, triggers rename fallback */
 }
 
 static int64_t sys_fork(void);
@@ -1168,13 +1296,27 @@ static int64_t sys_fork(void) {
         return -1;
 
     process_t *child = process_create(parent->name);
+    if (!child)
+        return -1;
+
     child->ppid = parent->pid;
+    child->pgid = parent->pgid;
+    child->sid = parent->sid;
     child->uid = parent->uid;
     child->gid = parent->gid;
     child->euid = parent->euid;
     child->egid = parent->egid;
+    child->suid = parent->suid;
+    child->sgid = parent->sgid;
+    child->umask = parent->umask;
+    child->ngroups = parent->ngroups;
+    memcpy(child->groups, parent->groups, sizeof(child->groups));
+    child->blocked_signals = parent->blocked_signals;
+    memcpy(child->signal_handlers, parent->signal_handlers, sizeof(child->signal_handlers));
+    memcpy(child->sigactions, parent->sigactions, sizeof(child->sigactions));
     child->brk_start = parent->brk_start;
     child->brk_current = parent->brk_current;
+    child->mmap_current = parent->mmap_current;
     strncpy(child->cwd, parent->cwd, sizeof(child->cwd) - 1);
 
     /* Clone address space */
@@ -1189,21 +1331,35 @@ static int64_t sys_fork(void) {
         if (parent->fds[i]) {
             child->fds[i] = parent->fds[i];
             parent->fds[i]->refcount++;
+            child->fd_cloexec[i] = parent->fd_cloexec[i];
         }
     }
 
     /* Allocate and initialize child thread */
     thread_t *parent_t = sched_get_current_thread();
+    if (!parent_t)
+        return -1;
+
     thread_t *child_t = (thread_t *)kzalloc(sizeof(thread_t));
-    child_t->tid = parent_t->tid + 1000;
+    if (!child_t)
+        return -1;
+
+    static tid_t s_fork_tid = 100;
+    child_t->tid = s_fork_tid++;
     child_t->process = child;
     child_t->state = THREAD_READY;
     child_t->user_entry = parent_t->user_entry;
     child_t->user_stack = parent_t->user_stack;
+    child_t->fs_base = parent_t->fs_base;
 
     /* Allocate 16 KiB kernel stack */
     size_t stack_pages = 16 * 1024 / PAGE_SIZE;
     uintptr_t stack_phys = pmm_alloc_pages(stack_pages);
+    if (!stack_phys) {
+        kfree(child_t);
+        return -1;
+    }
+
     child_t->kernel_stack_bottom = (uintptr_t)PHYS_TO_VIRT(stack_phys);
     child_t->kernel_stack_top = child_t->kernel_stack_bottom + 16 * 1024;
 
@@ -1211,7 +1367,6 @@ static int64_t sys_fork(void) {
     uint64_t *sp = (uint64_t *)child_t->kernel_stack_top;
     uint64_t *parent_frame = (uint64_t *)(parent_t->kernel_stack_top - (9 * sizeof(uint64_t)));
 
-    /* Push 9 user registers for arch_syscall_return */
     sp -= 9;
     memcpy(sp, parent_frame, 9 * sizeof(uint64_t));
 
@@ -1281,19 +1436,28 @@ static int64_t sys_execve(const char *pathname, char *const argv[], char *const 
     pagemap_t *new_map = vmm_create_address_space();
     uintptr_t entry = 0;
     uintptr_t user_stack = 0;
+    uintptr_t brk_start = 0x0000000000800000ULL;
 
-    if (elf_load_binary(file, new_map, &entry, &user_stack) != 0) {
+    if (elf_load_binary(file, new_map, &entry, &user_stack, &brk_start) != 0) {
         vmm_destroy_address_space(new_map);
         return -1;
     }
 
     pagemap_t *old_map = proc->pagemap;
     proc->pagemap = new_map;
-    proc->brk_start = 0x0000000000800000ULL;
+    proc->brk_start = brk_start;
     proc->brk_current = proc->brk_start;
+    proc->mmap_current = 0x0000600000000000ULL;
     strncpy(proc->name, resolved_path, sizeof(proc->name) - 1);
     vmm_switch_address_space(new_map);
     vmm_destroy_address_space(old_map);
+
+    /* Close all FD_CLOEXEC file descriptors */
+    for (int i = 0; i < MAX_FD; i++) {
+        if (proc->fds[i] && proc->fd_cloexec[i]) {
+            sys_close(i);
+        }
+    }
 
     /* Setup user stack with argc and argv pointers */
     uintptr_t sp = user_stack;
@@ -1394,6 +1558,13 @@ static int64_t sys_statfs(const char *path, struct statfs *buf) {
     return 0;
 }
 
+static int64_t sys_fstatfs(int fd, struct statfs *buf) {
+    process_t *proc = sched_get_current_process();
+    if (!proc || fd < 0 || fd >= MAX_FD || !proc->fds[fd] || !buf)
+        return -1;
+    return sys_statfs("/", buf);
+}
+
 static int64_t sys_getprocs(proc_info_t *buf, size_t max_count) {
     if (!buf || max_count == 0)
         return -1;
@@ -1403,21 +1574,247 @@ static int64_t sys_getprocs(proc_info_t *buf, size_t max_count) {
 static int64_t sys_unlink(const char *pathname) {
     if (!pathname)
         return -1;
-    process_t *proc = sched_get_current_process();
+    return (int64_t)vfs_unlink(pathname);
+}
 
-    char full_path[256];
-    if (pathname[0] == '/' || !proc) {
-        strncpy(full_path, pathname, sizeof(full_path) - 1);
-    } else {
-        if (strcmp(proc->cwd, "/") == 0) {
-            ksnprintf(full_path, sizeof(full_path), "/%s", pathname);
-        } else {
-            ksnprintf(full_path, sizeof(full_path), "%s/%s", proc->cwd, pathname);
+static int64_t sys_pread64(int fd, void *buf, size_t count, off_t offset) {
+    if (!buf || count == 0 || offset < 0)
+        return 0;
+    process_t *proc = sched_get_current_process();
+    if (!proc || fd < 0 || fd >= MAX_FD || !proc->fds[fd] || !proc->fds[fd]->node)
+        return -1;
+    vfs_node_t *node = proc->fds[fd]->node;
+    if (!node->ops || !node->ops->read)
+        return -1;
+    return node->ops->read(node, offset, count, buf);
+}
+
+static int64_t sys_pwrite64(int fd, const void *buf, size_t count, off_t offset) {
+    if (!buf || count == 0 || offset < 0)
+        return 0;
+    process_t *proc = sched_get_current_process();
+    if (!proc || fd < 0 || fd >= MAX_FD || !proc->fds[fd] || !proc->fds[fd]->node)
+        return -1;
+    vfs_node_t *node = proc->fds[fd]->node;
+    if (!node->ops || !node->ops->write)
+        return -1;
+    return node->ops->write(node, offset, count, buf);
+}
+
+struct iovec_k {
+    void *iov_base;
+    size_t iov_len;
+};
+
+static int64_t sys_readv(int fd, const struct iovec_k *iov, int iovcnt) {
+    if (!iov || iovcnt <= 0)
+        return 0;
+    int64_t total = 0;
+    for (int i = 0; i < iovcnt; i++) {
+        if (!iov[i].iov_base || iov[i].iov_len == 0)
+            continue;
+        int64_t r = sys_read(fd, iov[i].iov_base, iov[i].iov_len);
+        if (r < 0)
+            return (total > 0) ? total : r;
+        total += r;
+        if ((size_t)r < iov[i].iov_len)
+            break;
+    }
+    return total;
+}
+
+static int64_t sys_writev(int fd, const struct iovec_k *iov, int iovcnt) {
+    if (!iov || iovcnt <= 0)
+        return 0;
+    int64_t total = 0;
+    for (int i = 0; i < iovcnt; i++) {
+        if (!iov[i].iov_base || iov[i].iov_len == 0)
+            continue;
+        int64_t r = sys_write(fd, iov[i].iov_base, iov[i].iov_len);
+        if (r < 0)
+            return (total > 0) ? total : r;
+        total += r;
+        if ((size_t)r < iov[i].iov_len)
+            break;
+    }
+    return total;
+}
+
+static int64_t sys_mprotect(void *addr, size_t len, int prot) {
+    process_t *proc = sched_get_current_process();
+    if (!proc || !addr || len == 0)
+        return -1;
+    uintptr_t start = ALIGN_DOWN((uintptr_t)addr, PAGE_SIZE);
+    uintptr_t end = ALIGN_UP((uintptr_t)addr + len, PAGE_SIZE);
+    uint64_t flags = VMM_FLAG_USER;
+    if (prot & 2) /* PROT_WRITE */
+        flags |= VMM_FLAG_WRITABLE;
+    for (uintptr_t p = start; p < end; p += PAGE_SIZE) {
+        uintptr_t phys = vmm_virt_to_phys(proc->pagemap, p);
+        if (phys) {
+            vmm_map_page(proc->pagemap, p, phys, flags);
         }
     }
-    full_path[sizeof(full_path) - 1] = '\0';
+    return 0;
+}
 
-    return (int64_t)vfs_unlink(full_path);
+struct tms_k {
+    int64_t tms_utime;
+    int64_t tms_stime;
+    int64_t tms_cutime;
+    int64_t tms_cstime;
+};
+
+static int64_t sys_times(struct tms_k *buf) {
+    uint64_t ticks = pit_get_ticks();
+    if (buf) {
+        buf->tms_utime = (int64_t)(ticks / 2);
+        buf->tms_stime = (int64_t)(ticks / 4);
+        buf->tms_cutime = 0;
+        buf->tms_cstime = 0;
+    }
+    return (int64_t)ticks;
+}
+
+struct rlimit_k {
+    uint64_t rlim_cur;
+    uint64_t rlim_max;
+};
+
+static int64_t sys_getrlimit(int resource, struct rlimit_k *rlim) {
+    if (!rlim)
+        return -1;
+    if (resource == 7) { /* RLIMIT_NOFILE */
+        rlim->rlim_cur = MAX_FD;
+        rlim->rlim_max = MAX_FD;
+    } else if (resource == 3) { /* RLIMIT_STACK */
+        rlim->rlim_cur = 8 * 1024 * 1024;
+        rlim->rlim_max = 8 * 1024 * 1024;
+    } else {
+        rlim->rlim_cur = 0x7FFFFFFF;
+        rlim->rlim_max = 0x7FFFFFFF;
+    }
+    return 0;
+}
+
+static int64_t sys_setrlimit(int resource, const struct rlimit_k *rlim) {
+    (void)resource;
+    (void)rlim;
+    return 0;
+}
+
+static int64_t sys_getrusage(int who, void *usage) {
+    (void)who;
+    if (usage) {
+        memset(usage, 0, 128);
+    }
+    return 0;
+}
+
+static int64_t sys_alarm(unsigned int seconds) {
+    process_t *proc = sched_get_current_process();
+    if (!proc)
+        return 0;
+    uint64_t cur = pit_get_ticks();
+    uint64_t old = 0;
+    if (proc->alarm_ticks > cur) {
+        old = (proc->alarm_ticks - cur) / 100;
+    }
+    proc->alarm_ticks = seconds ? (cur + (uint64_t)seconds * 100) : 0;
+    return (int64_t)old;
+}
+
+static int64_t sys_clock_getres(int clk_id, struct timespec_kernel *res) {
+    (void)clk_id;
+    if (res) {
+        res->tv_sec = 0;
+        res->tv_nsec = 1000000;
+    }
+    return 0;
+}
+
+#define AT_FDCWD -100
+
+static void build_at_path(int dirfd, const char *pathname, char *out, size_t out_len) {
+    if (!pathname || !out || out_len == 0)
+        return;
+    if (pathname[0] == '/') {
+        strncpy(out, pathname, out_len - 1);
+        out[out_len - 1] = '\0';
+        return;
+    }
+    process_t *proc = sched_get_current_process();
+    if (dirfd == AT_FDCWD || !proc || dirfd < 0 || dirfd >= MAX_FD || !proc->fds[dirfd]) {
+        vfs_resolve_path(pathname, out, out_len);
+        return;
+    }
+    vfs_node_t *dir_node = proc->fds[dirfd]->node;
+    if (dir_node && dir_node->flags == VFS_TYPE_DIRECTORY) {
+        ksnprintf(out, out_len, "/%s/%s", dir_node->name, pathname);
+        char norm[256];
+        vfs_normalize_path(out, norm, sizeof(norm));
+        strncpy(out, norm, out_len - 1);
+        out[out_len - 1] = '\0';
+    } else {
+        vfs_resolve_path(pathname, out, out_len);
+    }
+}
+
+static int64_t sys_openat(int dirfd, const char *pathname, int flags, mode_t mode) {
+    char full[256];
+    build_at_path(dirfd, pathname, full, sizeof(full));
+    return sys_open(full, flags, mode);
+}
+
+static int64_t sys_mkdirat(int dirfd, const char *pathname, mode_t mode) {
+    char full[256];
+    build_at_path(dirfd, pathname, full, sizeof(full));
+    return sys_mkdir(full, mode);
+}
+
+static int64_t sys_unlinkat(int dirfd, const char *pathname, int flags) {
+    char full[256];
+    build_at_path(dirfd, pathname, full, sizeof(full));
+    if (flags & 0x200) { /* AT_REMOVEDIR */
+        return sys_rmdir(full);
+    }
+    return sys_unlink(full);
+}
+
+static int64_t sys_newfstatat(int dirfd, const char *pathname, struct stat *buf, int flags) {
+    char full[256];
+    build_at_path(dirfd, pathname, full, sizeof(full));
+    if (flags & 0x100) { /* AT_SYMLINK_NOFOLLOW */
+        return sys_lstat(full, buf);
+    }
+    return sys_stat(full, buf);
+}
+
+static int64_t sys_faccessat(int dirfd, const char *pathname, int mode, int flags) {
+    (void)flags;
+    char full[256];
+    build_at_path(dirfd, pathname, full, sizeof(full));
+    return sys_access(full, mode);
+}
+
+static int64_t sys_readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsiz) {
+    char full[256];
+    build_at_path(dirfd, pathname, full, sizeof(full));
+    return sys_readlink(full, buf, bufsiz);
+}
+
+static int64_t sys_fchmodat(int dirfd, const char *pathname, mode_t mode, int flags) {
+    (void)flags;
+    char full[256];
+    build_at_path(dirfd, pathname, full, sizeof(full));
+    return sys_chmod(full, mode);
+}
+
+static int64_t sys_fchownat(int dirfd, const char *pathname, uid_t uid, gid_t gid, int flags) {
+    (void)flags;
+    char full[256];
+    build_at_path(dirfd, pathname, full, sizeof(full));
+    return sys_chown(full, uid, gid);
 }
 
 static int64_t sys_lseek(int fd, off_t offset, int whence) {
@@ -1468,17 +1865,19 @@ static int64_t sys_ioctl(int fd, unsigned long request, void *argp) {
 static void *sys_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset) {
     (void)prot;
     (void)flags;
-    (void)fd;
-    (void)offset;
     process_t *proc = sched_get_current_process();
     if (!proc || length == 0)
         return (void *)-1;
 
+    if (proc->mmap_current == 0) {
+        proc->mmap_current = 0x0000600000000000ULL;
+    }
+
     size_t pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
     uintptr_t vaddr = (uintptr_t)addr;
     if (vaddr == 0) {
-        vaddr = proc->brk_current;
-        proc->brk_current += pages * PAGE_SIZE;
+        vaddr = proc->mmap_current;
+        proc->mmap_current += pages * PAGE_SIZE;
     }
 
     for (size_t i = 0; i < pages; i++) {
@@ -1488,6 +1887,37 @@ static void *sys_mmap(void *addr, size_t length, int prot, int flags, int fd, of
         memset(PHYS_TO_VIRT(phys), 0, PAGE_SIZE);
         vmm_map_page(proc->pagemap, vaddr + i * PAGE_SIZE, phys, VMM_FLAG_WRITABLE | VMM_FLAG_USER);
     }
+
+    /* If file-backed mapping, read data from file into physical pages */
+    if (fd >= 0 && fd < MAX_FD && proc->fds[fd] && proc->fds[fd]->node) {
+        vfs_node_t *node = proc->fds[fd]->node;
+        if (node->ops && node->ops->read) {
+            size_t bytes_left = length;
+            if (node->length > (size_t)offset) {
+                size_t avail = node->length - (size_t)offset;
+                if (bytes_left > avail)
+                    bytes_left = avail;
+            } else {
+                bytes_left = 0;
+            }
+
+            off_t cur_offset = offset;
+            for (size_t i = 0; i < pages && bytes_left > 0; i++) {
+                uintptr_t virt = vaddr + i * PAGE_SIZE;
+                uintptr_t phys = vmm_virt_to_phys(proc->pagemap, virt);
+                if (!phys)
+                    break;
+                void *page_buf = (void *)PHYS_TO_VIRT(phys);
+                size_t chunk = (bytes_left > PAGE_SIZE) ? PAGE_SIZE : bytes_left;
+                ssize_t read_bytes = node->ops->read(node, cur_offset, chunk, page_buf);
+                if (read_bytes <= 0)
+                    break;
+                bytes_left -= read_bytes;
+                cur_offset += read_bytes;
+            }
+        }
+    }
+
     return (void *)vaddr;
 }
 
@@ -1619,18 +2049,32 @@ uint64_t syscall_dispatcher(uint64_t sys_no, uint64_t a1, uint64_t a2, uint64_t 
         return sys_stat((const char *)a1, (struct stat *)a2);
     case SYS_fstat:
         return sys_fstat((int)a1, (struct stat *)a2);
+    case SYS_lstat:
+        return sys_lstat((const char *)a1, (struct stat *)a2);
     case SYS_poll:
         return kernel_sys_poll((struct pollfd *)a1, (unsigned int)a2, (int)a3);
     case SYS_lseek:
         return sys_lseek((int)a1, (off_t)a2, (int)a3);
     case SYS_mmap:
         return (uint64_t)sys_mmap((void *)a1, (size_t)a2, (int)a3, (int)a4, (int)a5, (off_t)a6);
+    case SYS_mprotect:
+        return sys_mprotect((void *)a1, (size_t)a2, (int)a3);
     case SYS_munmap:
         return sys_munmap((void *)a1, (size_t)a2);
     case SYS_brk:
         return sys_brk((uintptr_t)a1);
     case SYS_ioctl:
         return sys_ioctl((int)a1, (unsigned long)a2, (void *)a3);
+    case SYS_pread64:
+        return sys_pread64((int)a1, (void *)a2, (size_t)a3, (off_t)a4);
+    case SYS_pwrite64:
+        return sys_pwrite64((int)a1, (const void *)a2, (size_t)a3, (off_t)a4);
+    case SYS_readv:
+        return sys_readv((int)a1, (const struct iovec_k *)a2, (int)a3);
+    case SYS_writev:
+        return sys_writev((int)a1, (const struct iovec_k *)a2, (int)a3);
+    case SYS_access:
+        return sys_access((const char *)a1, (int)a2);
     case SYS_pipe:
         return sys_pipe((int *)a1);
     case SYS_select:
@@ -1639,8 +2083,48 @@ uint64_t syscall_dispatcher(uint64_t sys_no, uint64_t a1, uint64_t a2, uint64_t 
         return sys_dup((int)a1);
     case SYS_dup2:
         return sys_dup2((int)a1, (int)a2);
+    case SYS_alarm:
+        return sys_alarm((unsigned int)a1);
     case SYS_fcntl:
         return sys_fcntl((int)a1, (int)a2, (uint64_t)a3);
+    case SYS_truncate:
+        return sys_truncate((const char *)a1, (off_t)a2);
+    case SYS_ftruncate:
+        return sys_ftruncate((int)a1, (off_t)a2);
+    case SYS_rename:
+        return sys_rename((const char *)a1, (const char *)a2);
+    case SYS_mkdir:
+        return sys_mkdir((const char *)a1, (mode_t)a2);
+    case SYS_rmdir:
+        return sys_rmdir((const char *)a1);
+    case SYS_creat:
+        return sys_open((const char *)a1, O_CREAT | O_WRONLY | O_TRUNC, (mode_t)a2);
+    case SYS_link:
+        return sys_link((const char *)a1, (const char *)a2);
+    case SYS_unlink:
+        return sys_unlink((const char *)a1);
+    case SYS_symlink:
+        return sys_symlink((const char *)a1, (const char *)a2);
+    case SYS_readlink:
+        return sys_readlink((const char *)a1, (char *)a2, (size_t)a3);
+    case SYS_chmod:
+        return sys_chmod((const char *)a1, (mode_t)a2);
+    case SYS_fchmod:
+        return sys_fchmod((int)a1, (mode_t)a2);
+    case SYS_chown:
+        return sys_chown((const char *)a1, (uid_t)a2, (gid_t)a3);
+    case SYS_fchown:
+        return sys_fchown((int)a1, (uid_t)a2, (gid_t)a3);
+    case SYS_umask:
+        return sys_umask((mode_t)a1);
+    case SYS_getrlimit:
+        return sys_getrlimit((int)a1, (struct rlimit_k *)a2);
+    case SYS_getrusage:
+        return sys_getrusage((int)a1, (void *)a2);
+    case SYS_times:
+        return sys_times((struct tms_k *)a1);
+    case SYS_setrlimit:
+        return sys_setrlimit((int)a1, (const struct rlimit_k *)a2);
     case SYS_getpid:
         return sched_get_current_process() ? sched_get_current_process()->pid : 0;
     case SYS_getppid:
@@ -1700,18 +2184,6 @@ uint64_t syscall_dispatcher(uint64_t sys_no, uint64_t a1, uint64_t a2, uint64_t 
         return sys_syslog_syscall((int)a1, (char *)a2, (int)a3);
     case SYS_sysctl:
         return sys_sysctl_syscall((const char *)a1, (void *)a2, (size_t *)a3, (const void *)a4, (size_t)a5);
-    case SYS_chmod:
-        return sys_chmod((const char *)a1, (mode_t)a2);
-    case SYS_fchmod:
-        return sys_fchmod((int)a1, (mode_t)a2);
-    case SYS_chown:
-        return sys_chown((const char *)a1, (uid_t)a2, (gid_t)a3);
-    case SYS_fchown:
-        return sys_fchown((int)a1, (uid_t)a2, (gid_t)a3);
-    case SYS_mkdir:
-        return sys_mkdir((const char *)a1, (mode_t)a2);
-    case SYS_unlink:
-        return sys_unlink((const char *)a1);
     case SYS_socket:
         return sys_socket((int)a1, (int)a2, (int)a3);
     case SYS_connect:
@@ -1747,13 +2219,15 @@ uint64_t syscall_dispatcher(uint64_t sys_no, uint64_t a1, uint64_t a2, uint64_t 
     case SYS_clock_settime:
         return 0;
     case SYS_clock_getres:
-        return 0;
+        return sys_clock_getres((int)a1, (struct timespec_kernel *)a2);
     case SYS_time:
         return sys_time((int64_t *)a1);
     case SYS_sysinfo:
         return sys_sysinfo((struct sysinfo *)a1);
     case SYS_statfs:
         return sys_statfs((const char *)a1, (struct statfs *)a2);
+    case SYS_fstatfs:
+        return sys_fstatfs((int)a1, (struct statfs *)a2);
     case SYS_getprocs:
         return sys_getprocs((proc_info_t *)a1, (size_t)a2);
     case SYS_sleep:
@@ -1807,6 +2281,22 @@ uint64_t syscall_dispatcher(uint64_t sys_no, uint64_t a1, uint64_t a2, uint64_t 
         return sys_futex((uintptr_t)a1, (int)a2, (int)a3, (uintptr_t)a4, (uintptr_t)a5, 0);
     case SYS_getrandom:
         return random_get_bytes((void *)a1, (size_t)a2);
+    case SYS_openat:
+        return sys_openat((int)a1, (const char *)a2, (int)a3, (mode_t)a4);
+    case SYS_mkdirat:
+        return sys_mkdirat((int)a1, (const char *)a2, (mode_t)a3);
+    case SYS_unlinkat:
+        return sys_unlinkat((int)a1, (const char *)a2, (int)a3);
+    case SYS_newfstatat:
+        return sys_newfstatat((int)a1, (const char *)a2, (struct stat *)a3, (int)a4);
+    case SYS_faccessat:
+        return sys_faccessat((int)a1, (const char *)a2, (int)a3, (int)a4);
+    case SYS_readlinkat:
+        return sys_readlinkat((int)a1, (const char *)a2, (char *)a3, (size_t)a4);
+    case SYS_fchmodat:
+        return sys_fchmodat((int)a1, (const char *)a2, (mode_t)a3, (int)a4);
+    case SYS_fchownat:
+        return sys_fchownat((int)a1, (const char *)a2, (uid_t)a3, (gid_t)a4, (int)a5);
     case SYS_kqueue:
         return sys_kqueue();
     case SYS_kevent:

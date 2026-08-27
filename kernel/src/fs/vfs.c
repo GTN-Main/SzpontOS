@@ -100,11 +100,11 @@ void vfs_normalize_path(const char *src, char *dst, size_t dst_size) {
     if (!src || !dst || dst_size == 0)
         return;
 
-    char temp[256];
+    char temp[512];
     strncpy(temp, src, sizeof(temp) - 1);
     temp[sizeof(temp) - 1] = '\0';
 
-    char *tokens[32];
+    char *tokens[64];
     int token_count = 0;
 
     char *p = temp;
@@ -117,13 +117,13 @@ void vfs_normalize_path(const char *src, char *dst, size_t dst_size) {
             *slash = '\0';
 
         if (strcmp(p, ".") == 0 || *p == '\0') {
-            /* ignore current dir */
+            /* ignore current dir reference */
         } else if (strcmp(p, "..") == 0) {
             if (token_count > 0) {
                 token_count--;
             }
         } else {
-            if (token_count < 32) {
+            if (token_count < 64) {
                 tokens[token_count++] = p;
             }
         }
@@ -147,12 +147,35 @@ void vfs_normalize_path(const char *src, char *dst, size_t dst_size) {
     }
 }
 
-vfs_node_t *vfs_lookup(const char *path) {
-    if (!path || !g_vfs_root)
+int vfs_resolve_path(const char *src, char *dst, size_t dst_size) {
+    if (!src || !dst || dst_size == 0)
+        return -1;
+
+    char combined[512];
+    process_t *proc = sched_get_current_process();
+
+    if (src[0] == '/') {
+        strncpy(combined, src, sizeof(combined) - 1);
+    } else {
+        const char *cwd = (proc && proc->cwd[0]) ? proc->cwd : "/";
+        if (strcmp(cwd, "/") == 0) {
+            ksnprintf(combined, sizeof(combined), "/%s", src);
+        } else {
+            ksnprintf(combined, sizeof(combined), "%s/%s", cwd, src);
+        }
+    }
+    combined[sizeof(combined) - 1] = '\0';
+
+    vfs_normalize_path(combined, dst, dst_size);
+    return 0;
+}
+
+static vfs_node_t *vfs_lookup_internal(const char *path, bool follow_symlinks, int depth) {
+    if (!path || !g_vfs_root || depth > 16)
         return NULL;
 
     char norm_path[256];
-    vfs_normalize_path(path, norm_path, sizeof(norm_path));
+    vfs_resolve_path(path, norm_path, sizeof(norm_path));
     if (strcmp(norm_path, "/") == 0)
         return g_vfs_root;
 
@@ -162,10 +185,10 @@ vfs_node_t *vfs_lookup(const char *path) {
 
     for (size_t i = 0; i < g_mount_count; i++) {
         size_t mlen = strlen(g_mounts[i].path);
-        if (strncmp(path, g_mounts[i].path, mlen) == 0) {
-            if (path[mlen] == '/' || path[mlen] == '\0') {
+        if (strncmp(norm_path, g_mounts[i].path, mlen) == 0) {
+            if (norm_path[mlen] == '/' || norm_path[mlen] == '\0') {
                 current = g_mounts[i].node;
-                subpath = path + mlen;
+                subpath = norm_path + mlen;
                 if (*subpath == '/')
                     subpath++;
                 if (*subpath == '\0')
@@ -175,7 +198,7 @@ vfs_node_t *vfs_lookup(const char *path) {
         }
     }
 
-    /* Normalize path and traverse */
+    /* Tokenize path and traverse down */
     char temp[256];
     strncpy(temp, subpath, sizeof(temp) - 1);
     temp[sizeof(temp) - 1] = '\0';
@@ -194,7 +217,7 @@ vfs_node_t *vfs_lookup(const char *path) {
         if (strcmp(token, ".") == 0) {
             /* Current directory */
         } else if (strcmp(token, "..") == 0) {
-            /* Parent directory */
+            /* Handled in normalization */
         } else {
             if (!current->ops || !current->ops->finddir) {
                 return NULL;
@@ -206,6 +229,38 @@ vfs_node_t *vfs_lookup(const char *path) {
             if (next->ptr) {
                 next = next->ptr;
             }
+
+            /* Handle symlinks */
+            if (next->flags == VFS_TYPE_SYMLINK) {
+                bool is_last = (next_slash == NULL || *(next_slash + 1) == '\0');
+                if (follow_symlinks || !is_last) {
+                    char target[256] = {0};
+                    if (next->ops && next->ops->readlink) {
+                        next->ops->readlink(next, target, sizeof(target) - 1);
+                    } else if (next->device_data) {
+                        strncpy(target, (const char *)next->device_data, sizeof(target) - 1);
+                    }
+
+                    if (target[0]) {
+                        char full_target[512];
+                        if (target[0] == '/') {
+                            strncpy(full_target, target, sizeof(full_target) - 1);
+                        } else {
+                            /* Resolve relative to parent directory */
+                            strncpy(full_target, target, sizeof(full_target) - 1);
+                        }
+                        full_target[sizeof(full_target) - 1] = '\0';
+
+                        if (!is_last && next_slash) {
+                            size_t tlen = strlen(full_target);
+                            ksnprintf(full_target + tlen, sizeof(full_target) - tlen, "/%s", next_slash + 1);
+                        }
+
+                        return vfs_lookup_internal(full_target, follow_symlinks, depth + 1);
+                    }
+                }
+            }
+
             current = next;
         }
 
@@ -217,6 +272,14 @@ vfs_node_t *vfs_lookup(const char *path) {
     }
 
     return current;
+}
+
+vfs_node_t *vfs_lookup(const char *path) {
+    return vfs_lookup_internal(path, true, 0);
+}
+
+vfs_node_t *vfs_lookup_nofollow(const char *path) {
+    return vfs_lookup_internal(path, false, 0);
 }
 
 int vfs_check_permission(vfs_node_t *node, int mask) {
@@ -274,10 +337,53 @@ int vfs_check_permission(vfs_node_t *node, int mask) {
     return -1;
 }
 
-int vfs_chmod(const char *path, mode_t mode) {
-    vfs_node_t *node = vfs_lookup(path);
-    if (!node)
+static int vfs_split_parent(const char *path, char *parent_out, size_t parent_sz, char *name_out, size_t name_sz) {
+    if (!path || !parent_out || !name_out)
         return -1;
+
+    char resolved[256];
+    if (vfs_resolve_path(path, resolved, sizeof(resolved)) != 0)
+        return -1;
+
+    /* Strip trailing slashes */
+    size_t plen = strlen(resolved);
+    while (plen > 1 && resolved[plen - 1] == '/') {
+        resolved[--plen] = '\0';
+    }
+
+    char *last_slash = strrchr(resolved, '/');
+    if (!last_slash) {
+        strncpy(name_out, resolved, name_sz - 1);
+        name_out[name_sz - 1] = '\0';
+        strncpy(parent_out, "/", parent_sz - 1);
+        parent_out[parent_sz - 1] = '\0';
+    } else if (last_slash == resolved) {
+        strncpy(name_out, last_slash + 1, name_sz - 1);
+        name_out[name_sz - 1] = '\0';
+        strncpy(parent_out, "/", parent_sz - 1);
+        parent_out[parent_sz - 1] = '\0';
+    } else {
+        strncpy(name_out, last_slash + 1, name_sz - 1);
+        name_out[name_sz - 1] = '\0';
+        *last_slash = '\0';
+        strncpy(parent_out, resolved, parent_sz - 1);
+        parent_out[parent_sz - 1] = '\0';
+    }
+
+    return 0;
+}
+
+int vfs_chmod(const char *path, mode_t mode) {
+    if (!path)
+        return -22;
+
+    char full_path[256];
+    if (vfs_resolve_path(path, full_path, sizeof(full_path)) != 0)
+        return -2;
+
+    vfs_node_t *node = vfs_lookup(full_path);
+    if (!node)
+        return -2;
 
     process_t *curr = sched_get_current_process();
     if (curr && curr->euid != 0 && curr->euid != node->uid) {
@@ -292,13 +398,20 @@ int vfs_chmod(const char *path, mode_t mode) {
 }
 
 int vfs_chown(const char *path, uid_t uid, gid_t gid) {
-    vfs_node_t *node = vfs_lookup(path);
+    if (!path)
+        return -22;
+
+    char full_path[256];
+    if (vfs_resolve_path(path, full_path, sizeof(full_path)) != 0)
+        return -2;
+
+    vfs_node_t *node = vfs_lookup(full_path);
     if (!node)
-        return -1;
+        return -2;
 
     process_t *curr = sched_get_current_process();
     if (curr && curr->euid != 0) {
-        return -1; /* Only root can change owner */
+        return -1; /* EPERM: Only root can change owner */
     }
 
     if (uid != (uid_t)-1) {
@@ -316,39 +429,28 @@ int vfs_chown(const char *path, uid_t uid, gid_t gid) {
 
 int vfs_mkdir(const char *path, mode_t mode) {
     if (!path || !*path)
-        return -1;
+        return -22;
 
-    /* Extract parent path and dir name */
+    char full_path[256];
+    if (vfs_resolve_path(path, full_path, sizeof(full_path)) != 0)
+        return -2;
+
+    if (vfs_lookup(full_path) != NULL)
+        return -17; /* EEXIST */
+
     char parent_path[256];
     char dir_name[128];
-
-    strncpy(parent_path, path, sizeof(parent_path) - 1);
-    parent_path[sizeof(parent_path) - 1] = '\0';
-
-    /* Strip trailing slashes */
-    size_t plen = strlen(parent_path);
-    while (plen > 1 && parent_path[plen - 1] == '/') {
-        parent_path[--plen] = '\0';
-    }
-
-    char *last_slash = strrchr(parent_path, '/');
-    if (!last_slash) {
-        strcpy(dir_name, parent_path);
-        strcpy(parent_path, ".");
-    } else if (last_slash == parent_path) {
-        strcpy(dir_name, last_slash + 1);
-        strcpy(parent_path, "/");
-    } else {
-        strcpy(dir_name, last_slash + 1);
-        *last_slash = '\0';
-    }
+    if (vfs_split_parent(full_path, parent_path, sizeof(parent_path), dir_name, sizeof(dir_name)) != 0)
+        return -2;
 
     vfs_node_t *parent = vfs_lookup(parent_path);
-    if (!parent || parent->flags != VFS_TYPE_DIRECTORY)
-        return -1;
+    if (!parent)
+        return -2; /* ENOENT */
+    if (parent->flags != VFS_TYPE_DIRECTORY)
+        return -20; /* ENOTDIR */
 
     if (vfs_check_permission(parent, VFS_WRITE | VFS_EXEC) != 0) {
-        return -1; /* Permission denied in parent directory */
+        return -13; /* EACCES: Permission denied in parent directory */
     }
 
     if (parent->ops && parent->ops->mkdir) {
@@ -360,38 +462,25 @@ int vfs_mkdir(const char *path, mode_t mode) {
 
 int vfs_unlink(const char *path) {
     if (!path || !*path)
-        return -1;
+        return -22;
+
+    char full_path[256];
+    if (vfs_resolve_path(path, full_path, sizeof(full_path)) != 0)
+        return -2;
 
     char parent_path[256];
     char entry_name[128];
-
-    strncpy(parent_path, path, sizeof(parent_path) - 1);
-    parent_path[sizeof(parent_path) - 1] = '\0';
-
-    /* Strip trailing slashes */
-    size_t plen = strlen(parent_path);
-    while (plen > 1 && parent_path[plen - 1] == '/') {
-        parent_path[--plen] = '\0';
-    }
-
-    char *last_slash = strrchr(parent_path, '/');
-    if (!last_slash) {
-        strcpy(entry_name, parent_path);
-        strcpy(parent_path, ".");
-    } else if (last_slash == parent_path) {
-        strcpy(entry_name, last_slash + 1);
-        strcpy(parent_path, "/");
-    } else {
-        strcpy(entry_name, last_slash + 1);
-        *last_slash = '\0';
-    }
+    if (vfs_split_parent(full_path, parent_path, sizeof(parent_path), entry_name, sizeof(entry_name)) != 0)
+        return -2;
 
     vfs_node_t *parent = vfs_lookup(parent_path);
-    if (!parent || parent->flags != VFS_TYPE_DIRECTORY)
-        return -1;
+    if (!parent)
+        return -2;
+    if (parent->flags != VFS_TYPE_DIRECTORY)
+        return -20;
 
     if (vfs_check_permission(parent, VFS_WRITE | VFS_EXEC) != 0) {
-        return -1; /* Permission denied */
+        return -13; /* EACCES: Permission denied */
     }
 
     if (parent->ops && parent->ops->unlink) {
@@ -399,4 +488,183 @@ int vfs_unlink(const char *path) {
     }
 
     return -1;
+}
+
+int vfs_rmdir(const char *path) {
+    if (!path || !*path)
+        return -22;
+
+    char full_path[256];
+    if (vfs_resolve_path(path, full_path, sizeof(full_path)) != 0)
+        return -2;
+
+    char parent_path[256];
+    char dir_name[128];
+    if (vfs_split_parent(full_path, parent_path, sizeof(parent_path), dir_name, sizeof(dir_name)) != 0)
+        return -2;
+
+    vfs_node_t *parent = vfs_lookup(parent_path);
+    if (!parent)
+        return -2;
+    if (parent->flags != VFS_TYPE_DIRECTORY)
+        return -20;
+
+    if (vfs_check_permission(parent, VFS_WRITE | VFS_EXEC) != 0) {
+        return -13; /* EACCES: Permission denied */
+    }
+
+    if (parent->ops && parent->ops->rmdir) {
+        return parent->ops->rmdir(parent, dir_name);
+    } else if (parent->ops && parent->ops->unlink) {
+        return parent->ops->unlink(parent, dir_name);
+    }
+
+    return -1;
+}
+
+int vfs_rename(const char *oldpath, const char *newpath) {
+    if (!oldpath || !newpath)
+        return -22;
+
+    char full_old[256], full_new[256];
+    if (vfs_resolve_path(oldpath, full_old, sizeof(full_old)) != 0)
+        return -2;
+    if (vfs_resolve_path(newpath, full_new, sizeof(full_new)) != 0)
+        return -2;
+
+    char old_parent_path[256], old_name[128];
+    char new_parent_path[256], new_name[128];
+
+    if (vfs_split_parent(full_old, old_parent_path, sizeof(old_parent_path), old_name, sizeof(old_name)) != 0)
+        return -2;
+    if (vfs_split_parent(full_new, new_parent_path, sizeof(new_parent_path), new_name, sizeof(new_name)) != 0)
+        return -2;
+
+    vfs_node_t *old_parent = vfs_lookup(old_parent_path);
+    vfs_node_t *new_parent = vfs_lookup(new_parent_path);
+
+    if (!old_parent || !new_parent)
+        return -2;
+
+    if (vfs_check_permission(old_parent, VFS_WRITE | VFS_EXEC) != 0 ||
+        vfs_check_permission(new_parent, VFS_WRITE | VFS_EXEC) != 0) {
+        return -13; /* EACCES */
+    }
+
+    if (old_parent->ops && old_parent->ops->rename) {
+        return old_parent->ops->rename(old_parent, old_name, new_parent, new_name);
+    }
+
+    return -1;
+}
+
+int vfs_truncate(const char *path, off_t length) {
+    if (!path || length < 0)
+        return -22;
+
+    char full_path[256];
+    if (vfs_resolve_path(path, full_path, sizeof(full_path)) != 0)
+        return -2;
+
+    vfs_node_t *node = vfs_lookup(full_path);
+    if (!node)
+        return -2;
+    if (node->flags == VFS_TYPE_DIRECTORY)
+        return -21; /* EISDIR */
+
+    if (vfs_check_permission(node, VFS_WRITE) != 0)
+        return -13;
+
+    if (node->ops && node->ops->truncate) {
+        return node->ops->truncate(node, length);
+    }
+
+    node->length = (size_t)length;
+    return 0;
+}
+
+int vfs_symlink(const char *target, const char *linkpath) {
+    if (!target || !linkpath)
+        return -22;
+
+    char full_link[256];
+    if (vfs_resolve_path(linkpath, full_link, sizeof(full_link)) != 0)
+        return -2;
+
+    char parent_path[256];
+    char link_name[128];
+    if (vfs_split_parent(full_link, parent_path, sizeof(parent_path), link_name, sizeof(link_name)) != 0)
+        return -2;
+
+    vfs_node_t *parent = vfs_lookup(parent_path);
+    if (!parent)
+        return -2;
+    if (parent->flags != VFS_TYPE_DIRECTORY)
+        return -20;
+
+    if (vfs_check_permission(parent, VFS_WRITE | VFS_EXEC) != 0)
+        return -13;
+
+    if (parent->ops && parent->ops->symlink) {
+        return parent->ops->symlink(parent, link_name, target);
+    }
+
+    return -1;
+}
+
+ssize_t vfs_readlink(const char *path, char *buf, size_t bufsiz) {
+    if (!path || !buf || bufsiz == 0)
+        return -22;
+
+    char full_path[256];
+    if (vfs_resolve_path(path, full_path, sizeof(full_path)) != 0)
+        return -2;
+
+    vfs_node_t *node = vfs_lookup_nofollow(full_path);
+    if (!node)
+        return -2;
+    if (node->flags != VFS_TYPE_SYMLINK)
+        return -22;
+
+    if (node->ops && node->ops->readlink) {
+        return node->ops->readlink(node, buf, bufsiz);
+    } else if (node->device_data) {
+        const char *tgt = (const char *)node->device_data;
+        size_t len = strlen(tgt);
+        if (len > bufsiz)
+            len = bufsiz;
+        memcpy(buf, tgt, len);
+        return (ssize_t)len;
+    }
+
+    return -1;
+}
+
+int vfs_access(const char *path, int mode) {
+    if (!path)
+        return -22;
+
+    char full_path[256];
+    if (vfs_resolve_path(path, full_path, sizeof(full_path)) != 0)
+        return -2;
+
+    vfs_node_t *node = vfs_lookup(full_path);
+    if (!node)
+        return -2;
+
+    if (mode == 0) /* F_OK */
+        return 0;
+
+    int mask = 0;
+    if (mode & 4) /* R_OK */
+        mask |= VFS_READ;
+    if (mode & 2) /* W_OK */
+        mask |= VFS_WRITE;
+    if (mode & 1) /* X_OK */
+        mask |= VFS_EXEC;
+
+    if (vfs_check_permission(node, mask) != 0)
+        return -13;
+
+    return 0;
 }

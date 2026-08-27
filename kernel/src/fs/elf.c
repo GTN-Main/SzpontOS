@@ -354,7 +354,8 @@ static int elf_apply_relocations(pagemap_t *map, elf_loaded_so_t *target, elf_lo
     return 0;
 }
 
-int elf_load_binary(vfs_node_t *file, pagemap_t *map, uintptr_t *out_entry, uintptr_t *out_user_stack) {
+int elf_load_binary(vfs_node_t *file, pagemap_t *map, uintptr_t *out_entry, uintptr_t *out_user_stack,
+                    uintptr_t *out_brk_start) {
     if (!file || !file->ops || !file->ops->read || !map)
         return -1;
 
@@ -465,6 +466,10 @@ int elf_load_binary(vfs_node_t *file, pagemap_t *map, uintptr_t *out_entry, uint
 
     *out_entry = exe_base + ehdr.e_entry;
     *out_user_stack = USER_STACK_BASE + USER_STACK_SIZE - 16; /* 16-byte aligned */
+    if (out_brk_start) {
+        uintptr_t calculated_brk = exe_base + exe_memsz;
+        *out_brk_start = (calculated_brk > 0x0000000000800000ULL) ? calculated_brk : 0x0000000000800000ULL;
+    }
     return 0;
 }
 
@@ -478,18 +483,22 @@ process_t *elf_spawn(const char *path, const char *name) {
     process_t *proc = process_create(name ? name : path);
     uintptr_t entry = 0;
     uintptr_t user_stack = 0;
+    uintptr_t brk_start = 0x0000000000800000ULL;
 
-    if (elf_load_binary(file, proc->pagemap, &entry, &user_stack) != 0) {
+    if (elf_load_binary(file, proc->pagemap, &entry, &user_stack, &brk_start) != 0) {
         klog_error("ELF: Failed to load binary '%s'", path);
         return NULL;
     }
+
+    proc->brk_start = brk_start;
+    proc->brk_current = brk_start;
 
     /* Spawn thread in process with user_thread_trampoline */
     thread_t *t = thread_create(proc, user_thread_trampoline, true);
     t->user_entry = entry;
     t->user_stack = user_stack;
 
-    klog_info("ELF: Spawned process '%s' (PID %d, Entry: 0x%016lx, Stack: 0x%016lx)", proc->name, proc->pid, entry,
-              user_stack);
+    klog_info("ELF: Spawned process '%s' (PID %d, Entry: 0x%016lx, Stack: 0x%016lx, Brk: 0x%016lx)", proc->name,
+              proc->pid, entry, user_stack, brk_start);
     return proc;
 }

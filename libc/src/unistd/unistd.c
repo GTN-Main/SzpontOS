@@ -38,17 +38,28 @@ extern int64_t __syscall4(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64
 extern int64_t __syscall5(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_t a4, int64_t a5);
 extern int64_t __syscall6(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_t a4, int64_t a5, int64_t a6);
 
+static inline int64_t __check_syscall(int64_t ret) {
+    if (ret < 0) {
+        errno = (int)-ret;
+        return -1;
+    }
+    return ret;
+}
+
 ssize_t read(int fd, void *buf, size_t count) {
-    return (ssize_t)__syscall3(SYS_read, fd, (int64_t)buf, count);
+    return (ssize_t)__check_syscall(__syscall3(SYS_read, fd, (int64_t)buf, count));
 }
 
 ssize_t write(int fd, const void *buf, size_t count) {
-    return (ssize_t)__syscall3(SYS_write, fd, (int64_t)buf, count);
+    return (ssize_t)__check_syscall(__syscall3(SYS_write, fd, (int64_t)buf, count));
 }
 
 ssize_t pread(int fd, void *buf, size_t count, off_t offset) {
-    lseek(fd, offset, SEEK_SET);
-    return read(fd, buf, count);
+    return (ssize_t)__check_syscall(__syscall4(SYS_pread64, fd, (int64_t)buf, count, offset));
+}
+
+ssize_t pwrite(int fd, const void *buf, size_t count, off_t offset) {
+    return (ssize_t)__check_syscall(__syscall4(SYS_pwrite64, fd, (int64_t)buf, count, offset));
 }
 
 int open(const char *pathname, int flags, ...) {
@@ -59,34 +70,31 @@ int open(const char *pathname, int flags, ...) {
         mode = (mode_t)va_arg(args, int);
         va_end(args);
     }
-    return (int)__syscall3(SYS_open, (int64_t)pathname, flags, (int64_t)mode);
+    return (int)__check_syscall(__syscall3(SYS_open, (int64_t)pathname, flags, (int64_t)mode));
 }
 
 int close(int fd) {
-    return (int)__syscall1(SYS_close, fd);
+    return (int)__check_syscall(__syscall1(SYS_close, fd));
 }
 
 off_t lseek(int fd, off_t offset, int whence) {
-    return (off_t)__syscall3(SYS_lseek, fd, offset, whence);
+    return (off_t)__check_syscall(__syscall3(SYS_lseek, fd, offset, whence));
 }
 
 ssize_t readlink(const char *pathname, char *buf, size_t bufsiz) {
-    (void)pathname;
-    (void)buf;
-    (void)bufsiz;
-    return -1;
+    return (ssize_t)__check_syscall(__syscall3(SYS_readlink, (int64_t)pathname, (int64_t)buf, (int64_t)bufsiz));
 }
 
 int dup(int oldfd) {
-    return (int)__syscall1(SYS_dup, oldfd);
+    return (int)__check_syscall(__syscall1(SYS_dup, oldfd));
 }
 
 int dup2(int oldfd, int newfd) {
-    return (int)__syscall2(SYS_dup2, oldfd, newfd);
+    return (int)__check_syscall(__syscall2(SYS_dup2, oldfd, newfd));
 }
 
 int pipe(int pipefd[2]) {
-    return (int)__syscall1(SYS_pipe, (int64_t)pipefd);
+    return (int)__check_syscall(__syscall1(SYS_pipe, (int64_t)pipefd));
 }
 
 int pipe2(int pipefd[2], int flags) {
@@ -119,9 +127,15 @@ int ttyname_r(int fd, char *buf, size_t buflen) {
 }
 
 int access(const char *pathname, int mode) {
-    (void)mode;
-    struct stat st;
-    return stat(pathname, &st);
+    return (int)__check_syscall(__syscall2(SYS_access, (int64_t)pathname, (int64_t)mode));
+}
+
+int truncate(const char *path, off_t length) {
+    return (int)__check_syscall(__syscall2(SYS_truncate, (int64_t)path, (int64_t)length));
+}
+
+int ftruncate(int fd, off_t length) {
+    return (int)__check_syscall(__syscall2(SYS_ftruncate, (int64_t)fd, (int64_t)length));
 }
 
 pid_t getpid(void) {
@@ -173,27 +187,27 @@ int setegid(gid_t egid) {
 }
 
 int chmod(const char *pathname, mode_t mode) {
-    return (int)__syscall2(SYS_chmod, (int64_t)pathname, (int64_t)mode);
+    return (int)__check_syscall(__syscall2(SYS_chmod, (int64_t)pathname, (int64_t)mode));
 }
 
 int fchmod(int fd, mode_t mode) {
-    return (int)__syscall2(SYS_fchmod, fd, (int64_t)mode);
+    return (int)__check_syscall(__syscall2(SYS_fchmod, fd, (int64_t)mode));
 }
 
 int chown(const char *pathname, uid_t owner, gid_t group) {
-    return (int)__syscall3(SYS_chown, (int64_t)pathname, (int64_t)owner, (int64_t)group);
+    return (int)__check_syscall(__syscall3(SYS_chown, (int64_t)pathname, (int64_t)owner, (int64_t)group));
 }
 
 int fchown(int fd, uid_t owner, gid_t group) {
-    return (int)__syscall3(SYS_fchown, fd, (int64_t)owner, (int64_t)group);
+    return (int)__check_syscall(__syscall3(SYS_fchown, fd, (int64_t)owner, (int64_t)group));
 }
 
 int mkdir(const char *pathname, mode_t mode) {
-    return (int)__syscall2(SYS_mkdir, (int64_t)pathname, (int64_t)mode);
+    return (int)__check_syscall(__syscall2(SYS_mkdir, (int64_t)pathname, (int64_t)mode));
 }
 
 int unlink(const char *pathname) {
-    return (int)__syscall1(SYS_unlink, (int64_t)pathname);
+    return (int)__check_syscall(__syscall1(SYS_unlink, (int64_t)pathname));
 }
 
 pid_t fork(void) {
@@ -329,7 +343,7 @@ void *sbrk(intptr_t increment) {
 }
 
 int stat(const char *pathname, struct stat *statbuf) {
-    return (int)__syscall2(SYS_stat, (int64_t)pathname, (int64_t)statbuf);
+    return (int)__check_syscall(__syscall2(SYS_stat, (int64_t)pathname, (int64_t)statbuf));
 }
 
 int lstat(const char *pathname, struct stat *statbuf) {
@@ -337,7 +351,7 @@ int lstat(const char *pathname, struct stat *statbuf) {
 }
 
 int fstat(int fd, struct stat *statbuf) {
-    return (int)__syscall2(SYS_fstat, fd, (int64_t)statbuf);
+    return (int)__check_syscall(__syscall2(SYS_fstat, fd, (int64_t)statbuf));
 }
 
 pid_t wait(int *wstatus) {
@@ -345,20 +359,24 @@ pid_t wait(int *wstatus) {
 }
 
 pid_t waitpid(pid_t pid, int *wstatus, int options) {
-    return (pid_t)__syscall3(SYS_wait4, pid, (int64_t)wstatus, options);
+    return (pid_t)__check_syscall(__syscall3(SYS_wait4, pid, (int64_t)wstatus, options));
 }
 
 int uname(struct utsname *buf) {
-    return (int)__syscall1(SYS_uname, (int64_t)buf);
+    return (int)__check_syscall(__syscall1(SYS_uname, (int64_t)buf));
 }
 
 char *getcwd(char *buf, size_t size) {
     int64_t ret = __syscall2(SYS_getcwd, (int64_t)buf, size);
-    return (ret > 0) ? (char *)ret : NULL;
+    if (ret <= 0) {
+        errno = (ret < 0) ? (int)-ret : ERANGE;
+        return NULL;
+    }
+    return (char *)ret;
 }
 
 int chdir(const char *path) {
-    return (int)__syscall1(SYS_chdir, (int64_t)path);
+    return (int)__check_syscall(__syscall1(SYS_chdir, (int64_t)path));
 }
 
 unsigned int sleep(unsigned int seconds) {
@@ -475,6 +493,10 @@ int getprocs(proc_info_t *buf, size_t max_count) {
     return (int)__syscall2(SYS_getprocs, (int64_t)buf, max_count);
 }
 
+int getpagesize(void) {
+    return 4096;
+}
+
 int statfs(const char *path, struct statfs *buf) {
     return (int)__syscall2(SYS_statfs, (int64_t)path, (int64_t)buf);
 }
@@ -500,14 +522,11 @@ int statvfs(const char *path, struct statvfs *buf) {
 }
 
 int rmdir(const char *pathname) {
-    return (int)__syscall1(SYS_unlink, (int64_t)pathname);
+    return (int)__check_syscall(__syscall1(SYS_rmdir, (int64_t)pathname));
 }
 
-static mode_t g_current_umask = 022;
 mode_t umask(mode_t mask) {
-    mode_t old = g_current_umask;
-    g_current_umask = mask & 0777;
-    return old;
+    return (mode_t)__syscall1(SYS_umask, (int64_t)mask);
 }
 
 int futimens(int fd, const struct timespec times[2]) {
@@ -633,26 +652,15 @@ int fcntl(int fd, int cmd, ...) {
 }
 
 int getrlimit(int resource, struct rlimit *rlim) {
-    (void)resource;
-    if (rlim) {
-        rlim->rlim_cur = 1024;
-        rlim->rlim_max = 1024;
-    }
-    return 0;
+    return (int)__syscall2(SYS_getrlimit, (int64_t)resource, (int64_t)rlim);
 }
 
 int setrlimit(int resource, const struct rlimit *rlim) {
-    (void)resource;
-    (void)rlim;
-    return 0;
+    return (int)__syscall2(SYS_setrlimit, (int64_t)resource, (int64_t)rlim);
 }
 
 int getrusage(int who, struct rusage *usage) {
-    (void)who;
-    if (usage) {
-        memset(usage, 0, sizeof(struct rusage));
-    }
-    return 0;
+    return (int)__syscall2(SYS_getrusage, (int64_t)who, (int64_t)usage);
 }
 
 char *getlogin(void) {
@@ -704,84 +712,57 @@ char *cuserid(char *s) {
 }
 
 clock_t times(struct tms *buf) {
-    struct sysinfo si;
-    clock_t ticks = 0;
-    if (sysinfo(&si) == 0) {
-        ticks = (clock_t)si.uptime * 100;
-    }
-    if (buf) {
-        buf->tms_utime = ticks;
-        buf->tms_stime = 0;
-        buf->tms_cutime = 0;
-        buf->tms_cstime = 0;
-    }
-    return ticks;
+    return (clock_t)__syscall1(SYS_times, (int64_t)buf);
 }
 
 pid_t getpgrp(void) {
-    return getpid();
+    return (pid_t)__syscall0(SYS_getpgrp);
 }
 
 pid_t getpgid(pid_t pid) {
-    return (pid == 0) ? getpid() : pid;
+    return (pid_t)__syscall1(SYS_getpgid, (int64_t)pid);
 }
 
 int setpgrp(void) {
-    return 0;
+    return (int)__syscall2(SYS_setpgid, 0, 0);
 }
 
 int setpgid(pid_t pid, pid_t pgid) {
-    (void)pid;
-    (void)pgid;
-    return 0;
+    return (int)__check_syscall(__syscall2(SYS_setpgid, (int64_t)pid, (int64_t)pgid));
 }
 
 pid_t setsid(void) {
-    return getpid();
+    return (pid_t)__check_syscall(__syscall0(SYS_setsid));
 }
 
 pid_t tcgetpgrp(int fd) {
     (void)fd;
-    return getpid();
+    return getpgrp();
 }
 
 int tcsetpgrp(int fd, pid_t pgrp) {
     (void)fd;
-    (void)pgrp;
-    return 0;
+    return setpgid(0, pgrp);
 }
 
 int link(const char *oldpath, const char *newpath) {
-    (void)oldpath;
-    (void)newpath;
-    errno = EOPNOTSUPP;
-    return -1;
+    return (int)__check_syscall(__syscall2(SYS_link, (int64_t)oldpath, (int64_t)newpath));
 }
 
 int symlink(const char *target, const char *linkpath) {
-    (void)target;
-    (void)linkpath;
-    errno = EOPNOTSUPP;
-    return -1;
+    return (int)__check_syscall(__syscall2(SYS_symlink, (int64_t)target, (int64_t)linkpath));
 }
 
 int getgroups(int size, gid_t list[]) {
-    if (size > 0 && list) {
-        list[0] = getgid();
-        return 1;
-    }
-    return 1;
+    return (int)__check_syscall(__syscall2(SYS_getgroups, (int64_t)size, (int64_t)list));
 }
 
 int setgroups(size_t size, const gid_t *list) {
-    (void)size;
-    (void)list;
-    return 0;
+    return (int)__check_syscall(__syscall2(SYS_setgroups, (int64_t)size, (int64_t)list));
 }
 
 unsigned int alarm(unsigned int seconds) {
-    (void)seconds;
-    return 0;
+    return (unsigned int)__syscall1(SYS_alarm, (int64_t)seconds);
 }
 
 int pause(void) {
@@ -798,13 +779,10 @@ int sigsuspend(const sigset_t *mask) {
 }
 
 int sigpending(sigset_t *set) {
-    if (set)
-        *set = 0;
-    return 0;
+    return (int)__check_syscall(__syscall1(SYS_rt_sigpending, (int64_t)set));
 }
 
 int openat(int dirfd, const char *pathname, int flags, ...) {
-    (void)dirfd;
     mode_t mode = 0;
     if (flags & O_CREAT) {
         va_list args;
@@ -812,21 +790,35 @@ int openat(int dirfd, const char *pathname, int flags, ...) {
         mode = (mode_t)va_arg(args, int);
         va_end(args);
     }
-    return open(pathname, flags, mode);
+    return (int)__check_syscall(__syscall4(SYS_openat, (int64_t)dirfd, (int64_t)pathname, flags, (int64_t)mode));
 }
 
 int faccessat(int dirfd, const char *pathname, int mode, int flags) {
-    (void)dirfd;
-    (void)flags;
-    return access(pathname, mode);
+    return (int)__check_syscall(__syscall4(SYS_faccessat, (int64_t)dirfd, (int64_t)pathname, (int64_t)mode, (int64_t)flags));
 }
 
 int fstatat(int dirfd, const char *pathname, struct stat *statbuf, int flags) {
-    (void)dirfd;
-    if (flags & AT_SYMLINK_NOFOLLOW) {
-        return lstat(pathname, statbuf);
-    }
-    return stat(pathname, statbuf);
+    return (int)__check_syscall(__syscall4(SYS_newfstatat, (int64_t)dirfd, (int64_t)pathname, (int64_t)statbuf, (int64_t)flags));
+}
+
+int unlinkat(int dirfd, const char *pathname, int flags) {
+    return (int)__check_syscall(__syscall3(SYS_unlinkat, (int64_t)dirfd, (int64_t)pathname, (int64_t)flags));
+}
+
+int mkdirat(int dirfd, const char *pathname, mode_t mode) {
+    return (int)__check_syscall(__syscall3(SYS_mkdirat, (int64_t)dirfd, (int64_t)pathname, (int64_t)mode));
+}
+
+ssize_t readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsiz) {
+    return (ssize_t)__check_syscall(__syscall4(SYS_readlinkat, (int64_t)dirfd, (int64_t)pathname, (int64_t)buf, (int64_t)bufsiz));
+}
+
+int fchmodat(int dirfd, const char *pathname, mode_t mode, int flags) {
+    return (int)__check_syscall(__syscall4(SYS_fchmodat, (int64_t)dirfd, (int64_t)pathname, (int64_t)mode, (int64_t)flags));
+}
+
+int fchownat(int dirfd, const char *pathname, uid_t uid, gid_t gid, int flags) {
+    return (int)__check_syscall(__syscall5(SYS_fchownat, (int64_t)dirfd, (int64_t)pathname, (int64_t)uid, (int64_t)gid, (int64_t)flags));
 }
 
 int kqueue(void) {
@@ -850,4 +842,51 @@ void sync(void) {
 int fsync(int fd) {
     (void)fd;
     return (int)__syscall0(SYS_sync);
+}
+
+int flock(int fd, int operation) {
+    (void)fd;
+    (void)operation;
+    return 0;
+}
+
+static char g_syslog_ident[64] = "szpontos";
+static int g_syslog_option = 0;
+static int g_syslog_facility = 1 << 3;
+static int g_syslog_mask = 0xff;
+
+void openlog(const char *ident, int option, int facility) {
+    if (ident) {
+        strncpy(g_syslog_ident, ident, sizeof(g_syslog_ident) - 1);
+        g_syslog_ident[sizeof(g_syslog_ident) - 1] = '\0';
+    }
+    g_syslog_option = option;
+    g_syslog_facility = facility;
+}
+
+void vsyslog(int priority, const char *format, va_list ap) {
+    if (!(g_syslog_mask & (1 << (priority & 0x7))))
+        return;
+    char msg[1024];
+    vsnprintf(msg, sizeof(msg), format, ap);
+    if (g_syslog_option & 0x20) { /* LOG_PERROR */
+        fprintf(stderr, "%s: %s\n", g_syslog_ident, msg);
+    }
+}
+
+void syslog(int priority, const char *format, ...) {
+    va_list ap;
+    va_start(ap, format);
+    vsyslog(priority, format, ap);
+    va_end(ap);
+}
+
+void closelog(void) {
+}
+
+int setlogmask(int mask) {
+    int old = g_syslog_mask;
+    if (mask != 0)
+        g_syslog_mask = mask;
+    return old;
 }

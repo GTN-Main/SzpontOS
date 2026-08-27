@@ -51,6 +51,7 @@ void setprogname(const char *name);
 
 char *mktemp(char *template);
 int mkstemp(char *template);
+char *mkdtemp(char *template);
 int mkstemps(char *template, int suffixlen);
 char *realpath(const char *path, char *resolved_path);
 

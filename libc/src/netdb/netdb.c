@@ -250,11 +250,31 @@ const char *gai_strerror(int errcode) {
         return "ai_family not supported";
     case EAI_SOCKTYPE:
         return "ai_socktype not supported";
+    case EAI_SERVICE:
+        return "service not supported for ai_socktype";
     case EAI_MEMORY:
         return "Memory allocation failure";
     case EAI_SYSTEM:
         return "System error";
     default:
-        return "Unknown resolver error";
+        return "Unknown error";
     }
+}
+
+int getnameinfo(const struct sockaddr *sa, socklen_t salen, char *host, socklen_t hostlen, char *serv, socklen_t servlen, int flags) {
+    (void)flags;
+    if (!sa || salen < (socklen_t)sizeof(struct sockaddr_in))
+        return EAI_FAIL;
+    if (sa->sa_family != AF_INET)
+        return EAI_FAMILY;
+
+    const struct sockaddr_in *sin = (const struct sockaddr_in *)sa;
+    if (host && hostlen > 0) {
+        uint32_t ip = ntohl(sin->sin_addr.s_addr);
+        snprintf(host, hostlen, "%u.%u.%u.%u", (ip >> 24) & 0xff, (ip >> 16) & 0xff, (ip >> 8) & 0xff, ip & 0xff);
+    }
+    if (serv && servlen > 0) {
+        snprintf(serv, servlen, "%u", ntohs(sin->sin_port));
+    }
+    return 0;
 }

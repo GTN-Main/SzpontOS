@@ -197,7 +197,8 @@ typedef struct elf_loaded_so {
     uintptr_t fini_func;
 } elf_loaded_so_t;
 
-int elf_load_binary(vfs_node_t *file, pagemap_t *map, uintptr_t *out_entry, uintptr_t *out_user_stack);
+int elf_load_binary(vfs_node_t *file, pagemap_t *map, uintptr_t *out_entry, uintptr_t *out_user_stack,
+                    uintptr_t *out_brk_start);
 process_t *elf_spawn(const char *path, const char *name);
 
 #endif /* SZPONTOS_FS_ELF_H */

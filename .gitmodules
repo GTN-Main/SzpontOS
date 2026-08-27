@@ -13,3 +13,9 @@
 [submodule "third_party/fastfetch"]
 	path = third_party/fastfetch
 	url = https://github.com/fastfetch-cli/fastfetch.git
+[submodule "third_party/git"]
+	path = third_party/git
+	url = https://github.com/Libre-WD-40/git.git
+[submodule "third_party/zlib"]
+	path = third_party/zlib
+	url = https://github.com/madler/zlib.git

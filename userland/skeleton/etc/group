@@ -1,5 +1,6 @@
 root:x:0:root
 daemon:x:1:daemon
-wheel:x:10:root,user
+wheel:x:10:root,user,szpont
 users:x:100:
 user:x:1000:user
+szpont:x:1001:szpont

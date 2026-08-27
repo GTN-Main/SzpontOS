@@ -73,6 +73,9 @@
 ssize_t read(int fd, void *buf, size_t count);
 ssize_t write(int fd, const void *buf, size_t count);
 ssize_t pread(int fd, void *buf, size_t count, off_t offset);
+ssize_t pwrite(int fd, const void *buf, size_t count, off_t offset);
+int truncate(const char *path, off_t length);
+int ftruncate(int fd, off_t length);
 int close(int fd);
 off_t lseek(int fd, off_t offset, int whence);
 ssize_t readlink(const char *pathname, char *buf, size_t bufsiz);
@@ -89,6 +92,7 @@ int faccessat(int dirfd, const char *pathname, int mode, int flags);
 long fpathconf(int fd, int name);
 long pathconf(const char *path, int name);
 long sysconf(int name);
+int getpagesize(void);
 
 pid_t getpid(void);
 pid_t getppid(void);
@@ -120,11 +124,17 @@ int getlogin_r(char *buf, size_t bufsize);
 
 int chmod(const char *pathname, mode_t mode);
 int fchmod(int fd, mode_t mode);
+int fchmodat(int dirfd, const char *pathname, mode_t mode, int flags);
 int chown(const char *pathname, uid_t owner, gid_t group);
 int fchown(int fd, uid_t owner, gid_t group);
+int fchownat(int dirfd, const char *pathname, uid_t uid, gid_t gid, int flags);
 int mkdir(const char *pathname, mode_t mode);
+int mkdirat(int dirfd, const char *pathname, mode_t mode);
 int unlink(const char *pathname);
+int unlinkat(int dirfd, const char *pathname, int flags);
 int rmdir(const char *pathname);
+int openat(int dirfd, const char *pathname, int flags, ...);
+ssize_t readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsiz);
 
 int brk(void *addr);
 void *sbrk(intptr_t increment);

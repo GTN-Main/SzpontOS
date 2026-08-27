@@ -27,8 +27,10 @@ int munmap(void *addr, size_t length) {
 }
 
 int mprotect(void *addr, size_t len, int prot) {
-    (void)addr;
-    (void)len;
-    (void)prot;
+    int64_t ret = __syscall3(SYS_mprotect, (int64_t)addr, (int64_t)len, prot);
+    if (ret < 0) {
+        errno = (int)-ret;
+        return -1;
+    }
     return 0;
 }
