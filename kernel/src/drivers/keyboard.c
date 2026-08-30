@@ -14,6 +14,7 @@
 #include <arch/x86_64/idt.h>
 #include <arch/x86_64/io.h>
 #include <arch/x86_64/pic.h>
+#include <arch/x86_64/pit.h>
 #include <drivers/framebuffer.h>
 #include <drivers/serial.h>
 #include <sched/process.h>
@@ -364,6 +365,15 @@ void keyboard_set_leds(bool numlock, bool capslock, bool scrolllock) {
  * ============================================================================== */
 static bool g_is_set2_mode = false;
 
+/*
+ * keyboard_force_set2_mode: force native Set 2 decoding. Used when the i8042 controller
+ * did NOT accept the XLATE (translation) bit — the device then emits raw
+ * Set 2 scancodes which process_scancode() must translate itself.
+ */
+void keyboard_force_set2_mode(void) {
+    g_is_set2_mode = true;
+}
+
 static const uint8_t g_set2_to_set1_table[256] = {
     [0x01] = 0x43, /* F9 */
     [0x03] = 0x3F, /* F5 */
@@ -467,7 +477,7 @@ static void process_scancode(uint8_t scancode) {
         return;
     }
 
-    /* 3. Pause Key Multi-Byte Prefix 0xE1 */
+    /* 2. Pause Key Multi-Byte Prefix 0xE1 */
     if (scancode == 0xE1) {
         g_e1_pause_state = 2;
         return;
@@ -477,19 +487,26 @@ static void process_scancode(uint8_t scancode) {
         return;
     }
 
-    /* 4. Set 2 Break Code Prefix 0xF0 (only in native Set 2 mode) */
-    if (g_is_set2_mode && scancode == 0xF0) {
+    /* 3. Set 2 Break Code Prefix 0xF0 (Definitive Set 2 marker) */
+    if (scancode == 0xF0) {
+        g_is_set2_mode = true;
         g_set2_release = true;
         return;
     }
 
-    /* 5. Handle Set 2 Translation if in Set 2 mode */
+    /* 4. Handle Set 2 Translation if in Set 2 mode (or autodetect Set 2) */
     if (g_is_set2_mode) {
         if (g_set2_release) {
             g_set2_release = false;
             uint8_t set1 = set2_to_set1(scancode);
             scancode = set1 | 0x80; /* Mark as released */
         } else {
+            scancode = set2_to_set1(scancode);
+        }
+    } else {
+        /* Autodetect Set 2 make codes if XLATE was expected but controller failed to translate */
+        if (scancode == 0x5A || scancode == 0x76) {
+            g_is_set2_mode = true;
             scancode = set2_to_set1(scancode);
         }
     }
@@ -714,11 +731,9 @@ void keyboard_poll_hardware(void) {
         uint8_t data = kbd_read_data();
 
         if (status & KBDS_AUX_OBF) {
-            /* AUX/Mouse data — route to mouse driver or fallback to keyboard */
+            /* AUX/Mouse data — deliver to the mouse driver when enabled, otherwise DISCARD */
             if (ps2_mouse_is_enabled()) {
                 ps2_mouse_handle_byte(data);
-            } else {
-                keyboard_handle_incoming_byte(data);
             }
         } else {
             keyboard_handle_incoming_byte(data);
@@ -732,6 +747,21 @@ void keyboard_poll_hardware(void) {
 static void keyboard_irq_handler(interrupt_frame_t *frame) {
     UNUSED(frame);
     keyboard_poll_hardware();
+}
+
+/* ==============================================================================
+ * Relax Console Wait
+ * ============================================================================== */
+void keyboard_relax(void) {
+    static unsigned int usb_div = 0;
+    if ((++usb_div & 0x1FF) == 0) {
+        extern void xhci_poll(void);
+        extern void ehci_poll(void);
+        xhci_poll();
+        ehci_poll();
+    }
+    __asm__ volatile("sti; pause" ::: "memory");
+    udelay(100);
 }
 
 /* ==============================================================================
@@ -812,8 +842,13 @@ void keyboard_init(void) {
     for (int i = 0; i < 5000; i++) io_wait();
     keyboard_drain_buffers();
 
-    /* 8. Enable keyboard scanning (0xF4) */
-    kbd_send_device_command(KBD_CMD_ENABLE_KBD);
+    /* 8. Enable keyboard scanning (0xF4) — VERIFY ACK. Without scanning the
+     * device generates no data at all (neither IRQ nor polling path works). */
+    if (kbd_send_device_command(KBD_CMD_ENABLE_KBD) != 0) {
+        klog_error("atkbd: keyboard did NOT ACK enable-scanning (0xF4) — keys will not be generated");
+    } else {
+        klog_info("atkbd: keyboard scanning enabled (0xF4 ACK)");
+    }
     for (int i = 0; i < 5000; i++) io_wait();
     keyboard_drain_buffers();
 
@@ -830,18 +865,38 @@ void keyboard_init(void) {
     }
     kbd_write_controller_byte((uint8_t)ccb);
 
-    /* Check if XLATE bit was retained */
+    /* Readback + verify BOTH critical bits. On real controllers (unlike QEMU)
+     * the CCB write can be silently ignored — e.g. lost after the 0xAA
+     * self-test reset or on quirky laptop ECs. */
     int final_ccb = kbd_read_controller_byte();
-    if (final_ccb >= 0 && !(final_ccb & KBD_CTR_XLATE)) {
-        g_is_set2_mode = true;
-        klog_info("atkbdc: Translation XLATE is disabled by controller (using native Set 2 mode)");
+    if (final_ccb >= 0) {
+        if (!(final_ccb & KBD_CTR_KBDINT)) {
+            klog_error("atkbdc: CCB readback 0x%02x — KBDINT NOT accepted, IRQ1 will never fire (PIT polling fallback active)",
+                       (uint8_t)final_ccb);
+        }
+        if (!(final_ccb & KBD_CTR_XLATE)) {
+            g_is_set2_mode = true;
+            klog_info("atkbdc: Translation XLATE is disabled by controller (using native Set 2 mode)");
+        } else {
+            g_is_set2_mode = false;
+        }
+        klog_info("atkbdc: final CCB 0x%02x (KBDINT=%d XLATE=%d KBDIS=%d)",
+                  (uint8_t)final_ccb,
+                  !!(final_ccb & KBD_CTR_KBDINT),
+                  !!(final_ccb & KBD_CTR_XLATE),
+                  !!(final_ccb & KBD_CTR_KBDDIS));
     } else {
-        g_is_set2_mode = false;
+        klog_warn("atkbdc: CCB readback failed after KBDINT write");
     }
 
-    /* 11. Unmask IRQ 1 in legacy PIC and route in IO-APIC */
-    pic_clear_mask(1);
-    pic_clear_mask(2); /* Cascade IRQ 2 */
+    /* 11. Unmask IRQ 1 in legacy PIC and route in IO-APIC.
+     * With the IO-APIC active the legacy PIC must stay fully masked
+     * (pic_disable did that) — unmasking here wedges the 8259 when the
+     * i8042 asserts IRQ1 (CCB KBDINT=1) with no matching EOI path. */
+    if (!ioapic_is_active()) {
+        pic_clear_mask(1);
+        pic_clear_mask(2); /* Cascade IRQ 2 */
+    }
 
     ioapic_map_irq(1, 0x21, 0, false, false);
 
@@ -858,17 +913,18 @@ void keyboard_init(void) {
  * Universal Character Interface
  * ============================================================================== */
 bool keyboard_has_char(void) {
-    /* 1. Poll USB Keyboards (xHCI 3.0 & EHCI 2.0) */
-    xhci_poll();
-    ehci_poll();
+    /* NOTE: USB keyboard polling (xHCI/EHCI) intentionally NOT done here —
+     * on bare-metal xHCI controllers MMIO polling can stall the caller.
+     * USB input is drained from the timer tick handler instead. This path
+     * must never block: the console read loop relies on it. */
 
-    /* 2. Poll Serial UART Input */
+    /* 1. Poll Serial UART Input */
     while (serial_received()) {
         char c = serial_getc();
         keyboard_push_char(c);
     }
 
-    /* 3. Poll Hardware i8042 Ports */
+    /* 2. Poll Hardware i8042 Ports */
     keyboard_poll_hardware();
 
     return (__atomic_load_n(&g_kb_read_ptr, __ATOMIC_ACQUIRE) !=
@@ -877,8 +933,11 @@ bool keyboard_has_char(void) {
 
 char keyboard_getc(void) {
     while (!keyboard_has_char()) {
-        __asm__ volatile("pause");
-        sched_yield();
+        __asm__ volatile("sti" ::: "memory");
+        if (sched_get_current_thread() != NULL) {
+            sched_yield();
+        }
+        keyboard_relax();
     }
 
     size_t r = __atomic_load_n(&g_kb_read_ptr, __ATOMIC_RELAXED);

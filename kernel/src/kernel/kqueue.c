@@ -248,7 +248,10 @@ int sys_kevent(int kq_fd, const struct kevent *changelist, int nchanges, struct 
                     slot->active = !(ch->flags & EV_DISABLE);
                     if (ch->filter == EVFILT_TIMER) {
                         uint64_t ms = (uint64_t)ch->data;
-                        uint64_t ticks = (ms / 10 > 0) ? (ms / 10) : 1;
+                        uint32_t freq = pit_get_frequency();
+                        uint64_t ticks = (ms * (freq ? freq : 1000) + 999) / 1000;
+                        if (ticks == 0)
+                            ticks = 1;
                         slot->target_tick = (uint64_t)pit_get_ticks() + ticks;
                     }
                 }
@@ -278,7 +281,8 @@ int sys_kevent(int kq_fd, const struct kevent *changelist, int nchanges, struct 
     if (timeout) {
         has_timeout = true;
         uint64_t total_ms = (uint64_t)timeout->tv_sec * 1000 + (uint64_t)(timeout->tv_nsec / 1000000);
-        timeout_ticks = (uint64_t)pit_get_ticks() + (total_ms / 10);
+        uint32_t freq = pit_get_frequency();
+        timeout_ticks = (uint64_t)pit_get_ticks() + (total_ms * (freq ? freq : 1000) + 999) / 1000;
     }
 
     while (ready_events == 0 && eventlist && nevents > 0) {

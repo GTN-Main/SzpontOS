@@ -136,7 +136,11 @@ static int64_t sys_read(int fd, void *buf, size_t count) {
                     } else if (serial_received()) {
                         c = serial_getc();
                     } else {
-                        sched_yield();
+                        __asm__ volatile("sti" ::: "memory");
+                        if (sched_get_current_thread() != NULL) {
+                            sched_yield();
+                        }
+                        keyboard_relax();
                     }
                 }
 
@@ -1502,7 +1506,8 @@ static int64_t sys_sysinfo(struct sysinfo *info) {
     if (!info)
         return -1;
     memset(info, 0, sizeof(struct sysinfo));
-    info->uptime = (long)(pit_get_ticks() / 100);
+    uint32_t freq = pit_get_frequency();
+    info->uptime = (long)(pit_get_ticks() / (freq ? freq : 1000));
     info->totalram = pmm_get_total_memory();
     info->freeram = pmm_get_free_memory();
     info->bufferram = 64 * 4096;
@@ -1716,11 +1721,14 @@ static int64_t sys_alarm(unsigned int seconds) {
     if (!proc)
         return 0;
     uint64_t cur = pit_get_ticks();
+    uint32_t freq = pit_get_frequency();
+    if (freq == 0)
+        freq = 1000;
     uint64_t old = 0;
     if (proc->alarm_ticks > cur) {
-        old = (proc->alarm_ticks - cur) / 100;
+        old = (proc->alarm_ticks - cur) / freq;
     }
-    proc->alarm_ticks = seconds ? (cur + (uint64_t)seconds * 100) : 0;
+    proc->alarm_ticks = seconds ? (cur + (uint64_t)seconds * freq) : 0;
     return (int64_t)old;
 }
 

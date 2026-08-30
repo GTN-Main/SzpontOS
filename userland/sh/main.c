@@ -74,7 +74,7 @@ static void cmd_help(void) {
     printf("  " COLOR_GREEN "exit [code]" COLOR_RESET "     - Exit the shell\n");
     printf("\n" COLOR_YELLOW "External Commands (/bin/):" COLOR_RESET "\n");
     printf("  " COLOR_WHITE "ls, cat, head, tail, wc, grep, find" COLOR_RESET " - Files & text\n");
-    printf("  " COLOR_WHITE "uname, hostname, uptime, ps, top" COLOR_RESET " - System info\n");
+    printf("  " COLOR_WHITE "uname, hostname, uptime, date, clock, ps, top" COLOR_RESET " - System info\n");
     printf("  " COLOR_WHITE "df, free, mount, dmesg, sysctl" COLOR_RESET "  - Diagnostics\n");
     printf("  " COLOR_WHITE "mkdir, touch, rm, chmod, chown" COLOR_RESET "  - File management\n");
     printf("  " COLOR_WHITE "id, whoami, su, useradd, userdel" COLOR_RESET " - Users & groups\n");

@@ -4,7 +4,7 @@ set -e
 ISO_PATH="build/szpontos.iso"
 DISPLAY_OPT="cocoa"
 EXTRA_FLAGS=()
-VGA_FLAGS=("-vga" "std" "-global" "VGA.xres=1280" "-global" "VGA.yres=960")
+VGA_FLAGS=("-vga" "std" "-global" "VGA.xres=1920" "-global" "VGA.yres=1080")
 MACHINE_OPT="q35,i8042=on"
 ENABLE_USB_KBD=true
 

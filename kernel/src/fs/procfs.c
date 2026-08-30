@@ -146,8 +146,9 @@ static size_t procfs_gen_version(char *buf, size_t max_len) {
 
 static size_t procfs_gen_uptime(char *buf, size_t max_len) {
     uint64_t ticks = pit_get_ticks();
-    uint64_t sec = ticks / 100;
-    uint64_t csec = ticks % 100;
+    uint64_t freq = pit_get_frequency();
+    uint64_t sec = ticks / freq;
+    uint64_t csec = (ticks % freq) * 100 / freq;
     return ksnprintf(buf, max_len, "%lu.%02lu %lu.%02lu\n", sec, csec, sec, csec);
 }
 

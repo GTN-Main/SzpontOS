@@ -21,6 +21,7 @@
 
 void keyboard_init(void);
 void keyboard_poll_hardware(void);
+void keyboard_relax(void);
 void keyboard_drain_buffers(void);
 bool keyboard_has_char(void);
 char keyboard_getc(void);
@@ -33,5 +34,6 @@ void keyboard_set_leds(bool numlock, bool capslock, bool scrolllock);
 uint8_t keyboard_get_modifiers(void);
 bool keyboard_is_caps_lock(void);
 bool keyboard_is_num_lock(void);
+void keyboard_force_set2_mode(void);
 
 #endif /* SZPONTOS_DRIVERS_KEYBOARD_H */

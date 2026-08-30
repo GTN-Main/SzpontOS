@@ -180,6 +180,7 @@ KERNEL_C_SRCS := \
     kernel/src/drivers/keyboard.c \
     kernel/src/drivers/mouse.c \
     kernel/src/drivers/ps2_mouse.c \
+    kernel/src/drivers/ps2_test.c \
     kernel/src/drivers/speaker.c \
     kernel/src/drivers/tty.c \
     kernel/src/drivers/acpi.c \
@@ -323,6 +324,8 @@ USER_PROGS := \
     $(ROOTFS_DIR)/bin/ps \
     $(ROOTFS_DIR)/bin/free \
     $(ROOTFS_DIR)/bin/uptime \
+    $(ROOTFS_DIR)/bin/date \
+    $(ROOTFS_DIR)/bin/clock \
     $(ROOTFS_DIR)/bin/mkdir \
     $(ROOTFS_DIR)/bin/touch \
     $(ROOTFS_DIR)/bin/head \

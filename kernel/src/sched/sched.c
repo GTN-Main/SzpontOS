@@ -37,18 +37,20 @@ void sched_init(void) {
 void sched_add_thread(thread_t *thread) {
     if (!thread)
         return;
-    spinlock_acquire(&g_sched_lock);
+    uint64_t flags;
+    spinlock_acquire_irqsave(&g_sched_lock, &flags);
     thread->state = THREAD_READY;
     list_add_tail(&g_ready_queue, &thread->sched_node);
-    spinlock_release(&g_sched_lock);
+    spinlock_release_irqrestore(&g_sched_lock, flags);
 }
 
 void sched_remove_thread(thread_t *thread) {
     if (!thread)
         return;
-    spinlock_acquire(&g_sched_lock);
+    uint64_t flags;
+    spinlock_acquire_irqsave(&g_sched_lock, &flags);
     list_remove(&thread->sched_node);
-    spinlock_release(&g_sched_lock);
+    spinlock_release_irqrestore(&g_sched_lock, flags);
 }
 
 thread_t *sched_get_current_thread(void) {
@@ -63,7 +65,8 @@ void sched_yield(void) {
     if (!g_sched_started)
         return;
 
-    spinlock_acquire(&g_sched_lock);
+    uint64_t flags;
+    spinlock_acquire_irqsave(&g_sched_lock, &flags);
 
     thread_t *prev = g_current_thread;
     if (prev && prev != g_idle_thread && prev->state == THREAD_RUNNING) {
@@ -112,8 +115,9 @@ void sched_yield(void) {
         static uintptr_t boot_rsp = 0;
         uintptr_t *old_rsp_ptr = prev ? &prev->rsp : &boot_rsp;
         arch_switch_context(old_rsp_ptr, next->rsp);
+        spinlock_irqrestore(flags);
     } else {
-        spinlock_release(&g_sched_lock);
+        spinlock_release_irqrestore(&g_sched_lock, flags);
     }
 }
 
@@ -132,11 +136,12 @@ void thread_sleep(uint32_t ms) {
     if (ticks_to_sleep == 0)
         ticks_to_sleep = 1;
 
-    spinlock_acquire(&g_sched_lock);
+    uint64_t flags;
+    spinlock_acquire_irqsave(&g_sched_lock, &flags);
     curr->state = THREAD_SLEEPING;
     curr->sleep_until_tick = pit_get_ticks() + ticks_to_sleep;
     list_add_tail(&g_sleeping_queue, &curr->sched_node);
-    spinlock_release(&g_sched_lock);
+    spinlock_release_irqrestore(&g_sched_lock, flags);
 
     sched_yield();
 }

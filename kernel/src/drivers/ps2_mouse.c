@@ -232,14 +232,19 @@ void ps2_mouse_init(void) {
         /* No mouse responded to reset */
         goto no_mouse;
     }
-    udelay(50000); /* 50ms BAT delay */
-    keyboard_drain_buffers();
-
-    uint8_t bat = ps2_mouse_read();
-    uint8_t dev_id = ps2_mouse_read();
+    uint8_t bat = 0;
+    for (int t = 0; t < 50; t++) {
+        if (ps2_mouse_wait_read()) {
+            bat = inb(I8042_DATA_PORT);
+            if (bat == 0xAA)
+                break;
+        }
+        udelay(10000);
+    }
     if (bat != 0xAA) {
         goto no_mouse;
     }
+    uint8_t dev_id = ps2_mouse_read();
 
     /* 5. Probe for IntelliMouse 3D Scroll Wheel (Sample rates: 200 -> 100 -> 80) */
     ps2_mouse_set_sample_rate(200);
@@ -309,7 +314,9 @@ no_mouse:
         io_wait();
     }
 
-    pic_clear_mask(1);
+    if (!ioapic_is_active()) {
+        pic_clear_mask(1);
+    }
     g_mouse_initialized = false;
     keyboard_drain_buffers();
 

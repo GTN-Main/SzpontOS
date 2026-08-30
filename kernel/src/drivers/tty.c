@@ -8,6 +8,7 @@
 #include <drivers/serial.h>
 #include <drivers/framebuffer.h>
 #include <drivers/speaker.h>
+#include <arch/x86_64/io.h>
 #include <sched/sched.h>
 #include <sched/process.h>
 #include <kernel/signal.h>
@@ -90,8 +91,14 @@ static char tty_get_raw_key(void) {
         if (serial_received()) {
             return serial_getc();
         }
-        /* Sleep 5 ms to allow timer ticks and idle thread scheduling */
-        thread_sleep(5);
+        /* Enable interrupts while waiting so IRQ1 and timer can wake the CPU */
+        __asm__ volatile("sti" ::: "memory");
+
+        /* Yield CPU to allow other threads and idle thread to run */
+        if (sched_get_current_thread() != NULL) {
+            sched_yield();
+        }
+        keyboard_relax();
     }
 }
 

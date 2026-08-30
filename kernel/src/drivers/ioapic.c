@@ -65,6 +65,75 @@ void lapic_eoi(void) {
     }
 }
 
+/*
+ * Local APIC Timer — primary system tick source on modern hardware.
+ *
+ * Many contemporary firmwares (UEFI laptops in particular) gate off the
+ * legacy i8254 PIT, so IRQ0 never fires even though the chip is programmed.
+ * The LAPIC timer is per-CPU, requires no IO-APIC pin routing, and is the
+ * tick source of choice in production kernels. Calibrated against the TSC.
+ *
+ * Delivers on vector 0x20 (same vector as legacy IRQ0 — one handler).
+ */
+bool lapic_timer_init(uint32_t frequency_hz) {
+    if (!g_lapic_virt) {
+        return false;
+    }
+    if (frequency_hz == 0) {
+        frequency_hz = 100;
+    }
+
+    uint64_t tsc_hz = g_tsc_freq_hz;
+    if (tsc_hz == 0) {
+        tsc_hz = 2400000000ULL; /* sane fallback, matches io.h default */
+    }
+
+    volatile uint32_t *lapic = (volatile uint32_t *)g_lapic_virt;
+
+    /* Divider = 16 (config 0b0011) */
+    lapic[0x3E0 / 4] = 0x3;
+
+    /* LVT Timer: vector 0x20, periodic mode (bit 17), masked during calibration */
+    lapic[0x320 / 4] = 0x20 | (1 << 17) | (1 << 16);
+
+    /* Start the counter from maximum and measure decrements over a known
+     * TSC-measured 10 ms window. */
+    lapic[0x380 / 4] = 0xFFFFFFFF;
+
+    uint64_t start_tsc = rdtsc();
+    uint64_t wait_cycles = (tsc_hz / 100) + 1; /* 10 ms */
+    while ((rdtsc() - start_tsc) < wait_cycles) {
+        __asm__ volatile("pause");
+    }
+
+    uint32_t current = lapic[0x390 / 4]; /* Current Count */
+    uint32_t elapsed = 0xFFFFFFFFu - current;
+
+    /* Timer not counting (some firmwares gate the LAPIC timer clock) */
+    if (elapsed == 0) {
+        lapic[0x320 / 4] = (1 << 16); /* mask it back off */
+        return false;
+    }
+
+    /* Ticks per period at divider 16 */
+    uint64_t per_sec = (uint64_t)elapsed * 100ULL;
+    uint64_t initial = per_sec / frequency_hz;
+    if (initial == 0) {
+        initial = 1;
+    }
+    if (initial > 0xFFFFFFFFULL) {
+        initial = 0xFFFFFFFFULL;
+    }
+
+    /* Reconfigure: unmasked, periodic */
+    lapic[0x320 / 4] = 0x20 | (1 << 17); /* vector 0x20, periodic, unmasked */
+    lapic[0x380 / 4] = (uint32_t)initial;
+
+    klog_info("LAPIC Timer: %u Hz active (initial count %u, %u ticks/10ms, TSC %llu Hz)",
+              frequency_hz, (uint32_t)initial, elapsed, (unsigned long long)tsc_hz);
+    return true;
+}
+
 bool ioapic_is_active(void) {
     return g_ioapic_active;
 }
@@ -216,11 +285,11 @@ void ioapic_init(void) {
     }
 
     /* Route essential ISA IRQs:
-     * IRQ 0 (Timer) -> Vector 0x20 (GSI from ISO or 2/0)
      * IRQ 1 (Keyboard) -> Vector 0x21 (GSI 1)
      * IRQ 12 (PS/2 Mouse) -> Vector 0x2C (GSI 12)
-     */
-    ioapic_map_irq(0, 0x20, 0, false, false);
+     * NOTE: IRQ 0 (Timer) is NOT routed here — the system tick is owned by
+     * lapic_timer_init() (LAPIC timer, TSC-calibrated) with the legacy PIT
+     * as fallback on machines without a Local APIC. */
     ioapic_map_irq(1, 0x21, 0, false, false);
     ioapic_map_irq(12, 0x2C, 0, false, false);
 
@@ -235,6 +304,6 @@ void ioapic_init(void) {
     pic_disable();
 
     g_ioapic_active = true;
-    klog_info("IO-APIC: Advanced Interrupt Routing active (IRQ 0->0x20, IRQ 1->0x21, IRQ 12->0x2C)");
+    klog_info("IO-APIC: Advanced Interrupt Routing active (IRQ 1->0x21, IRQ 12->0x2C, Timer: LAPIC)");
 }
 

@@ -97,21 +97,39 @@ void isr_handler(interrupt_frame_t *frame) {
                          g_exception_names[frame->int_no]);
     }
 
-    /* Execute registered handler FIRST so it can read hardware ports (e.g. port 0x60
-     * for PS/2 keyboard scancodes) before EOI allows the next interrupt to arrive.
-     * On real hardware (unlike QEMU), sending EOI too early causes scancode loss. */
+    /* For timer interrupts (IRQ0 / vector 32), send EOI BEFORE handler execution
+     * because the timer handler invokes the scheduler (sched_tick -> sched_yield).
+     * If EOI were deferred until after context switch, the PIC / LAPIC In-Service
+     * Register would stay latched, blocking all equal or lower priority interrupts
+     * (including IRQ1 for the keyboard) while other threads execute!
+     *
+     * Device handlers (e.g. IRQ1 keyboard) execute FIRST so they consume hardware
+     * port data before EOI allows subsequent hardware interrupts. */
+    bool eoi_sent = false;
+    if (frame->int_no == 32) {
+        outb(0x20, 0x20); /* Master PIC EOI */
+        if (ioapic_is_active()) {
+            lapic_eoi();
+        }
+        eoi_sent = true;
+    }
+
+    /* Execute registered handler */
     if (g_interrupt_handlers[frame->int_no]) {
         g_interrupt_handlers[frame->int_no](frame);
     }
 
-    /* Send End of Interrupt AFTER handler has consumed hardware data */
-    if (ioapic_is_active()) {
-        lapic_eoi();
-    } else if (frame->int_no >= 32 && frame->int_no <= 47) {
-        if (frame->int_no >= 40) {
-            outb(0xA0, 0x20); /* Slave PIC EOI */
+    /* Send End of Interrupt for non-timer interrupts after hardware data is consumed */
+    if (!eoi_sent) {
+        if (frame->int_no >= 32 && frame->int_no <= 47) {
+            outb(0x20, 0x20); /* Master PIC EOI */
+            if (frame->int_no >= 40) {
+                outb(0xA0, 0x20); /* Slave PIC EOI */
+            }
         }
-        outb(0x20, 0x20); /* Master PIC EOI */
+        if (ioapic_is_active()) {
+            lapic_eoi();
+        }
     }
 }
 

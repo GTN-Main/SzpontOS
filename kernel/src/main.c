@@ -7,6 +7,7 @@
 #include <drivers/keyboard.h>
 #include <drivers/mouse.h>
 #include <drivers/ps2_mouse.h>
+#include <drivers/ps2_test.h>
 #include <drivers/speaker.h>
 #include <drivers/tty.h>
 #include <drivers/serial.h>
@@ -149,6 +150,11 @@ void _start(void) {
     /* Step 5b: Timers & Real-Time Clock calibration for precise driver delays */
     pit_init(1000);
     rtc_init();
+    if (ioapic_is_active()) {
+        lapic_timer_init(1000);
+    } else {
+        pit_route_irq();
+    }
 
     run_heap_self_test();
 

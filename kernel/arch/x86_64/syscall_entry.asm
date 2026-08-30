@@ -45,6 +45,10 @@ syscall_entry:
     mov rsi, rdi        ; a1 in RSI (2nd C arg)
     mov rdi, rax        ; sys_no in RDI (1st C arg)
 
+    ; NOTE: SYSCALL cleared IF and it stays cleared — this kernel's scheduler
+    ; uses cooperative coroutine switches and its IRQ handlers must never
+    ; preempt code that can hold kernel locks (e.g. sched lock). Blocking
+    ; syscalls (console read) poll their device directly instead of sleeping.
     call syscall_dispatcher
 
     ; Clean up 7th argument from stack
