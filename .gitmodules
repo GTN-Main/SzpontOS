@@ -19,3 +19,84 @@
 [submodule "third_party/zlib"]
 	path = third_party/zlib
 	url = https://github.com/madler/zlib.git
+[submodule "third_party/stb"]
+	path = third_party/stb
+	url = https://github.com/nothings/stb
+[submodule "third_party/xterm"]
+	path = third_party/xterm
+	url = https://github.com/xterm-x11/xterm-snapshots
+[submodule "third_party/libXt"]
+	path = third_party/libXt
+	url = https://gitlab.freedesktop.org/xorg/lib/libxt.git
+[submodule "third_party/libXmu"]
+	path = third_party/libXmu
+	url = https://gitlab.freedesktop.org/xorg/lib/libxmu.git
+[submodule "third_party/libXaw"]
+	path = third_party/libXaw
+	url = https://gitlab.freedesktop.org/xorg/lib/libxaw.git
+[submodule "third_party/libICE"]
+	path = third_party/libICE
+	url = https://gitlab.freedesktop.org/xorg/lib/libice.git
+[submodule "third_party/libSM"]
+	path = third_party/libSM
+	url = https://gitlab.freedesktop.org/xorg/lib/libsm.git
+[submodule "third_party/libXpm"]
+	path = third_party/libXpm
+	url = https://gitlab.freedesktop.org/xorg/lib/libxpm.git
+[submodule "third_party/libX11"]
+	path = third_party/libX11
+	url = https://gitlab.freedesktop.org/xorg/lib/libx11.git
+[submodule "third_party/libXau"]
+	path = third_party/libXau
+	url = https://gitlab.freedesktop.org/xorg/lib/libxau.git
+[submodule "third_party/libXdmcp"]
+	path = third_party/libXdmcp
+	url = https://gitlab.freedesktop.org/xorg/lib/libxdmcp.git
+[submodule "third_party/libXext"]
+	path = third_party/libXext
+	url = https://gitlab.freedesktop.org/xorg/lib/libxext.git
+[submodule "third_party/libXfixes"]
+	path = third_party/libXfixes
+	url = https://gitlab.freedesktop.org/xorg/lib/libxfixes.git
+[submodule "third_party/libXfont2"]
+	path = third_party/libXfont2
+	url = https://gitlab.freedesktop.org/xorg/lib/libxfont.git
+[submodule "third_party/libXrandr"]
+	path = third_party/libXrandr
+	url = https://gitlab.freedesktop.org/xorg/lib/libxrandr.git
+[submodule "third_party/libXrender"]
+	path = third_party/libXrender
+	url = https://gitlab.freedesktop.org/xorg/lib/libxrender.git
+[submodule "third_party/libfontenc"]
+	path = third_party/libfontenc
+	url = https://gitlab.freedesktop.org/xorg/lib/libfontenc.git
+[submodule "third_party/libpciaccess"]
+	path = third_party/libpciaccess
+	url = https://gitlab.freedesktop.org/xorg/lib/libpciaccess.git
+[submodule "third_party/libxcb"]
+	path = third_party/libxcb
+	url = https://gitlab.freedesktop.org/xorg/lib/libxcb.git
+[submodule "third_party/libxcvt"]
+	path = third_party/libxcvt
+	url = https://gitlab.freedesktop.org/xorg/lib/libxcvt.git
+[submodule "third_party/libxkbfile"]
+	path = third_party/libxkbfile
+	url = https://gitlab.freedesktop.org/xorg/lib/libxkbfile.git
+[submodule "third_party/pixman"]
+	path = third_party/pixman
+	url = https://gitlab.freedesktop.org/pixman/pixman.git
+[submodule "third_party/xcb-proto"]
+	path = third_party/xcb-proto
+	url = https://gitlab.freedesktop.org/xorg/proto/xcbproto.git
+[submodule "third_party/xorgproto"]
+	path = third_party/xorgproto
+	url = https://gitlab.freedesktop.org/xorg/proto/xorgproto.git
+[submodule "third_party/xtrans"]
+	path = third_party/xtrans
+	url = https://gitlab.freedesktop.org/xorg/lib/libxtrans.git
+[submodule "third_party/util-macros"]
+	path = third_party/util-macros
+	url = https://gitlab.freedesktop.org/xorg/util/macros.git
+[submodule "third_party/font-util"]
+	path = third_party/font-util
+	url = https://gitlab.freedesktop.org/xorg/font/util.git

@@ -35,15 +35,19 @@ int tcsetattr(int fd, int optional_actions, const struct termios *termios_p) {
 }
 
 int tcflush(int fd, int queue_selector) {
-    (void)fd;
-    (void)queue_selector;
-    return 0;
+    return ioctl(fd, TCFLSH, (void *)(intptr_t)queue_selector);
 }
 
 int tcflow(int fd, int action) {
-    (void)fd;
-    (void)action;
-    return 0;
+    return ioctl(fd, TCXONC, (void *)(intptr_t)action);
+}
+
+int tcsendbreak(int fd, int duration) {
+    return ioctl(fd, TCSBRK, (void *)(intptr_t)duration);
+}
+
+int tcdrain(int fd) {
+    return ioctl(fd, TCSBRK, (void *)(intptr_t)1);
 }
 
 speed_t cfgetispeed(const struct termios *termios_p) {

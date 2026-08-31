@@ -81,6 +81,7 @@ static void cmd_help(void) {
     printf("  " COLOR_WHITE "kill, killall, sleep, clear" COLOR_RESET "     - Process control\n");
     printf("  " COLOR_WHITE "ping, ifconfig, nc, httpd" COLOR_RESET "      - Networking\n");
     printf("  " COLOR_WHITE "git, nano, fastfetch, file, zsh" COLOR_RESET "  - Applications & Version Control\n");
+    printf("  " COLOR_WHITE "startx, SzpontX11, xdemo" COLOR_RESET "       - X11 Graphical Desktop & Server\n");
     printf("  " COLOR_WHITE "insmod, rmmod, lsmod, modinfo" COLOR_RESET "  - Kernel modules\n");
     printf("  " COLOR_WHITE "reboot, shutdown, poweroff" COLOR_RESET "     - Power management\n");
     printf("\n" COLOR_YELLOW "Features & Redirection:" COLOR_RESET "\n");
@@ -219,6 +220,15 @@ static int execute_simple_command(int argc, char *argv[]) {
     }
 
     int ret = 0;
+    bool bg = false;
+    if (clean_argc > 0 && strcmp(clean_argv[clean_argc - 1], "&") == 0) {
+        bg = true;
+        clean_argv[--clean_argc] = NULL;
+    }
+
+    if (clean_argc == 0) {
+        return 0;
+    }
 
     if (strcmp(clean_argv[0], "help") == 0) {
         cmd_help();
@@ -269,14 +279,19 @@ static int execute_simple_command(int argc, char *argv[]) {
             fprintf(stderr, COLOR_RED "sh: %s: command not found" COLOR_RESET "\n", clean_argv[0]);
             exit(127);
         } else if (pid > 0) {
-            int status = 0;
-            waitpid(pid, &status, 0);
-            if (WIFEXITED(status)) {
-                ret = WEXITSTATUS(status);
-            } else if (WIFSIGNALED(status)) {
-                ret = 128 + WTERMSIG(status);
-                if (ret == 130) {
-                    printf(COLOR_RED "\n[Process interrupted by SIGINT]" COLOR_RESET "\n");
+            if (bg) {
+                printf("[1] %d\n", pid);
+                ret = 0;
+            } else {
+                int status = 0;
+                waitpid(pid, &status, 0);
+                if (WIFEXITED(status)) {
+                    ret = WEXITSTATUS(status);
+                } else if (WIFSIGNALED(status)) {
+                    ret = 128 + WTERMSIG(status);
+                    if (ret == 130) {
+                        printf(COLOR_RED "\n[Process interrupted by SIGINT]" COLOR_RESET "\n");
+                    }
                 }
             }
         } else {

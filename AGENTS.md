@@ -240,3 +240,10 @@ make clean
 4. **IDE & Clangd Compatibility:**
    - Whenever new C source files are added to `kernel/`, `libc/`, or `userland/`, update the corresponding file list in `Makefile` and run `make compile-commands`.
    - Verify syntax with `clang --target=x86_64-unknown-none-elf -fsyntax-only`.
+
+5. **Dynamic Linking & Shared Libraries (No Static Linking):**
+   - Userland binaries and ported packages must be dynamically linked against shared libraries (`.so`).
+   - Avoid static linking for userland programs whenever possible.
+   - All shared libraries must reside in `/lib` (in `build/rootfs/lib/`) with valid ELF `DT_SONAME` tags (e.g. `libc.so`, `libm.so`, `libz.so`, `libX11.so`, `libpixman-1.so`).
+   - Third-party packages and libraries must use standard `make install DESTDIR="$(ROOTFS_DIR)"` fakeroot-style installation so binaries, shared objects, headers, and data files are cleanly integrated into the root filesystem.
+

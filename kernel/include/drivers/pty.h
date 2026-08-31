@@ -37,5 +37,7 @@ struct winsize {
 #endif
 
 void pty_init(void);
+bool pty_node_has_pollin(vfs_node_t *node);
+bool pty_node_has_pollout(vfs_node_t *node);
 
 #endif /* SZPONTOS_DRIVERS_PTY_H */

@@ -6,10 +6,8 @@
 #ifndef _SYS_SELECT_H
 #define _SYS_SELECT_H
 
-#include <sys/types.h>
 #include <sys/time.h>
 #include <time.h>
-#include <signal.h>
 
 #define FD_SETSIZE 1024
 
@@ -32,6 +30,11 @@ typedef struct {
 
 #define FD_ISSET(d, set)                                                                                               \
     (((set)->fds_bits[(d) / (8 * sizeof(unsigned long))] & (1UL << ((d) % (8 * sizeof(unsigned long))))) != 0)
+
+#ifndef _SIGSET_T_DECLARED
+#define _SIGSET_T_DECLARED
+typedef unsigned long sigset_t;
+#endif
 
 int select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struct timeval *timeout);
 int pselect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, const struct timespec *timeout,

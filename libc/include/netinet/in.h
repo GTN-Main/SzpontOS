@@ -45,8 +45,63 @@ struct sockaddr_in6 {
 #define IPPROTO_IPV6 41
 #define IPPROTO_RAW 255
 
-#endif /* _NETINET_IN_H */
+#define IP_MULTICAST_IF 32
+#define IP_MULTICAST_TTL 33
+#define IP_MULTICAST_LOOP 34
+#define IP_ADD_MEMBERSHIP 35
+#define IP_DROP_MEMBERSHIP 36
 
-#define IN6_IS_ADDR_UNSPECIFIED(a)                                                                                     \
-    (((const uint32_t *)(a))[0] == 0 && ((const uint32_t *)(a))[1] == 0 && ((const uint32_t *)(a))[2] == 0 &&          \
-     ((const uint32_t *)(a))[3] == 0)
+#define IPV6_MULTICAST_HOPS 18
+#define IPV6_MULTICAST_IF 17
+#define IPV6_MULTICAST_LOOP 19
+#define IPV6_JOIN_GROUP 20
+#define IPV6_LEAVE_GROUP 21
+
+#define IN_CLASSA(a) ((((in_addr_t)(a)) & 0x80000000) == 0)
+#define IN_CLASSB(a) ((((in_addr_t)(a)) & 0xc0000000) == 0x80000000)
+#define IN_CLASSC(a) ((((in_addr_t)(a)) & 0xe0000000) == 0xc0000000)
+#define IN_CLASSD(a) ((((in_addr_t)(a)) & 0xf0000000) == 0xe0000000)
+#define IN_MULTICAST(a) IN_CLASSD(a)
+
+#ifndef htons
+#define htons(x) __builtin_bswap16((uint16_t)(x))
+#define ntohs(x) __builtin_bswap16((uint16_t)(x))
+#define htonl(x) __builtin_bswap32((uint32_t)(x))
+#define ntohl(x) __builtin_bswap32((uint32_t)(x))
+#endif
+
+uint16_t (htons)(uint16_t x);
+uint16_t (ntohs)(uint16_t x);
+uint32_t (htonl)(uint32_t x);
+uint32_t (ntohl)(uint32_t x);
+
+
+#define IN6_IS_ADDR_UNSPECIFIED(a) \
+    (((const uint32_t *)(a))[0] == 0 && ((const uint32_t *)(a))[1] == 0 && \
+     ((const uint32_t *)(a))[2] == 0 && ((const uint32_t *)(a))[3] == 0)
+
+#define IN6_IS_ADDR_LOOPBACK(a) \
+    (((const uint32_t *)(a))[0] == 0 && ((const uint32_t *)(a))[1] == 0 && \
+     ((const uint32_t *)(a))[2] == 0 && ((const uint8_t *)(a))[15] == 1)
+
+#define IN6_IS_ADDR_V4MAPPED(a) \
+    (((const uint32_t *)(a))[0] == 0 && ((const uint32_t *)(a))[1] == 0 && \
+     ((const uint8_t *)(a))[8] == 0 && ((const uint8_t *)(a))[9] == 0 && \
+     ((const uint8_t *)(a))[10] == 0xff && ((const uint8_t *)(a))[11] == 0xff)
+
+#define IN6_IS_ADDR_V4COMPAT(a) \
+    (((const uint32_t *)(a))[0] == 0 && ((const uint32_t *)(a))[1] == 0 && \
+     ((const uint32_t *)(a))[2] == 0 && !IN6_IS_ADDR_UNSPECIFIED(a) && !IN6_IS_ADDR_LOOPBACK(a))
+
+#define IN6_IS_ADDR_MULTICAST(a) (((const uint8_t *)(a))[0] == 0xff)
+
+#define IN6_IS_ADDR_LINKLOCAL(a) \
+    (((const uint8_t *)(a))[0] == 0xfe && (((const uint8_t *)(a))[1] & 0xc0) == 0x80)
+
+#define IN6_IS_ADDR_SITELOCAL(a) \
+    (((const uint8_t *)(a))[0] == 0xfe && (((const uint8_t *)(a))[1] & 0xc0) == 0xc0)
+
+extern const struct in6_addr in6addr_any;
+#define IN6ADDR_ANY_INIT { { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 } }
+
+#endif /* _NETINET_IN_H */

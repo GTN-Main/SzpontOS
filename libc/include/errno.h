@@ -2,6 +2,8 @@
 #define _ERRNO_H
 
 extern int errno;
+typedef int error_t;
+typedef int errno_t;
 
 #define EPERM 1         /* Operation not permitted */
 #define ENOENT 2        /* No such file or directory */

@@ -404,6 +404,43 @@ static int tmpfs_chown(vfs_node_t *node, uid_t uid, gid_t gid) {
     return 0;
 }
 
+static int tmpfs_dir_link(vfs_node_t *parent, vfs_node_t *source, const char *new_name) {
+    tmpfs_node_t *pnode = (tmpfs_node_t *)parent;
+    tmpfs_node_t *src_node = (tmpfs_node_t *)source;
+    if (!pnode || !src_node || !new_name)
+        return -1;
+
+    if (tmpfs_dir_finddir(parent, new_name) != NULL)
+        return -17; /* EEXIST */
+
+    /* Create new link entry sharing file contents */
+    tmpfs_node_t *child = (tmpfs_node_t *)kzalloc(sizeof(tmpfs_node_t));
+    if (!child)
+        return -12; /* ENOMEM */
+
+    strncpy(child->node.name, new_name, sizeof(child->node.name) - 1);
+    child->node.flags = src_node->node.flags;
+    child->node.permissions = src_node->node.permissions;
+    child->node.uid = src_node->node.uid;
+    child->node.gid = src_node->node.gid;
+    child->node.inode = src_node->node.inode;
+    child->node.ops = src_node->node.ops;
+    child->node.length = src_node->node.length;
+    if (src_node->data && src_node->capacity > 0) {
+        child->data = kmalloc(src_node->capacity);
+        if (child->data) {
+            memcpy(child->data, src_node->data, src_node->node.length);
+            child->capacity = src_node->capacity;
+        }
+    } else {
+        child->data = NULL;
+        child->capacity = 0;
+    }
+    child->parent = pnode;
+
+    return tmpfs_add_child(pnode, child);
+}
+
 static vfs_ops_t g_tmpfs_file_ops = {.read = tmpfs_file_read,
                                      .write = tmpfs_file_write,
                                      .open = NULL,
@@ -420,6 +457,7 @@ static vfs_ops_t g_tmpfs_dir_ops = {.readdir = tmpfs_dir_readdir,
                                     .rmdir = tmpfs_dir_rmdir,
                                     .rename = tmpfs_dir_rename,
                                     .symlink = tmpfs_dir_symlink,
+                                    .link = tmpfs_dir_link,
                                     .chmod = tmpfs_chmod,
                                     .chown = tmpfs_chown};
 

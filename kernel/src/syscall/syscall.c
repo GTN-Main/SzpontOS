@@ -26,6 +26,8 @@
 #include <kernel/kqueue.h>
 #include <drivers/power.h>
 #include <drivers/tty.h>
+#include <drivers/evdev.h>
+#include <drivers/pty.h>
 
 struct pollfd {
     int fd;
@@ -57,6 +59,8 @@ struct pollfd {
 extern void arch_enter_user_mode(uintptr_t rip, uintptr_t rsp);
 extern void arch_syscall_return(void);
 extern void syscall_arch_init(void);
+
+static void build_at_path(int dirfd, const char *pathname, char *out, size_t out_len);
 
 #define S_IFMT 0170000
 #define S_IFIFO 0010000
@@ -1145,9 +1149,18 @@ static int64_t sys_readlink(const char *path, char *buf, size_t bufsiz) {
 }
 
 static int64_t sys_link(const char *oldpath, const char *newpath) {
-    (void)oldpath;
-    (void)newpath;
-    return -38; /* -ENOSYS: Link not supported, triggers rename fallback */
+    if (!oldpath || !newpath)
+        return -22; /* -EINVAL */
+    return (int64_t)vfs_link(oldpath, newpath);
+}
+
+static int64_t sys_linkat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath, int flags) {
+    (void)flags;
+    char full_old[256];
+    char full_new[256];
+    build_at_path(olddirfd, oldpath, full_old, sizeof(full_old));
+    build_at_path(newdirfd, newpath, full_new, sizeof(full_new));
+    return (int64_t)vfs_link(full_old, full_new);
 }
 
 static int64_t sys_fork(void);
@@ -1283,8 +1296,8 @@ static int64_t sys_clone(uint64_t flags, uintptr_t child_stack, uintptr_t ptid, 
     *(--sp) = 0;     /* R12 */
     *(--sp) = 0;     /* R13 */
     *(--sp) = 0;     /* R14 */
-    *(--sp) = 0;     /* R15 */
-    *(--sp) = 0x202; /* RFLAGS */
+    *(--sp) = 0;      /* R15 */
+    *(--sp) = 0x3202; /* RFLAGS (IOPL=3) */
 
     child_t->rsp = (uintptr_t)sp;
 
@@ -1383,8 +1396,8 @@ static int64_t sys_fork(void) {
     *(--sp) = 0;     /* R12 */
     *(--sp) = 0;     /* R13 */
     *(--sp) = 0;     /* R14 */
-    *(--sp) = 0;     /* R15 */
-    *(--sp) = 0x202; /* RFLAGS */
+    *(--sp) = 0;      /* R15 */
+    *(--sp) = 0x3202; /* RFLAGS (IOPL=3) */
 
     child_t->rsp = (uintptr_t)sp;
 
@@ -1392,6 +1405,17 @@ static int64_t sys_fork(void) {
     sched_add_thread(child_t);
 
     return child->pid;
+}
+
+static int64_t sys_iopl(int level) {
+    if (level < 0 || level > 3)
+        return -1;
+    extern uint64_t g_current_kernel_stack;
+    if (g_current_kernel_stack) {
+        uint64_t *rflags_ptr = (uint64_t *)(g_current_kernel_stack - 16);
+        *rflags_ptr = (*rflags_ptr & ~0x3000ULL) | ((uint64_t)(level & 3) << 12);
+    }
+    return 0;
 }
 
 static int64_t sys_execve(const char *pathname, char *const argv[], char *const envp[]) {
@@ -1877,6 +1901,18 @@ static void *sys_mmap(void *addr, size_t length, int prot, int flags, int fd, of
     if (!proc || length == 0)
         return (void *)-1;
 
+    /* Check if file descriptor has custom device mmap handler (e.g. /dev/dri/card0) */
+    if (fd >= 0 && fd < MAX_FD && proc->fds[fd] && proc->fds[fd]->node) {
+        vfs_node_t *node = proc->fds[fd]->node;
+        if (node->ops && node->ops->mmap) {
+            void *out_vaddr = NULL;
+            if (node->ops->mmap(node, addr, length, prot, flags, offset, &out_vaddr) == 0) {
+                return out_vaddr;
+            }
+            return (void *)-1;
+        }
+    }
+
     if (proc->mmap_current == 0) {
         proc->mmap_current = 0x0000600000000000ULL;
     }
@@ -1950,8 +1986,8 @@ static int kernel_sys_poll(struct pollfd *fds, unsigned int nfds, int timeout) {
         return 0;
     int ready = 0;
 
-    int loops = (timeout < 0) ? 50 : (timeout / 10 + 1);
-    for (int l = 0; l < loops; l++) {
+    int loops = (timeout < 0) ? -1 : (timeout / 10 + 1);
+    for (int l = 0; loops < 0 || l < loops; l++) {
         ready = 0;
         for (unsigned int i = 0; i < nfds; i++) {
             fds[i].revents = 0;
@@ -1978,6 +2014,20 @@ static int kernel_sys_poll(struct pollfd *fds, unsigned int nfds, int timeout) {
                         fds[i].revents |= POLLOUT;
                     }
                 }
+            } else if (strcmp(node->name, "event0") == 0 || strcmp(node->name, "mouse") == 0) {
+                if ((fds[i].events & POLLIN) && evdev_mouse_has_events())
+                    fds[i].revents |= POLLIN;
+            } else if (strcmp(node->name, "event1") == 0) {
+                if ((fds[i].events & POLLIN) && evdev_kbd_has_events())
+                    fds[i].revents |= POLLIN;
+            } else if (strcmp(node->name, "mice") == 0 || strcmp(node->name, "psaux") == 0) {
+                if ((fds[i].events & POLLIN) && evdev_mice_has_data())
+                    fds[i].revents |= POLLIN;
+            } else if (strncmp(node->name, "ptmx", 4) == 0 || strncmp(node->name, "pts", 3) == 0) {
+                if ((fds[i].events & POLLIN) && pty_node_has_pollin(node))
+                    fds[i].revents |= POLLIN;
+                if ((fds[i].events & POLLOUT) && pty_node_has_pollout(node))
+                    fds[i].revents |= POLLOUT;
             } else {
                 if (fds[i].events & POLLIN)
                     fds[i].revents |= POLLIN;
@@ -1993,7 +2043,7 @@ static int kernel_sys_poll(struct pollfd *fds, unsigned int nfds, int timeout) {
             break;
         extern void e1000_poll(void);
         e1000_poll();
-        sched_yield();
+        thread_sleep(1);
     }
     return ready;
 }
@@ -2241,6 +2291,8 @@ uint64_t syscall_dispatcher(uint64_t sys_no, uint64_t a1, uint64_t a2, uint64_t 
     case SYS_sleep:
         thread_sleep((uint32_t)a1 * 1000);
         return 0;
+    case SYS_iopl:
+        return sys_iopl((int)a1);
     case SYS_fork:
         return sys_fork();
     case SYS_clone:
@@ -2295,6 +2347,8 @@ uint64_t syscall_dispatcher(uint64_t sys_no, uint64_t a1, uint64_t a2, uint64_t 
         return sys_mkdirat((int)a1, (const char *)a2, (mode_t)a3);
     case SYS_unlinkat:
         return sys_unlinkat((int)a1, (const char *)a2, (int)a3);
+    case SYS_linkat:
+        return sys_linkat((int)a1, (const char *)a2, (int)a3, (const char *)a4, (int)a5);
     case SYS_newfstatat:
         return sys_newfstatat((int)a1, (const char *)a2, (struct stat *)a3, (int)a4);
     case SYS_faccessat:

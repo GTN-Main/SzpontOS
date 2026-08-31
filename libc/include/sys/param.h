@@ -15,4 +15,8 @@
 #define roundup(x, y) ((((x) + ((y) - 1)) / (y)) * (y))
 #define powerof2(x) ((((x) - 1) & (x)) == 0)
 
+#ifndef MAXHOSTNAMELEN
+#define MAXHOSTNAMELEN 256
+#endif
+
 #endif /* _SYS_PARAM_H */

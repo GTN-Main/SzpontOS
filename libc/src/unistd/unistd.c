@@ -15,6 +15,8 @@
 #include <sys/ioctl.h>
 #include <sys/resource.h>
 #include <sys/times.h>
+#include <poll.h>
+#include <stdbool.h>
 #include <pwd.h>
 #include <time.h>
 #include <errno.h>
@@ -536,32 +538,74 @@ int futimens(int fd, const struct timespec times[2]) {
 }
 
 int select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struct timeval *timeout) {
-    (void)writefds;
-    (void)exceptfds;
-    if (readfds && nfds > 0) {
-        int count = 0;
-        for (int fd = 0; fd < nfds; fd++) {
-            if (FD_ISSET(fd, readfds)) {
-                int bytes = 0;
-                if (ioctl(fd, FIONREAD, &bytes) == 0 && bytes > 0) {
-                    count++;
-                } else {
-                    FD_CLR(fd, readfds);
-                }
-            }
+    if (nfds < 0 || nfds > 1024) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    struct pollfd pfds[128];
+    if (nfds > 128) nfds = 128;
+
+    int poll_count = 0;
+    int fd_map[128];
+
+    for (int fd = 0; fd < nfds; fd++) {
+        short ev = 0;
+        if (readfds && FD_ISSET(fd, readfds)) ev |= POLLIN;
+        if (writefds && FD_ISSET(fd, writefds)) ev |= POLLOUT;
+        if (exceptfds && FD_ISSET(fd, exceptfds)) ev |= POLLPRI;
+
+        if (ev != 0) {
+            pfds[poll_count].fd = fd;
+            pfds[poll_count].events = ev;
+            pfds[poll_count].revents = 0;
+            fd_map[poll_count] = fd;
+            poll_count++;
         }
-        if (count > 0)
-            return count;
-        if (timeout && timeout->tv_sec == 0 && timeout->tv_usec == 0)
-            return 0;
+    }
+
+    if (readfds) FD_ZERO(readfds);
+    if (writefds) FD_ZERO(writefds);
+    if (exceptfds) FD_ZERO(exceptfds);
+
+    if (poll_count == 0) {
         if (timeout) {
-            long us = timeout->tv_sec * 1000000L + timeout->tv_usec;
-            if (us > 0)
-                usleep(us > 50000 ? 50000 : us);
+            long ms = timeout->tv_sec * 1000 + timeout->tv_usec / 1000;
+            if (ms > 0) usleep((unsigned int)(ms * 1000));
         }
         return 0;
     }
-    return 0;
+
+    int timeout_ms = -1;
+    if (timeout) {
+        timeout_ms = (int)(timeout->tv_sec * 1000 + timeout->tv_usec / 1000);
+    }
+
+    int ret = poll(pfds, (nfds_t)poll_count, timeout_ms);
+    if (ret <= 0) {
+        return ret;
+    }
+
+    int ready_count = 0;
+    for (int i = 0; i < poll_count; i++) {
+        int fd = fd_map[i];
+        bool ready = false;
+        if (readfds && (pfds[i].revents & (POLLIN | POLLHUP | POLLERR))) {
+            FD_SET(fd, readfds);
+            ready = true;
+        }
+        if (writefds && (pfds[i].revents & (POLLOUT | POLLERR))) {
+            FD_SET(fd, writefds);
+            ready = true;
+        }
+        if (exceptfds && (pfds[i].revents & POLLPRI)) {
+            FD_SET(fd, exceptfds);
+            ready = true;
+        }
+        if (ready) ready_count++;
+    }
+
+    return ready_count;
 }
 
 int pselect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, const struct timespec *timeout,
@@ -735,6 +779,11 @@ pid_t setsid(void) {
     return (pid_t)__check_syscall(__syscall0(SYS_setsid));
 }
 
+pid_t getsid(pid_t pid) {
+    (void)pid;
+    return getpid();
+}
+
 pid_t tcgetpgrp(int fd) {
     (void)fd;
     return getpgrp();
@@ -743,6 +792,11 @@ pid_t tcgetpgrp(int fd) {
 int tcsetpgrp(int fd, pid_t pgrp) {
     (void)fd;
     return setpgid(0, pgrp);
+}
+
+int revoke(const char *path) {
+    (void)path;
+    return 0;
 }
 
 int link(const char *oldpath, const char *newpath) {

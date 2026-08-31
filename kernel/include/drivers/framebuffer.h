@@ -36,5 +36,14 @@ size_t fb_get_width(void);
 size_t fb_get_height(void);
 size_t fb_get_cols(void);
 size_t fb_get_rows(void);
+size_t fb_get_pitch(void);
+uint32_t fb_get_bpp(void);
+uint32_t *fb_get_fb_ptr(void);
+uint32_t *fb_get_backbuffer_ptr(void);
+struct limine_framebuffer *fb_get_limine(void);
+
+void fb_set_graphics_mode(bool enabled);
+bool fb_is_graphics_mode(void);
+void fb_blit_from_buffer(const uint32_t *src, size_t src_pitch_pixels, size_t dst_x, size_t dst_y, size_t w, size_t h);
 
 #endif /* SZPONTOS_DRIVERS_FRAMEBUFFER_H */

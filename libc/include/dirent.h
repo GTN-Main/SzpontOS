@@ -31,4 +31,9 @@ void rewinddir(DIR *dirp);
 int closedir(DIR *dirp);
 int dirfd(DIR *dirp);
 
+int scandir(const char *dirp, struct dirent ***namelist,
+            int (*filter)(const struct dirent *),
+            int (*compar)(const struct dirent **, const struct dirent **));
+int alphasort(const struct dirent **a, const struct dirent **b);
+
 #endif /* _DIRENT_H */

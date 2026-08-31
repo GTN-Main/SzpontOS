@@ -185,6 +185,22 @@ char *strrchr(const char *s, int c) {
     return (last != NULL || *s == (char)c) ? (char *)(last ? last : s) : NULL;
 }
 
+char *strstr(const char *haystack, const char *needle) {
+    if (!haystack || !needle)
+        return NULL;
+    if (!*needle)
+        return (char *)haystack;
+
+    size_t needle_len = strlen(needle);
+    while (*haystack) {
+        if (*haystack == *needle && strncmp(haystack, needle, needle_len) == 0) {
+            return (char *)haystack;
+        }
+        haystack++;
+    }
+    return NULL;
+}
+
 char *strdup(const char *s) {
     if (!s)
         return NULL;

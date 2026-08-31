@@ -356,6 +356,23 @@ int tty_ioctl(uint64_t request, void *arg) {
         return 0;
     }
 
+    case 0x4B3A: { /* KDSETMODE (0 = KD_TEXT, 1 = KD_GRAPHICS) */
+        uintptr_t mode = (uintptr_t)arg;
+        if (mode == 1) {
+            fb_set_graphics_mode(true);
+        } else {
+            fb_set_graphics_mode(false);
+        }
+        return 0;
+    }
+
+    case 0x4B3B: { /* KDGETMODE */
+        if (!arg)
+            return -1;
+        *(int *)arg = fb_is_graphics_mode() ? 1 : 0;
+        return 0;
+    }
+
     default:
         return 0; /* Graceful fallback */
     }

@@ -53,7 +53,9 @@ typedef struct vfs_ops {
     int (*truncate)(struct vfs_node *node, off_t length);
     int (*symlink)(struct vfs_node *parent, const char *name, const char *target);
     ssize_t (*readlink)(struct vfs_node *node, char *buf, size_t bufsiz);
+    int (*link)(struct vfs_node *parent, struct vfs_node *source, const char *new_name);
     int (*access)(struct vfs_node *node, int mode);
+    int (*mmap)(struct vfs_node *node, void *addr, size_t length, int prot, int flags, off_t offset, void **out_vaddr);
 } vfs_ops_t;
 
 typedef struct vfs_node {
@@ -92,6 +94,7 @@ int vfs_rmdir(const char *path);
 int vfs_rename(const char *oldpath, const char *newpath);
 int vfs_truncate(const char *path, off_t length);
 int vfs_symlink(const char *target, const char *linkpath);
+int vfs_link(const char *oldpath, const char *newpath);
 ssize_t vfs_readlink(const char *path, char *buf, size_t bufsiz);
 int vfs_access(const char *path, int mode);
 int vfs_check_permission(vfs_node_t *node, int mask);

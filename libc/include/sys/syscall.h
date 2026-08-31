@@ -111,6 +111,7 @@
 #define SYS_setrlimit 160
 #define SYS_sync 162
 #define SYS_reboot 169
+#define SYS_iopl 172
 #define SYS_init_module 175
 #define SYS_delete_module 176
 #define SYS_getprocs 178

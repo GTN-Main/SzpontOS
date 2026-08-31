@@ -402,3 +402,16 @@ int pthread_cancel(pthread_t thread) {
 
 void pthread_testcancel(void) {
 }
+
+typedef struct {
+    unsigned long ti_module;
+    unsigned long ti_offset;
+} tls_index;
+
+void *__tls_get_addr(tls_index *ti) {
+    if (!g_pthreads_initialized) {
+        pthread_init_main_thread();
+    }
+    pthread_internal_t *t = get_current_thread();
+    return (void *)((uintptr_t)t + (ti ? ti->ti_offset : 0));
+}

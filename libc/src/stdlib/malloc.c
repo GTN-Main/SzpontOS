@@ -22,13 +22,25 @@ static block_header_t *g_head = NULL;
 
 void *malloc(size_t size) {
     if (size == 0)
-        return NULL;
+        size = ALIGNMENT;
     size = ALIGN_UP(size, ALIGNMENT);
 
-    /* Search free list */
+    /* Search free list with best-fit / first-fit with splitting */
     block_header_t *curr = g_head;
     while (curr) {
         if (curr->is_free && curr->size >= size) {
+            /* Split block if significantly larger */
+            if (curr->size >= size + HEADER_SIZE + ALIGNMENT) {
+                block_header_t *split = (block_header_t *)((uintptr_t)curr + HEADER_SIZE + size);
+                split->size = curr->size - size - HEADER_SIZE;
+                split->is_free = 1;
+                split->next = curr->next;
+                split->prev = curr;
+                if (curr->next)
+                    curr->next->prev = split;
+                curr->next = split;
+                curr->size = size;
+            }
             curr->is_free = 0;
             return (void *)((uintptr_t)curr + HEADER_SIZE);
         }
@@ -87,13 +99,22 @@ void free(void *ptr) {
 void *realloc(void *ptr, size_t size) {
     if (!ptr)
         return malloc(size);
-    if (size == 0) {
-        free(ptr);
-        return NULL;
-    }
+    if (size == 0)
+        size = ALIGNMENT;
 
+    size = ALIGN_UP(size, ALIGNMENT);
     block_header_t *block = (block_header_t *)((uintptr_t)ptr - HEADER_SIZE);
     if (block->size >= size) {
+        return ptr;
+    }
+
+    /* Try to expand into next free block if available */
+    if (block->next && block->next->is_free &&
+        (block->size + HEADER_SIZE + block->next->size) >= size) {
+        block->size += HEADER_SIZE + block->next->size;
+        block->next = block->next->next;
+        if (block->next)
+            block->next->prev = block;
         return ptr;
     }
 
@@ -105,11 +126,23 @@ void *realloc(void *ptr, size_t size) {
     return new_ptr;
 }
 
+void *reallocarray(void *ptr, size_t nmemb, size_t size) {
+    if (nmemb > 0 && size > (size_t)-1 / nmemb) {
+        errno = ENOMEM;
+        return NULL;
+    }
+    return realloc(ptr, nmemb * size);
+}
+
 void *calloc(size_t nmemb, size_t size) {
+    if (nmemb > 0 && size > (size_t)-1 / nmemb) {
+        errno = ENOMEM;
+        return NULL;
+    }
     size_t total = nmemb * size;
     void *ptr = malloc(total);
     if (ptr) {
-        memset(ptr, 0, total);
+        memset(ptr, 0, total ? total : ALIGNMENT);
     }
     return ptr;
 }
@@ -292,8 +325,12 @@ char *getenv(const char *name) {
         return "/";
     if (strcmp(name, "USER") == 0)
         return "root";
+    if (strcmp(name, "SHELL") == 0)
+        return "/bin/sh";
     if (strcmp(name, "TERM") == 0)
         return "xterm-256color";
+    if (strcmp(name, "DISPLAY") == 0)
+        return ":0";
     if (strcmp(name, "MAGIC") == 0)
         return "/etc/magic:/usr/share/misc/magic";
 
@@ -484,4 +521,12 @@ int rand(void) {
 
 void srand(unsigned int seed) {
     g_rand_next = seed;
+}
+
+long random(void) {
+    return (long)rand();
+}
+
+void srandom(unsigned int seed) {
+    srand(seed);
 }

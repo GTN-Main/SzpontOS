@@ -612,6 +612,47 @@ int vfs_symlink(const char *target, const char *linkpath) {
     return -1;
 }
 
+int vfs_link(const char *oldpath, const char *newpath) {
+    if (!oldpath || !newpath)
+        return -22; /* EINVAL */
+
+    char full_old[256];
+    if (vfs_resolve_path(oldpath, full_old, sizeof(full_old)) != 0)
+        return -2; /* ENOENT */
+
+    vfs_node_t *old_node = vfs_lookup(full_old);
+    if (!old_node)
+        return -2; /* ENOENT */
+
+    if (old_node->flags == VFS_TYPE_DIRECTORY)
+        return -1; /* EPERM */
+
+    char full_new[256];
+    if (vfs_resolve_path(newpath, full_new, sizeof(full_new)) != 0)
+        return -2; /* ENOENT */
+
+    char parent_path[256];
+    char link_name[128];
+    if (vfs_split_parent(full_new, parent_path, sizeof(parent_path), link_name, sizeof(link_name)) != 0)
+        return -2;
+
+    vfs_node_t *parent = vfs_lookup(parent_path);
+    if (!parent)
+        return -2;
+    if (parent->flags != VFS_TYPE_DIRECTORY)
+        return -20; /* ENOTDIR */
+
+    if (vfs_check_permission(parent, VFS_WRITE | VFS_EXEC) != 0)
+        return -13; /* EACCES */
+
+    if (parent->ops && parent->ops->link) {
+        return parent->ops->link(parent, old_node, link_name);
+    }
+
+    return -1;
+}
+
+
 ssize_t vfs_readlink(const char *path, char *buf, size_t bufsiz) {
     if (!path || !buf || bufsiz == 0)
         return -22;

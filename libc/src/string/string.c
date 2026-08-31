@@ -568,3 +568,12 @@ void *memmem(const void *haystack, size_t haystacklen, const void *needle, size_
     }
     return NULL;
 }
+
+int ffs(int i) {
+    return __builtin_ffs(i);
+}
+
+int ffsl(long int i) {
+    return __builtin_ffsl(i);
+}
+

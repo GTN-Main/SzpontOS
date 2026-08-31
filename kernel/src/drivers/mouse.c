@@ -5,6 +5,7 @@
  */
 
 #include <drivers/mouse.h>
+#include <drivers/evdev.h>
 #include <kernel/spinlock.h>
 #include <kernel/string.h>
 #include <kernel/kprint.h>
@@ -36,6 +37,9 @@ void mouse_push_event(const mouse_event_t *ev) {
         g_mouse_tail = next;
     }
     spinlock_release(&g_mouse_lock);
+
+    /* Bridge unified mouse event to Linux/X11 evdev and raw /dev/input/mice */
+    evdev_push_mouse_packet(ev->dx, ev->dy, ev->dz, ev->buttons);
 }
 
 bool mouse_has_event(void) {

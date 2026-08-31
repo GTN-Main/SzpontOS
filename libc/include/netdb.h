@@ -3,6 +3,11 @@
 
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <sys/param.h>
+
+#ifndef MAXHOSTNAMELEN
+#define MAXHOSTNAMELEN 256
+#endif
 
 struct hostent {
     char *h_name;
@@ -48,10 +53,19 @@ struct addrinfo {
 #define EAI_SYSTEM -11
 #define EAI_OVERFLOW -12
 
+struct servent {
+    char *s_name;
+    char **s_aliases;
+    int s_port;
+    char *s_proto;
+};
+
 int getaddrinfo(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res);
 void freeaddrinfo(struct addrinfo *res);
 int getnameinfo(const struct sockaddr *sa, socklen_t salen, char *host, socklen_t hostlen, char *serv, socklen_t servlen, int flags);
 const char *gai_strerror(int errcode);
 struct hostent *gethostbyname(const char *name);
+struct servent *getservbyname(const char *name, const char *proto);
+struct servent *getservbyport(int port, const char *proto);
 
 #endif /* _NETDB_H */

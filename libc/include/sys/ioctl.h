@@ -12,9 +12,34 @@
 #define TCSETS 0x5402
 #define TCSETSW 0x5403
 #define TCSETSF 0x5404
+#define TCSBRK 0x5409
+#define TCXONC 0x540A
+#define TCFLSH 0x540B
+#define TIOCSCTTY 0x540E
+#define TIOCNOTTY 0x5422
+#define TIOCGPGRP 0x540F
+#define TIOCSPGRP 0x5410
 #define TIOCGWINSZ 0x5413
 #define TIOCSWINSZ 0x5414
+#define TIOCMGET 0x5415
+#define TIOCMBIS 0x5416
+#define TIOCMBIC 0x5417
+#define TIOCMSET 0x5418
+#define TIOCSDTR 0x5417
+#define TIOCCDTR 0x5418
 #define FIONREAD 0x541B
+
+#define TIOCM_LE  0x001
+#define TIOCM_DTR 0x002
+#define TIOCM_RTS 0x004
+#define TIOCM_ST  0x008
+#define TIOCM_SR  0x010
+#define TIOCM_CTS 0x020
+#define TIOCM_CAR 0x040
+#define TIOCM_RNG 0x080
+#define TIOCM_DSR 0x100
+#define TIOCM_CD  TIOCM_CAR
+#define TIOCM_RI  TIOCM_RNG
 
 struct winsize {
     unsigned short ws_row;

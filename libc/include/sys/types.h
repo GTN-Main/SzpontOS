@@ -28,4 +28,10 @@ typedef unsigned short u_short;
 typedef unsigned int u_int;
 typedef unsigned long u_long;
 
+#ifndef major
+#define major(dev) ((dev_t)(((dev) >> 8) & 0xff))
+#define minor(dev) ((dev_t)((dev) & 0xff))
+#define makedev(maj, min) ((dev_t)((((maj) & 0xff) << 8) | ((min) & 0xff)))
+#endif
+
 #endif /* _SYS_TYPES_H */

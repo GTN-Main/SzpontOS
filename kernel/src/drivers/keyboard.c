@@ -7,6 +7,7 @@
 
 #include <drivers/keyboard.h>
 #include <drivers/ps2_mouse.h>
+#include <drivers/evdev.h>
 #include <drivers/xhci.h>
 #include <drivers/ehci.h>
 #include <drivers/acpi.h>
@@ -561,6 +562,7 @@ static void process_scancode(uint8_t scancode) {
     /* 7. Standard Set 1 Key Releases (Bit 7 Set) */
     if (scancode & 0x80) {
         uint8_t released = scancode & 0x7F;
+        evdev_push_key(released, false);
         if (released == 0x2A)
             g_lshift = false;
         else if (released == 0x36)
@@ -571,6 +573,8 @@ static void process_scancode(uint8_t scancode) {
             g_lalt = false;
         return;
     }
+
+    evdev_push_key(scancode, true);
 
     /* 8. Standard Set 1 Modifiers & Special Keys */
     if (scancode == 0x2A) {

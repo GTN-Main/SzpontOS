@@ -105,4 +105,12 @@ int setsockopt(int sockfd, int level, int optname, const void *optval, socklen_t
 int getsockopt(int sockfd, int level, int optname, void *optval, socklen_t *optlen);
 int shutdown(int sockfd, int how);
 
+struct ucred {
+    pid_t pid;
+    uid_t uid;
+    gid_t gid;
+};
+
+#define SO_PEERCRED 17
+
 #endif /* _SYS_SOCKET_H */

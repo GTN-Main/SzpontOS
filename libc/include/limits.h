@@ -36,5 +36,8 @@
 #define NAME_MAX 255
 #define SSIZE_MAX LONG_MAX
 #define PIPE_BUF 4096
+#define OPEN_MAX 256
+#define NOFILE OPEN_MAX
+#define NOFILES_MAX OPEN_MAX
 
 #endif /* _LIMITS_H */

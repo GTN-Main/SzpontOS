@@ -150,8 +150,10 @@ pid_t getpgid(pid_t pid);
 int setpgrp(void);
 int setpgid(pid_t pid, pid_t pgid);
 pid_t setsid(void);
+pid_t getsid(pid_t pid);
 pid_t tcgetpgrp(int fd);
 int tcsetpgrp(int fd, pid_t pgrp);
+int revoke(const char *path);
 
 int link(const char *oldpath, const char *newpath);
 int symlink(const char *target, const char *linkpath);

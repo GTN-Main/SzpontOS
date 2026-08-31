@@ -69,7 +69,7 @@ arch_enter_user_mode:
     ; Push iretq frame
     push qword 0x1B       ; SS (User Data)
     push rsi              ; RSP (User Stack)
-    push qword 0x202      ; RFLAGS (Interrupts enabled, bit 1 always 1)
+    push qword 0x3202     ; RFLAGS (Interrupts enabled, IOPL=3, bit 1 always 1)
     push qword 0x23       ; CS (User Code)
     push rdi              ; RIP (User Entry Point)
 

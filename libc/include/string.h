@@ -42,4 +42,7 @@ size_t strlcat(char *dst, const char *src, size_t size);
 char *strerror(int errnum);
 char *strsignal(int sig);
 
+int ffs(int i);
+int ffsl(long int i);
+
 #endif /* _STRING_H */

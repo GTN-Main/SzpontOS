@@ -106,8 +106,36 @@ long long llround(double x) {
     return (long long)round(x);
 }
 
+long lroundf(float x) {
+    return (long)roundf(x);
+}
+
+long long llroundf(float x) {
+    return (long long)roundf(x);
+}
+
 double rint(double x) {
     return round(x);
+}
+
+float rintf(float x) {
+    return (float)rint((double)x);
+}
+
+long lrint(double x) {
+    return (long)rint(x);
+}
+
+long long llrint(double x) {
+    return (long long)rint(x);
+}
+
+long lrintf(float x) {
+    return (long)rintf(x);
+}
+
+long long llrintf(float x) {
+    return (long long)rintf(x);
 }
 
 double nearbyint(double x) {

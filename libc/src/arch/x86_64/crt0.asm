@@ -4,6 +4,7 @@ default rel
 global _start
 extern main
 extern exit
+extern environ
 
 section .text
 
@@ -22,6 +23,9 @@ _start:
     inc rax
     shl rax, 3
     lea rdx, [rsi + rax]  ; 3rd arg: envp
+
+    ; Set environ = envp
+    mov [environ], rdx
 
     ; Align stack to 16 bytes before calling main (System V ABI requirement)
     and rsp, -16

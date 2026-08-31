@@ -10,6 +10,8 @@
 #include <drivers/ps2_test.h>
 #include <drivers/speaker.h>
 #include <drivers/tty.h>
+#include <drivers/drm.h>
+#include <drivers/evdev.h>
 #include <drivers/serial.h>
 #include <drivers/random.h>
 #include <drivers/pty.h>
@@ -226,10 +228,11 @@ void _start(void) {
     module_init_subsystem();
     sched_init();
 
-    /* Step 11: PS/2 Keyboard & Mouse Drivers */
+    /* Step 11: PS/2 Keyboard, Mouse & Evdev Drivers */
     mouse_init();
     keyboard_init();
     ps2_mouse_init();
+    evdev_init();
 
     /* Step 12: Launch First Userland Process (/bin/init or /bin/sh) */
     process_t *init_proc = elf_spawn("/bin/init", "init");

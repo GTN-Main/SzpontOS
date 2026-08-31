@@ -111,6 +111,7 @@
 #define SYS_setrlimit 160
 #define SYS_sync 162
 #define SYS_reboot 169
+#define SYS_iopl 172
 #define SYS_init_module 175
 #define SYS_delete_module 176
 #define SYS_getprocs 178
@@ -130,6 +131,7 @@
 #define SYS_futimesat 261
 #define SYS_newfstatat 262
 #define SYS_unlinkat 263
+#define SYS_linkat 265
 #define SYS_readlinkat 267
 #define SYS_fchmodat 268
 #define SYS_faccessat 269

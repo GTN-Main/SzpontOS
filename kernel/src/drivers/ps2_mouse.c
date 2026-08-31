@@ -5,6 +5,8 @@
  */
 
 #include <drivers/ps2_mouse.h>
+#include <drivers/mouse.h>
+#include <drivers/evdev.h>
 #include <drivers/keyboard.h>
 #include <drivers/ioapic.h>
 #include <drivers/acpi.h>
@@ -168,7 +170,7 @@ void ps2_mouse_handle_byte(uint8_t byte) {
 
         mouse_enqueue_packet(&pkt);
 
-        /* Push to generic mouse subsystem */
+        /* Push to generic mouse subsystem (which bridges to evdev and /dev/input/mice) */
         mouse_event_t ev;
         ev.buttons = flags & 0x07;
         ev.dx = dx;
@@ -270,7 +272,8 @@ void ps2_mouse_init(void) {
     /* 7. Register Interrupt Handler & Route IRQ 12 */
     isr_register_handler(IRQ12, mouse_irq_handler);
     if (!ioapic_is_active()) {
-        pic_clear_mask(12);
+        pic_clear_mask(2);  /* Unmask Master PIC Cascade IRQ 2 */
+        pic_clear_mask(12); /* Unmask Slave PIC Mouse IRQ 12 */
     }
     ioapic_map_irq(12, 0x2C, 0, false, false);
 
@@ -349,12 +352,28 @@ bool ps2_mouse_get_packet(mouse_packet_t *pkt) {
 }
 
 ssize_t ps2_mouse_devfs_read(void *buf, size_t count) {
-    if (!buf || count < sizeof(mouse_packet_t))
+    if (!buf || count < 3)
         return 0;
+
     mouse_packet_t pkt;
     if (ps2_mouse_get_packet(&pkt)) {
-        memcpy(buf, &pkt, sizeof(mouse_packet_t));
-        return sizeof(mouse_packet_t);
+        if (count >= sizeof(mouse_packet_t)) {
+            memcpy(buf, &pkt, sizeof(mouse_packet_t));
+            return sizeof(mouse_packet_t);
+        }
+
+        uint8_t *dst = (uint8_t *)buf;
+        uint8_t flags = 0x08 | (pkt.buttons & 0x07);
+        if (pkt.dx < 0) flags |= 0x10;
+        if (pkt.dy < 0) flags |= 0x20;
+        dst[0] = flags;
+        dst[1] = (uint8_t)(pkt.dx & 0xFF);
+        dst[2] = (uint8_t)(pkt.dy & 0xFF);
+        if (count >= 4 && g_has_wheel) {
+            dst[3] = (uint8_t)(pkt.dz & 0x0F);
+            return 4;
+        }
+        return 3;
     }
     return 0;
 }

@@ -364,6 +364,54 @@ size_t fb_get_rows(void) {
     return g_rows;
 }
 
+size_t fb_get_pitch(void) {
+    return g_fb ? g_fb->pitch : (g_fb_pitch_pixels * sizeof(uint32_t));
+}
+
+uint32_t fb_get_bpp(void) {
+    return g_fb ? (uint32_t)g_fb->bpp : 32;
+}
+
+uint32_t *fb_get_fb_ptr(void) {
+    return g_fb_ptr;
+}
+
+uint32_t *fb_get_backbuffer_ptr(void) {
+    return g_backbuffer;
+}
+
+struct limine_framebuffer *fb_get_limine(void) {
+    return g_fb;
+}
+
+static bool g_graphics_mode = false;
+
+void fb_set_graphics_mode(bool enabled) {
+    g_graphics_mode = enabled;
+}
+
+bool fb_is_graphics_mode(void) {
+    return g_graphics_mode;
+}
+
+void fb_blit_from_buffer(const uint32_t *src, size_t src_pitch_pixels, size_t dst_x, size_t dst_y, size_t w, size_t h) {
+    if (!src || !g_fb_ptr)
+        return;
+    if (dst_x >= g_fb_width || dst_y >= g_fb_height)
+        return;
+    if (dst_x + w > g_fb_width)
+        w = g_fb_width - dst_x;
+    if (dst_y + h > g_fb_height)
+        h = g_fb_height - dst_y;
+
+    size_t copy_bytes = w * sizeof(uint32_t);
+    for (size_t row = 0; row < h; row++) {
+        const uint32_t *src_row = src + row * src_pitch_pixels;
+        uint32_t *dst_row = g_fb_ptr + (dst_y + row) * g_fb_pitch_pixels + dst_x;
+        memcpy(dst_row, src_row, copy_bytes);
+    }
+}
+
 static bool g_fb_dirty = false;
 static size_t g_dirty_min_x = 0;
 static size_t g_dirty_min_y = 0;
@@ -407,6 +455,8 @@ static inline void fb_flush_rect(size_t x, size_t y, size_t w, size_t h) {
 }
 
 void fb_flush(void) {
+    if (g_graphics_mode)
+        return;
     if (!g_fb_dirty || !g_fb_ptr || !g_backbuffer)
         return;
     if (g_dirty_max_x > g_fb_width)
@@ -1076,7 +1126,7 @@ static void render_glyph(uint8_t glyph_idx) {
 }
 
 static void fb_console_putc_internal(char c) {
-    if (!g_fb_ptr)
+    if (!g_fb_ptr || g_graphics_mode)
         return;
 
     /* UTF-8 Multi-byte Decoding */
@@ -1280,12 +1330,14 @@ static void fb_console_putc_internal(char c) {
 }
 
 void fb_console_putc(char c) {
+    if (g_graphics_mode)
+        return;
     fb_console_putc_internal(c);
     fb_flush();
 }
 
 void fb_console_puts(const char *str) {
-    if (!str)
+    if (!str || g_graphics_mode)
         return;
     while (*str) {
         fb_console_putc_internal(*str++);
@@ -1295,6 +1347,8 @@ void fb_console_puts(const char *str) {
 
 void fb_console_write(const char *buf, size_t len) {
     if (!buf || len == 0)
+        return;
+    if (g_graphics_mode)
         return;
     for (size_t i = 0; i < len; i++) {
         fb_console_putc_internal(buf[i]);

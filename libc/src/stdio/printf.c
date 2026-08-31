@@ -623,9 +623,13 @@ int snprintf(char *str, size_t size, const char *format, ...) {
 int sprintf(char *str, const char *format, ...) {
     va_list args;
     va_start(args, format);
-    int len = vsnprintf(str, 65536, format, args);
+    int len = vsnprintf(str, 1048576, format, args);
     va_end(args);
     return len;
+}
+
+int vsprintf(char *str, const char *format, va_list ap) {
+    return vsnprintf(str, 1048576, format, ap);
 }
 
 int vprintf(const char *format, va_list ap) {
@@ -919,5 +923,16 @@ int remove(const char *pathname) {
         errno = (int)-r;
         return -1;
     }
+    return 0;
+}
+
+FILE *popen(const char *command, const char *type) {
+    (void)command;
+    (void)type;
+    return NULL;
+}
+
+int pclose(FILE *stream) {
+    if (stream) fclose(stream);
     return 0;
 }

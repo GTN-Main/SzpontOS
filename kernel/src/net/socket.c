@@ -31,13 +31,29 @@ static ssize_t socket_vfs_read(vfs_node_t *node, off_t offset, size_t size, void
     extern void e1000_poll(void);
     e1000_poll();
 
+    process_t *proc = sched_get_current_process();
+    bool is_nonblock = false;
+    if (proc) {
+        for (int i = 0; i < MAX_FD; i++) {
+            if (proc->fds[i] && proc->fds[i]->node == node) {
+                if (proc->fds[i]->flags & 0x800) {
+                    is_nonblock = true;
+                }
+                break;
+            }
+        }
+    }
+    if (is_nonblock && sock->rx_len == 0) {
+        return -11; /* -EAGAIN */
+    }
+
     while (sock->rx_len == 0) {
         if (sock->state == SS_CLOSED || sock->tcp_state == TCP_STATE_CLOSE_WAIT ||
             sock->tcp_state == TCP_STATE_CLOSED) {
             return 0; /* EOF */
         }
-        e1000_poll();
-        sched_yield();
+        if (sock->domain != AF_UNIX) e1000_poll();
+        thread_sleep(1);
     }
 
     spinlock_acquire(&sock->lock);
@@ -62,6 +78,30 @@ static ssize_t socket_vfs_write(vfs_node_t *node, off_t offset, size_t size, con
         if (!sock->peer)
             return -1;
         socket_t *peer = sock->peer;
+
+        process_t *proc = sched_get_current_process();
+        bool is_nonblock = false;
+        if (proc) {
+            for (int i = 0; i < MAX_FD; i++) {
+                if (proc->fds[i] && proc->fds[i]->node == node) {
+                    if (proc->fds[i]->flags & 0x800) {
+                        is_nonblock = true;
+                    }
+                    break;
+                }
+            }
+        }
+
+        if (is_nonblock && peer->rx_len >= SOCK_RX_BUF_SIZE) {
+            return -11; /* -EAGAIN */
+        }
+
+        while (peer->rx_len >= SOCK_RX_BUF_SIZE) {
+            if (peer->state == SS_CLOSED)
+                return -1;
+            thread_sleep(1);
+        }
+
         spinlock_acquire(&peer->lock);
         size_t written = 0;
         const uint8_t *src = (const uint8_t *)buffer;
@@ -71,6 +111,9 @@ static ssize_t socket_vfs_write(vfs_node_t *node, off_t offset, size_t size, con
             peer->rx_len++;
         }
         spinlock_release(&peer->lock);
+        if (written == 0 && is_nonblock) {
+            return -11; /* -EAGAIN */
+        }
         return (ssize_t)written;
     }
 
@@ -113,7 +156,7 @@ void socket_subsystem_init(void) {
     g_socket_vfs_ops.close = socket_vfs_close;
 }
 
-socket_t *socket_create(int domain, int type, int protocol) {
+static socket_t *socket_create_unlocked(int domain, int type, int protocol) {
     socket_t *sock = (socket_t *)kmalloc(sizeof(socket_t));
     if (!sock)
         return NULL;
@@ -126,11 +169,16 @@ socket_t *socket_create(int domain, int type, int protocol) {
     sock->tcp_state = TCP_STATE_CLOSED;
     sock->lock = SPINLOCK_INIT;
 
-    spinlock_acquire(&g_socket_list_lock);
     sock->next = g_socket_list;
     g_socket_list = sock;
-    spinlock_release(&g_socket_list_lock);
 
+    return sock;
+}
+
+socket_t *socket_create(int domain, int type, int protocol) {
+    spinlock_acquire(&g_socket_list_lock);
+    socket_t *sock = socket_create_unlocked(domain, type, protocol);
+    spinlock_release(&g_socket_list_lock);
     return sock;
 }
 
@@ -360,22 +408,20 @@ int sys_accept(int fd, struct sockaddr *addr, uint32_t *addrlen) {
     if (!sock || sock->state != SS_LISTENING)
         return -1;
 
-    /* Wait for child socket in accept_queue */
+    /* Retrieve child socket from accept_queue */
     socket_t *child = NULL;
-    while (!child) {
-        spinlock_acquire(&sock->lock);
-        if (sock->accept_count > 0) {
-            child = sock->accept_queue[0];
-            for (size_t i = 1; i < sock->accept_count; i++) {
-                sock->accept_queue[i - 1] = sock->accept_queue[i];
-            }
-            sock->accept_count--;
+    spinlock_acquire(&sock->lock);
+    if (sock->accept_count > 0) {
+        child = sock->accept_queue[0];
+        for (size_t i = 1; i < sock->accept_count; i++) {
+            sock->accept_queue[i - 1] = sock->accept_queue[i];
         }
-        spinlock_release(&sock->lock);
+        sock->accept_count--;
+    }
+    spinlock_release(&sock->lock);
 
-        if (!child) {
-            sched_yield();
-        }
+    if (!child) {
+        return -1;
     }
 
     /* Allocate new FD for child socket */
@@ -416,6 +462,7 @@ int sys_accept(int fd, struct sockaddr *addr, uint32_t *addrlen) {
     fdesc->refcount = 1;
 
     proc->fds[new_fd] = fdesc;
+    klog_info("NET: sys_accept on FD %d returned new FD %d", fd, new_fd);
 
     if (addr && addrlen) {
         if (child->domain == AF_UNIX && *addrlen >= sizeof(struct sockaddr_un)) {
@@ -480,38 +527,38 @@ int sys_connect(int fd, const struct sockaddr *addr, uint32_t addrlen) {
         return 0;
     } else if (sock->domain == AF_UNIX) {
         const struct sockaddr_un *un = (const struct sockaddr_un *)addr;
+        klog_info("NET: sys_connect AF_UNIX target path '%s'", un->sun_path);
+        socket_t *listener = NULL;
         spinlock_acquire(&g_socket_list_lock);
         for (socket_t *cur = g_socket_list; cur != NULL; cur = cur->next) {
-            if (cur->domain == AF_UNIX && strcmp(cur->unix_path, un->sun_path) == 0) {
-                if (cur->state == SS_LISTENING) {
-                    socket_t *child = socket_create(AF_UNIX, sock->type, sock->protocol);
-                    if (child) {
-                        child->peer = sock;
-                        sock->peer = child;
-                        child->state = SS_CONNECTED;
-                        sock->state = SS_CONNECTED;
-                        strncpy(child->unix_path, cur->unix_path, sizeof(child->unix_path) - 1);
+            if (cur->domain == AF_UNIX && cur->state == SS_LISTENING && strcmp(cur->unix_path, un->sun_path) == 0) {
+                listener = cur;
+                break;
+            }
+        }
 
-                        spinlock_acquire(&cur->lock);
-                        if (cur->accept_count < 16) {
-                            cur->accept_queue[cur->accept_count++] = child;
-                        }
-                        spinlock_release(&cur->lock);
+        if (listener) {
+            socket_t *child = socket_create_unlocked(AF_UNIX, sock->type, sock->protocol);
+            if (child) {
+                child->peer = sock;
+                sock->peer = child;
+                child->state = SS_CONNECTED;
+                sock->state = SS_CONNECTED;
+                child->unix_path[0] = '\0'; /* Connected client socket does not listen */
 
-                        spinlock_release(&g_socket_list_lock);
-                        return 0;
-                    }
-                } else {
-                    sock->peer = cur;
-                    cur->peer = sock;
-                    sock->state = SS_CONNECTED;
-                    cur->state = SS_CONNECTED;
-                    spinlock_release(&g_socket_list_lock);
-                    return 0;
+                spinlock_acquire(&listener->lock);
+                if (listener->accept_count < 16) {
+                    listener->accept_queue[listener->accept_count++] = child;
                 }
+                spinlock_release(&listener->lock);
+
+                spinlock_release(&g_socket_list_lock);
+                klog_info("NET: AF_UNIX connect successful! Enqueued child into listening socket");
+                return 0;
             }
         }
         spinlock_release(&g_socket_list_lock);
+        klog_info("NET: AF_UNIX connect target '%s' not found or not listening in g_socket_list!", un->sun_path);
         return -1;
     }
 
@@ -523,6 +570,44 @@ ssize_t sys_sendto(int fd, const void *buf, size_t len, int flags, const struct 
     socket_t *sock = get_socket_from_fd(fd);
     if (!sock || !buf || len == 0)
         return -1;
+
+    if (sock->domain == AF_UNIX) {
+        if (!sock->peer)
+            return -1;
+        socket_t *peer = sock->peer;
+
+        process_t *proc = sched_get_current_process();
+        bool is_nonblock = (flags & 0x40);
+        if (proc && fd >= 0 && fd < MAX_FD && proc->fds[fd]) {
+            if (proc->fds[fd]->flags & 0x800) {
+                is_nonblock = true;
+            }
+        }
+
+        if (is_nonblock && peer->rx_len >= SOCK_RX_BUF_SIZE) {
+            return -11; /* -EAGAIN */
+        }
+
+        while (peer->rx_len >= SOCK_RX_BUF_SIZE) {
+            if (peer->state == SS_CLOSED)
+                return -1;
+            thread_sleep(1);
+        }
+
+        spinlock_acquire(&peer->lock);
+        size_t written = 0;
+        const uint8_t *src = (const uint8_t *)buf;
+        while (written < len && peer->rx_len < SOCK_RX_BUF_SIZE) {
+            peer->rx_buf[peer->rx_tail] = src[written++];
+            peer->rx_tail = (peer->rx_tail + 1) % SOCK_RX_BUF_SIZE;
+            peer->rx_len++;
+        }
+        spinlock_release(&peer->lock);
+        if (written == 0 && is_nonblock) {
+            return -11; /* -EAGAIN */
+        }
+        return (ssize_t)written;
+    }
 
     uint32_t dest_ip = sock->remote_ip;
     uint16_t dest_port = sock->remote_port;
@@ -594,9 +679,15 @@ ssize_t sys_recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr *
     extern void e1000_poll(void);
     e1000_poll();
 
-    /* If non-blocking / MSG_DONTWAIT and no data, return immediately */
-    if ((flags & 0x40) && sock->rx_len == 0) {
-        return -1;
+    /* If non-blocking (MSG_DONTWAIT or O_NONBLOCK) and no data, return -EAGAIN */
+    bool is_nonblock = (flags & 0x40);
+    if (proc && fd >= 0 && fd < MAX_FD && proc->fds[fd]) {
+        if (proc->fds[fd]->flags & 0x800) {
+            is_nonblock = true;
+        }
+    }
+    if (is_nonblock && sock->rx_len == 0) {
+        return -11; /* -EAGAIN */
     }
 
     /* Wait for data in rx_buf */
@@ -605,8 +696,8 @@ ssize_t sys_recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr *
             sock->tcp_state == TCP_STATE_CLOSED) {
             return 0; /* EOF */
         }
-        e1000_poll();
-        sched_yield();
+        if (sock->domain != AF_UNIX) e1000_poll();
+        thread_sleep(1);
     }
 
     spinlock_acquire(&sock->lock);

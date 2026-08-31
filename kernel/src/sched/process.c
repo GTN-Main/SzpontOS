@@ -136,8 +136,8 @@ thread_t *thread_create(process_t *proc, void (*entry_point)(void), bool is_user
     *(--sp) = 0;     /* R12 */
     *(--sp) = 0;     /* R13 */
     *(--sp) = 0;     /* R14 */
-    *(--sp) = 0;     /* R15 */
-    *(--sp) = 0x202; /* RFLAGS */
+    *(--sp) = 0;      /* R15 */
+    *(--sp) = 0x3202; /* RFLAGS (IOPL=3) */
 
     t->rsp = (uintptr_t)sp;
 

@@ -34,10 +34,16 @@ struct termios {
 #define VEOF 4
 #define VTIME 5
 #define VMIN 6
+#define VSWTC 7
 #define VSTART 8
 #define VSTOP 9
 #define VSUSP 10
 #define VEOL 11
+#define VREPRINT 12
+#define VDISCARD 13
+#define VWERASE 14
+#define VLNEXT 15
+#define VEOL2 16
 
 #define _POSIX_VDISABLE 0
 
@@ -63,8 +69,31 @@ struct termios {
 #define OCRNL 0000010
 #define ONOCR 0000020
 #define ONLRET 0000040
+#define NLDLY 0000400
+#define NL0 0000000
+#define NL1 0000400
+#define CRDLY 0003000
+#define CR0 0000000
+#define CR1 0001000
+#define CR2 0002000
+#define CR3 0003000
+#define TABDLY 0014000
+#define TAB0 0000000
+#define TAB1 0004000
+#define TAB2 0010000
+#define TAB3 0014000
+#define BSDLY 0020000
+#define BS0 0000000
+#define BS1 0020000
+#define VTDLY 0040000
+#define VT0 0000000
+#define VT1 0040000
+#define FFDLY 0100000
+#define FF0 0000000
+#define FF1 0100000
 
 /* Control modes (c_cflag) */
+#define CBAUD 0010017
 #define CSIZE 0000060
 #define CS5 0000000
 #define CS6 0000020
@@ -128,6 +157,8 @@ int tcgetattr(int fd, struct termios *termios_p);
 int tcsetattr(int fd, int optional_actions, const struct termios *termios_p);
 int tcflush(int fd, int queue_selector);
 int tcflow(int fd, int action);
+int tcsendbreak(int fd, int duration);
+int tcdrain(int fd);
 speed_t cfgetispeed(const struct termios *termios_p);
 speed_t cfgetospeed(const struct termios *termios_p);
 int cfsetispeed(struct termios *termios_p, speed_t speed);

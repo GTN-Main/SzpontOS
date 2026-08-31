@@ -63,3 +63,69 @@ int closedir(DIR *dirp) {
     free(dirp);
     return ret;
 }
+
+int alphasort(const struct dirent **a, const struct dirent **b) {
+    if (!a || !*a || !b || !*b)
+        return 0;
+    return strcmp((*a)->d_name, (*b)->d_name);
+}
+
+int scandir(const char *dirp, struct dirent ***namelist,
+            int (*filter)(const struct dirent *),
+            int (*compar)(const struct dirent **, const struct dirent **)) {
+    if (!dirp || !namelist)
+        return -1;
+
+    DIR *d = opendir(dirp);
+    if (!d)
+        return -1;
+
+    size_t capacity = 16;
+    size_t count = 0;
+    struct dirent **list = (struct dirent **)malloc(capacity * sizeof(struct dirent *));
+    if (!list) {
+        closedir(d);
+        return -1;
+    }
+
+    struct dirent *entry;
+    while ((entry = readdir(d)) != NULL) {
+        if (filter && !filter(entry))
+            continue;
+
+        if (count >= capacity) {
+            size_t new_cap = capacity * 2;
+            struct dirent **new_list = (struct dirent **)realloc(list, new_cap * sizeof(struct dirent *));
+            if (!new_list) {
+                for (size_t i = 0; i < count; i++)
+                    free(list[i]);
+                free(list);
+                closedir(d);
+                return -1;
+            }
+            list = new_list;
+            capacity = new_cap;
+        }
+
+        struct dirent *copy = (struct dirent *)malloc(sizeof(struct dirent));
+        if (!copy) {
+            for (size_t i = 0; i < count; i++)
+                free(list[i]);
+            free(list);
+            closedir(d);
+            return -1;
+        }
+        memcpy(copy, entry, sizeof(struct dirent));
+        list[count++] = copy;
+    }
+
+    closedir(d);
+
+    if (compar && count > 1) {
+        qsort(list, count, sizeof(struct dirent *), (int (*)(const void *, const void *))compar);
+    }
+
+    *namelist = list;
+    return (int)count;
+}
+

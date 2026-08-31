@@ -278,3 +278,43 @@ int getnameinfo(const struct sockaddr *sa, socklen_t salen, char *host, socklen_
     }
     return 0;
 }
+
+const struct in6_addr in6addr_any = IN6ADDR_ANY_INIT;
+
+static struct servent g_static_servent;
+static char *g_static_serv_aliases[2] = {NULL, NULL};
+
+struct servent *getservbyname(const char *name, const char *proto) {
+    if (!name)
+        return NULL;
+    (void)proto;
+    g_static_servent.s_name = (char *)name;
+    g_static_servent.s_aliases = g_static_serv_aliases;
+    g_static_servent.s_proto = proto ? (char *)proto : (char *)"tcp";
+
+    if (strcmp(name, "http") == 0) g_static_servent.s_port = htons(80);
+    else if (strcmp(name, "https") == 0) g_static_servent.s_port = htons(443);
+    else if (strcmp(name, "ssh") == 0) g_static_servent.s_port = htons(22);
+    else if (strcmp(name, "telnet") == 0) g_static_servent.s_port = htons(23);
+    else if (strcmp(name, "domain") == 0 || strcmp(name, "dns") == 0) g_static_servent.s_port = htons(53);
+    else if (strcmp(name, "x11") == 0) g_static_servent.s_port = htons(6000);
+    else {
+        int p = atoi(name);
+        if (p > 0 && p <= 65535) {
+            g_static_servent.s_port = htons(p);
+        } else {
+            return NULL;
+        }
+    }
+    return &g_static_servent;
+}
+
+struct servent *getservbyport(int port, const char *proto) {
+    (void)proto;
+    g_static_servent.s_name = (char *)"unknown";
+    g_static_servent.s_aliases = g_static_serv_aliases;
+    g_static_servent.s_port = port;
+    g_static_servent.s_proto = proto ? (char *)proto : (char *)"tcp";
+    return &g_static_servent;
+}
+

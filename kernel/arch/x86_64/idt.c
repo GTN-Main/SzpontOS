@@ -5,6 +5,8 @@
 #include <kernel/string.h>
 #include <kernel/kprint.h>
 #include <kernel/panic.h>
+#include <sched/process.h>
+#include <sched/sched.h>
 
 struct __attribute__((packed)) idt_entry {
     uint16_t isr_low;   /* The lower 16 bits of the ISR's address */
@@ -81,7 +83,37 @@ void isr_handler(interrupt_frame_t *frame) {
         /* CPU Exception */
         uint64_t cr2 = (frame->int_no == 14) ? read_cr2() : 0;
 
-        klog_error("================ CPU EXCEPTION ================");
+        if ((frame->cs & 3) == 3) {
+            /* User-mode (Ring 3) exception: terminate faulting process instead of kernel panic */
+            process_t *curr_proc = sched_get_current_process();
+
+            klog_error("================ USER CPU EXCEPTION ================");
+            klog_error("Exception [%u]: %s in process '%s' (PID %d)", (uint32_t)frame->int_no,
+                       g_exception_names[frame->int_no], curr_proc ? curr_proc->name : "unknown",
+                       curr_proc ? curr_proc->pid : -1);
+            klog_error("Error Code: 0x%lx, CR2 (Fault Addr): 0x%lx", frame->err_code, cr2);
+            klog_error("RIP: 0x%016lx  CS: 0x%04lx  RFLAGS: 0x%016lx", frame->rip, frame->cs, frame->rflags);
+            klog_error("RSP: 0x%016lx  SS: 0x%04lx  RBP:    0x%016lx", frame->rsp, frame->ss, frame->rbp);
+            klog_error("RAX: 0x%016lx  RBX: 0x%016lx  RCX: 0x%016lx", frame->rax, frame->rbx, frame->rcx);
+            klog_error("RDX: 0x%016lx  RSI: 0x%016lx  RDI: 0x%016lx", frame->rdx, frame->rsi, frame->rdi);
+            klog_error("R8:  0x%016lx  R9:  0x%016lx  R10: 0x%016lx", frame->r8, frame->r9, frame->r10);
+            klog_error("R11: 0x%016lx  R12: 0x%016lx  R13: 0x%016lx", frame->r11, frame->r12, frame->r13);
+            klog_error("R14: 0x%016lx  R15: 0x%016lx", frame->r14, frame->r15);
+
+            if (frame->rsp >= 0x1000 && frame->rsp < 0x800000000000ULL) {
+                uint64_t *sp = (uint64_t *)frame->rsp;
+                klog_error("Stack top [RSP]: 0x%016lx  [RSP+8]: 0x%016lx", sp[0], sp[1]);
+                klog_error("Stack [RSP+16]:  0x%016lx  [RSP+24]: 0x%016lx", sp[2], sp[3]);
+            }
+            klog_error("====================================================");
+
+            process_exit(128 + frame->int_no);
+            sched_yield();
+            return;
+        }
+
+        /* Kernel-mode exception: panic */
+        klog_error("================ KERNEL CPU EXCEPTION ================");
         klog_error("Exception [%u]: %s", (uint32_t)frame->int_no, g_exception_names[frame->int_no]);
         klog_error("Error Code: 0x%lx, CR2 (Fault Addr): 0x%lx", frame->err_code, cr2);
         klog_error("RIP: 0x%016lx  CS: 0x%04lx  RFLAGS: 0x%016lx", frame->rip, frame->cs, frame->rflags);
@@ -91,9 +123,9 @@ void isr_handler(interrupt_frame_t *frame) {
         klog_error("R8:  0x%016lx  R9:  0x%016lx  R10: 0x%016lx", frame->r8, frame->r9, frame->r10);
         klog_error("R11: 0x%016lx  R12: 0x%016lx  R13: 0x%016lx", frame->r11, frame->r12, frame->r13);
         klog_error("R14: 0x%016lx  R15: 0x%016lx", frame->r14, frame->r15);
-        klog_error("===============================================");
+        klog_error("======================================================");
 
-        panic_with_frame(frame, "Unhandled CPU Exception #%u: %s", (uint32_t)frame->int_no,
+        panic_with_frame(frame, "Unhandled Kernel CPU Exception #%u: %s", (uint32_t)frame->int_no,
                          g_exception_names[frame->int_no]);
     }
 

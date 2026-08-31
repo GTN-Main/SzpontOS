@@ -337,7 +337,13 @@ static size_t procfs_gen_proc_cwd(process_t *proc, char *buf, size_t max_len) {
 }
 
 static size_t procfs_gen_proc_exe(process_t *proc, char *buf, size_t max_len) {
-    return ksnprintf(buf, max_len, "%s\n", proc->name);
+    if (!proc || !buf || max_len == 0)
+        return 0;
+    if (proc->name[0] == '/') {
+        return ksnprintf(buf, max_len, "%s\n", proc->name);
+    } else {
+        return ksnprintf(buf, max_len, "/bin/%s\n", proc->name);
+    }
 }
 
 static size_t procfs_gen_proc_stat(process_t *proc, char *buf, size_t max_len) {

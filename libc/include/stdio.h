@@ -39,6 +39,8 @@ extern FILE *stderr;
 FILE *fopen(const char *pathname, const char *mode);
 FILE *fdopen(int fd, const char *mode);
 FILE *freopen(const char *pathname, const char *mode, FILE *stream);
+FILE *popen(const char *command, const char *type);
+int pclose(FILE *stream);
 int fclose(FILE *stream);
 size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream);
 size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream);
@@ -68,6 +70,7 @@ int vprintf(const char *format, va_list ap);
 int fprintf(FILE *stream, const char *format, ...) __attribute__((format(printf, 2, 3)));
 int vfprintf(FILE *stream, const char *format, va_list ap);
 int sprintf(char *str, const char *format, ...) __attribute__((format(printf, 2, 3)));
+int vsprintf(char *str, const char *format, va_list ap);
 int snprintf(char *str, size_t size, const char *format, ...) __attribute__((format(printf, 3, 4)));
 int vsnprintf(char *str, size_t size, const char *format, va_list ap);
 int dprintf(int fd, const char *format, ...) __attribute__((format(printf, 2, 3)));
@@ -87,5 +90,8 @@ void perror(const char *s);
 
 int rename(const char *oldpath, const char *newpath);
 int remove(const char *pathname);
+
+#define setlinebuf(stream) setvbuf((stream), NULL, _IOLBF, 0)
+#define setbuffer(stream, buf, size) setvbuf((stream), (buf), (buf) ? _IOFBF : _IONBF, (size))
 
 #endif /* _STDIO_H */

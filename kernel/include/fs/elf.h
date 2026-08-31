@@ -184,6 +184,7 @@ typedef struct elf_loaded_so {
     char name[64];
     uintptr_t base_vaddr;
     uintptr_t mem_size;
+    uintptr_t dyn_vaddr;
     Elf64_Sym *symtab;
     size_t sym_count;
     char *strtab;
