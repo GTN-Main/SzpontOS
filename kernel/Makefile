@@ -10,6 +10,7 @@ KERNEL_C_SRCS := \
     $(ROOT_DIR)/kernel/src/mm/pmm.c \
     $(ROOT_DIR)/kernel/src/mm/vmm.c \
     $(ROOT_DIR)/kernel/src/mm/heap.c \
+    $(ROOT_DIR)/kernel/src/mm/shm.c \
     $(ROOT_DIR)/kernel/src/fs/vfs.c \
     $(ROOT_DIR)/kernel/src/fs/devfs.c \
     $(ROOT_DIR)/kernel/src/fs/bcache.c \

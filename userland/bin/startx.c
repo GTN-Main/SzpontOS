@@ -147,6 +147,9 @@ int main(int argc, char *argv[]) {
 
     printf(COLOR_GREEN "[startx] X server ready! Setting DISPLAY=%s" COLOR_RESET "\n", display);
     setenv("DISPLAY", display, 1);
+    setenv("TERM", "xterm-256color", 0);
+    setenv("COLORTERM", "truecolor", 0);
+    setenv("PATH", "/bin:/usr/bin:/usr/local/bin", 0);
 
     /* 3. Launch Graphical Client */
     printf(COLOR_YELLOW "[startx] Starting graphical session: Szpont Experience (%s)" COLOR_RESET "\n", client_bin);
@@ -158,8 +161,9 @@ int main(int argc, char *argv[]) {
     }
 
     if (g_client_pid == 0) {
-        /* Child: Exec client */
-        execve(client_bin, client_args, NULL);
+        /* Child: Exec client with inherited environment */
+        extern char **environ;
+        execve(client_bin, client_args, environ);
         perror("[startx] Failed to execute client");
         _exit(1);
     }

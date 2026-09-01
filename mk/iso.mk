@@ -21,7 +21,7 @@ limine: limine-bin/limine-bios.sys
 # Build initramfs archive
 # ==============================================================================
 SKELETON_FILES := $(shell find $(ROOTFS_SKELETON_DIR) -type f 2>/dev/null)
-$(BUILD_DIR)/initramfs.tar: userland modules $(MAGIC_DB) $(ALL_ROOTFS_SOS) $(LIBNCURSES_A) $(LIBZ_A) $(SKELETON_FILES) | $(ROOTFS_DIR)
+$(BUILD_DIR)/initramfs.tar: userland modules third-party $(SKELETON_FILES) | $(ROOTFS_DIR)
 	@mkdir -p $(BUILD_DIR)
 	@if [ -d $(ROOTFS_SKELETON_DIR) ]; then cp -r $(ROOTFS_SKELETON_DIR)/. $(ROOTFS_DIR)/ 2>/dev/null || true; fi
 	@mkdir -p $(ROOTFS_DIR)/usr/share/artwork $(ROOTFS_DIR)/usr/share

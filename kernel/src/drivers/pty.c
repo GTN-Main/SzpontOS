@@ -249,14 +249,13 @@ static int ptmx_open(vfs_node_t *node, uint32_t flags) {
     pty->ws.ws_row = 24;
     pty->lock = SPINLOCK_INIT;
 
-    /* Create dynamic master node for this open handle */
-    vfs_node_t *master = (vfs_node_t *)kzalloc(sizeof(vfs_node_t));
-    ksnprintf(master->name, sizeof(master->name), "ptmx_%d", idx);
-    master->flags = VFS_TYPE_CHARDEVICE;
-    master->permissions = 0666;
-    master->ops = &g_pty_master_ops;
-    master->device_data = pty;
-    pty->master_node = master;
+    /* Setup dedicated master node for this open handle */
+    ksnprintf(node->name, sizeof(node->name), "ptmx_%d", idx);
+    node->flags = VFS_TYPE_CHARDEVICE;
+    node->permissions = 0666;
+    node->ops = &g_pty_master_ops;
+    node->device_data = pty;
+    pty->master_node = node;
 
     /* Create slave device in /dev/pts/N and /dev/ptsN */
     char slave_name[32];
@@ -273,10 +272,6 @@ static int ptmx_open(vfs_node_t *node, uint32_t flags) {
     devfs_register_device_path(slave_dir_name, slave);
 
     pty->slave_node = slave;
-
-    /* Re-bind node ptr so caller's file descriptor gets the dedicated master */
-    node->device_data = pty;
-    node->ops = &g_pty_master_ops;
 
     spinlock_release(&g_pty_global_lock);
     return 0;

@@ -530,6 +530,36 @@ static int drm_ioctl_dirty_fb(struct drm_mode_fb_dirty_cmd *dirty) {
     return 0;
 }
 
+static int drm_ioctl_page_flip(struct drm_mode_crtc_page_flip *flip) {
+    if (!flip || flip->crtc_id == 0 || flip->fb_id == 0)
+        return -22;
+
+    spinlock_acquire(&g_drm_lock);
+
+    drm_fb_t *fb = drm_find_fb(flip->fb_id);
+    if (!fb) {
+        spinlock_release(&g_drm_lock);
+        return -22;
+    }
+
+    drm_dumb_bo_t *bo = drm_find_bo(fb->bo_handle);
+    if (!bo || !bo->kernel_virt) {
+        spinlock_release(&g_drm_lock);
+        return -22;
+    }
+
+    /* Atomically update CRTC framebuffer scanout ID */
+    g_crtc.fb_id = flip->fb_id;
+
+    /* If not directly scanning VRAM hardware, blit the back buffer to screen */
+    if (!bo->is_direct_vram) {
+        fb_blit_from_buffer((const uint32_t *)bo->kernel_virt, bo->pitch / 4, 0, 0, bo->width, bo->height);
+    }
+
+    spinlock_release(&g_drm_lock);
+    return 0;
+}
+
 int drm_ioctl(uint64_t request, void *argp) {
     if (!g_drm_initialized) {
         drm_init();
@@ -584,6 +614,9 @@ int drm_ioctl(uint64_t request, void *argp) {
 
     case DRM_IOCTL_MODE_RMFB:
         return drm_ioctl_rm_fb((uint32_t *)argp);
+
+    case DRM_IOCTL_MODE_PAGE_FLIP:
+        return drm_ioctl_page_flip((struct drm_mode_crtc_page_flip *)argp);
 
     case DRM_IOCTL_MODE_DIRTYFB:
         return drm_ioctl_dirty_fb((struct drm_mode_fb_dirty_cmd *)argp);

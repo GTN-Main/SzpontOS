@@ -13,7 +13,7 @@ int main(int argc, char *argv[]) {
 
     char *sh_argv[] = {"/bin/sh", NULL};
     char *sh_envp[] = {"PATH=/bin:/usr/bin", "USER=root", "TERM=xterm-256color", "HOME=/root", "SHELL=/bin/sh", NULL};
-    execve("/bin/sh", sh_argv, sh_envp);
+    execve("/bin/startx", sh_argv, sh_envp);
 
     printf("\033[1;31m[INIT] Error: execve /bin/sh returned!\033[0m\n");
     while (1) {

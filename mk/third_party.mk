@@ -582,7 +582,7 @@ $(ROOTFS_DIR)/lib/libXpm.so: $(SYSROOT_STAMP) $(ROOTFS_DIR)/lib/libX11.so $(wild
 	    touch config.h && \
 	    rm -f *.o && \
 	    for f in $(abspath third_party/libXpm)/src/*.c; do \
-	        $(CC) -fPIC -O2 -ffreestanding -fno-builtin -DHAVE_CONFIG_H -DHAVE_STRCASECMP=1 -DHAVE_ASPRINTF=1 -DHAS_GETCWD=1 -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath third_party/libXpm)/include -I$(abspath third_party/libXpm)/include/X11 -I$(abspath third_party/libXpm)/src -I$(abspath $(BUILD_DIR)/third_party/libXpm) -c "$$f" -o "$$(basename $$f .c).o" || exit 1; \
+	        $(CC) -fPIC -O2 -ffreestanding -fno-builtin -DHAVE_CONFIG_H -DNO_ZPIPE=1 -DHAVE_STRCASECMP=1 -DHAVE_ASPRINTF=1 -DHAS_GETCWD=1 -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath third_party/libXpm)/include -I$(abspath third_party/libXpm)/include/X11 -I$(abspath third_party/libXpm)/src -I$(abspath $(BUILD_DIR)/third_party/libXpm) -c "$$f" -o "$$(basename $$f .c).o" || exit 1; \
 	    done && \
 	    $(LD) -shared -soname libXpm.so.4 -o $(abspath $(SYSROOT_DIR))/usr/lib/libXpm.so *.o && \
 	    cp -f $(abspath $(SYSROOT_DIR))/usr/lib/libXpm.so $(abspath $(ROOTFS_DIR))/lib/libXpm.so && \

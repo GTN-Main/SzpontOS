@@ -59,6 +59,9 @@ window_t *window_create(client_t *c, uint32_t id, window_t *parent, int16_t x, i
             win->border_pixel = 0xFF000000;
             win->mapped = false;
             win->is_active = true;
+            win->is_decorated = (win->parent == &g_server.root_window && id != 0x400001 && !win->override_redirect);
+            win->is_maximized = false;
+            snprintf(win->title, sizeof(win->title), "SzpontOS Application");
 
             win->backing_pixmap = pixmap_create(c, id, w, h, depth ? depth : 24);
             if (win->backing_pixmap && win->backing_pixmap->data) {
@@ -254,6 +257,52 @@ void window_configure(window_t *win, int16_t x, int16_t y, uint16_t w, uint16_t 
     g_server.needs_redraw = true;
 }
 
+void window_set_focus(window_t *win) {
+    if (!win) win = &g_server.root_window;
+    if (g_server.focus_window == win) return;
+
+    window_t *old_focus = g_server.focus_window;
+    g_server.focus_window = win;
+
+    /* Send FocusOut to previous window */
+    if (old_focus && old_focus != &g_server.root_window) {
+        struct {
+            uint8_t  type;
+            uint8_t  detail;
+            uint16_t sequence_number;
+            uint32_t window;
+            uint8_t  mode;
+            uint8_t  pad[23];
+        } __attribute__((packed)) ev_out;
+        memset(&ev_out, 0, sizeof(ev_out));
+        ev_out.type = X_FocusOut;
+        ev_out.detail = 0; /* NotifyAncestor */
+        ev_out.window = old_focus->id;
+        ev_out.mode = 0;   /* NotifyNormal */
+        window_send_event(old_focus, &ev_out, FocusChangeMask);
+    }
+
+    /* Send FocusIn to new window */
+    if (win && win != &g_server.root_window) {
+        struct {
+            uint8_t  type;
+            uint8_t  detail;
+            uint16_t sequence_number;
+            uint32_t window;
+            uint8_t  mode;
+            uint8_t  pad[23];
+        } __attribute__((packed)) ev_in;
+        memset(&ev_in, 0, sizeof(ev_in));
+        ev_in.type = X_FocusIn;
+        ev_in.detail = 0; /* NotifyAncestor */
+        ev_in.window = win->id;
+        ev_in.mode = 0;   /* NotifyNormal */
+        window_send_event(win, &ev_in, FocusChangeMask);
+    }
+
+    g_server.needs_redraw = true;
+}
+
 void window_raise(window_t *win) {
     if (!win || !win->parent || win->parent == win)
         return;
@@ -284,8 +333,7 @@ void window_raise(window_t *win) {
         tail->next_sibling = win;
     }
 
-    g_server.focus_window = win;
-    g_server.needs_redraw = true;
+    window_set_focus(win);
 }
 
 void window_get_absolute_coords(window_t *win, int *abs_x, int *abs_y) {
@@ -318,8 +366,12 @@ static window_t *find_child_at(window_t *parent, int px, int py) {
         if (child->mapped) {
             int abs_x, abs_y;
             window_get_absolute_coords(child, &abs_x, &abs_y);
-            if (px >= abs_x && px < abs_x + child->width + child->border_width * 2 &&
-                py >= abs_y && py < abs_y + child->height + child->border_width * 2) {
+            int top_y = child->is_decorated ? (abs_y - TITLEBAR_HEIGHT) : (abs_y - child->border_width);
+            int bot_y = abs_y + child->height + (child->is_decorated ? WINDOW_BORDER_W : (child->border_width * 2));
+            int left_x = child->is_decorated ? (abs_x - WINDOW_BORDER_W) : (abs_x - child->border_width);
+            int right_x = child->is_decorated ? (abs_x + child->width + WINDOW_BORDER_W) : (abs_x + child->width + child->border_width * 2);
+
+            if (px >= left_x && px < right_x && py >= top_y && py < bot_y) {
                 return child;
             }
         }

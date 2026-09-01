@@ -27,6 +27,9 @@
 #define SYS_pipe 22
 #define SYS_select 23
 #define SYS_yield 24
+#define SYS_shmget 29
+#define SYS_shmat 30
+#define SYS_shmctl 31
 #define SYS_dup 32
 #define SYS_dup2 33
 #define SYS_pause 34
@@ -55,6 +58,7 @@
 #define SYS_wait4 61
 #define SYS_kill 62
 #define SYS_uname 63
+#define SYS_shmdt 67
 #define SYS_fcntl 72
 #define SYS_truncate 76
 #define SYS_ftruncate 77
@@ -137,6 +141,7 @@
 #define SYS_faccessat 269
 #define SYS_utimensat 280
 #define SYS_getrandom 318
+#define SYS_memfd_create 319
 #define SYS_kqueue 362
 #define SYS_kevent 363
 

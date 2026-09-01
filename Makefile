@@ -29,8 +29,10 @@ toolchain-info:
 build: toolchain-info libc sysroot userland modules third-party kernel
 
 # Subsystem delegates
-$(KERNEL_ELF):
+$(KERNEL_ELF): FORCE
 	@$(MAKE) -C $(ROOT_DIR)/kernel
+
+.PHONY: FORCE
 
 kernel: $(KERNEL_ELF)
 

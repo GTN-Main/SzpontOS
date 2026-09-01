@@ -188,7 +188,8 @@ uintptr_t pmm_alloc_page(void) {
     }
 
     spinlock_release(&g_pmm_lock);
-    panic("PMM: Out of physical memory!");
+    klog_warn("PMM: Physical memory exhausted (used %lu / %lu pages)", g_used_pages, g_total_pages);
+    return 0;
 }
 
 uintptr_t pmm_alloc_pages(size_t count) {
@@ -221,7 +222,8 @@ uintptr_t pmm_alloc_pages(size_t count) {
     }
 
     spinlock_release(&g_pmm_lock);
-    panic("PMM: Out of contiguous physical memory for %lu pages!", count);
+    klog_warn("PMM: Out of contiguous physical memory for %lu pages (used %lu / %lu)", count, g_used_pages, g_total_pages);
+    return 0;
 }
 
 void pmm_free_page(uintptr_t phys_addr) {

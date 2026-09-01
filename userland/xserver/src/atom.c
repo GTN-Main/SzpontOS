@@ -114,6 +114,17 @@ void property_set(window_t *win, uint32_t atom, uint32_t type, uint8_t format, c
             memcpy(prop->data, data, len);
         }
     }
+
+    /* Update window title if WM_NAME or _NET_WM_NAME is set */
+    const char *aname = atom_get_name(atom);
+    if (aname && (strcmp(aname, "WM_NAME") == 0 || strcmp(aname, "_NET_WM_NAME") == 0)) {
+        if (len > 0 && data) {
+            size_t copy_len = len < sizeof(win->title) - 1 ? len : sizeof(win->title) - 1;
+            memcpy(win->title, data, copy_len);
+            win->title[copy_len] = '\0';
+            g_server.needs_redraw = true;
+        }
+    }
 }
 
 property_t *property_get(window_t *win, uint32_t atom) {

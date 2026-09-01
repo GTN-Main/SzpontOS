@@ -12,9 +12,10 @@ all: init
 
 init: $(TARGET)
 
-$(TARGET): $(SRCS) $(CRT0_O) $(LIBC_A) | $(ROOTFS_DIR)
+$(TARGET): $(SRCS) $(CRT0_O) $(LIBC_SO) | $(ROOTFS_DIR)
 	@mkdir -p $(ROOTFS_DIR)/bin $(BUILD_DIR)/userland/init
 	@echo "  [CC]  $<"
-	@$(CC) $(USER_CFLAGS) -c $< -o $(OBJS)
+	@$(CC) $(USER_CFLAGS) -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -c $< -o $(OBJS)
 	@echo "  [LD]  $@"
-	@$(LD) $(USER_LDFLAGS) $(CRT0_O) $(OBJS) $(LIBC_A) -o $@
+	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $(OBJS) -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lc -o $@
+	@chmod +x $@

@@ -529,6 +529,27 @@ static void process_scancode(uint8_t scancode) {
         else if (scancode == 0x71) scancode = 0x53; /* Delete */
         else if (scancode == 0x5A) scancode = 0x1C; /* Keypad Enter */
 
+        uint16_t ext_evcode = 0;
+        switch (scancode & 0x7F) {
+        case 0x48: ext_evcode = 103; break; /* Up -> KEY_UP */
+        case 0x50: ext_evcode = 108; break; /* Down -> KEY_DOWN */
+        case 0x4D: ext_evcode = 106; break; /* Right -> KEY_RIGHT */
+        case 0x4B: ext_evcode = 105; break; /* Left -> KEY_LEFT */
+        case 0x47: ext_evcode = 102; break; /* Home -> KEY_HOME */
+        case 0x4F: ext_evcode = 107; break; /* End -> KEY_END */
+        case 0x49: ext_evcode = 104; break; /* Page Up -> KEY_PAGEUP */
+        case 0x51: ext_evcode = 109; break; /* Page Down -> KEY_PAGEDOWN */
+        case 0x52: ext_evcode = 110; break; /* Insert -> KEY_INSERT */
+        case 0x53: ext_evcode = 111; break; /* Delete -> KEY_DELETE */
+        case 0x1C: ext_evcode = 96;  break; /* Keypad Enter -> KEY_KPENTER */
+        case 0x35: ext_evcode = 98;  break; /* Keypad Slash -> KEY_KPSLASH */
+        case 0x1D: ext_evcode = 97;  break; /* Right Ctrl -> KEY_RIGHTCTRL */
+        case 0x38: ext_evcode = 100; break; /* Right Alt -> KEY_RIGHTALT */
+        }
+        if (ext_evcode) {
+            evdev_push_key(ext_evcode, (scancode & 0x80) == 0);
+        }
+
         /* Extended Key Release (Bit 7 Set) */
         if (scancode & 0x80) {
             uint8_t rel = scancode & 0x7F;

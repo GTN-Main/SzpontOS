@@ -21,6 +21,7 @@ typedef int64_t time_t;
 typedef int64_t suseconds_t;
 typedef uint64_t fsblkcnt_t;
 typedef uint64_t fsfilcnt_t;
+typedef int32_t key_t;
 
 typedef char *caddr_t;
 typedef unsigned char u_char;

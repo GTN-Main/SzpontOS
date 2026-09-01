@@ -49,6 +49,7 @@ CORE_PROGS := \
     $(ROOTFS_DIR)/bin/dmesg \
     $(ROOTFS_DIR)/bin/randtest \
     $(ROOTFS_DIR)/bin/tmpfstest \
+    $(ROOTFS_DIR)/bin/shmtest \
     $(ROOTFS_DIR)/bin/ptytest \
     $(ROOTFS_DIR)/bin/kqueuetest \
     $(ROOTFS_DIR)/bin/grep \
@@ -74,13 +75,14 @@ all: progs
 
 progs: $(CORE_PROGS)
 
-# Standard static binaries linked against libc.a
-$(ROOTFS_DIR)/bin/%: $(ROOT_DIR)/userland/bin/%.c $(CRT0_O) $(LIBC_A) | $(ROOTFS_DIR)
+# Standard dynamic binaries linked against libc.so and libm.so
+$(ROOTFS_DIR)/bin/%: $(ROOT_DIR)/userland/bin/%.c $(CRT0_O) $(LIBC_SO) $(LIBM_SO) | $(ROOTFS_DIR)
 	@mkdir -p $(ROOTFS_DIR)/bin $(BUILD_DIR)/userland/bin
 	@echo "  [CC]  $<"
-	@$(CC) $(USER_CFLAGS) -c $< -o $(BUILD_DIR)/userland/bin/$*.o
+	@$(CC) $(USER_CFLAGS) -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -c $< -o $(BUILD_DIR)/userland/bin/$*.o
 	@echo "  [LD]  $@"
-	@$(LD) $(USER_LDFLAGS) $(CRT0_O) $(BUILD_DIR)/userland/bin/$*.o $(LIBC_A) -o $@
+	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $(BUILD_DIR)/userland/bin/$*.o -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lm -lc -o $@
+	@chmod +x $@
 
 # Build donut (dynamically linked against libc.so and libm.so)
 $(ROOTFS_DIR)/bin/donut: $(ROOT_DIR)/userland/bin/donut.c $(CRT0_O) $(LIBC_SO) $(LIBM_SO) | $(ROOTFS_DIR)
@@ -96,7 +98,7 @@ $(ROOTFS_DIR)/bin/szpontdesktop: $(ROOT_DIR)/userland/bin/szpontdesktop.c $(CRT0
 	@echo "  [CC-SZPONTDESKTOP] $<"
 	@$(CC) $(USER_CFLAGS) -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -I$(ROOT_DIR)/third_party/stb -c $< -o $(BUILD_DIR)/userland/bin/szpontdesktop.o
 	@echo "  [LD-SZPONTDESKTOP] $@"
-	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $(BUILD_DIR)/userland/bin/szpontdesktop.o -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lX11 -lxcb -lXau -lXdmcp -lm -lc -o $@
+	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $(BUILD_DIR)/userland/bin/szpontdesktop.o -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lXext -lX11 -lxcb -lXau -lXdmcp -lm -lc -o $@
 	@chmod +x $@
 
 # Native X11 Terminal Emulator (szponterm)

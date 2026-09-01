@@ -3,6 +3,7 @@ ROOT_DIR ?= $(abspath ../..)
 include $(ROOT_DIR)/config.mk
 
 TARGET := $(ROOTFS_DIR)/bin/SzpontX11
+HDRS   := $(wildcard $(ROOT_DIR)/userland/xserver/include/*.h)
 SRCS   := $(wildcard $(ROOT_DIR)/userland/xserver/src/*.c)
 OBJS   := $(patsubst $(ROOT_DIR)/userland/xserver/src/%.c,$(BUILD_DIR)/userland/xserver/%.o,$(SRCS))
 
@@ -12,7 +13,7 @@ all: xserver
 
 xserver: $(TARGET)
 
-$(BUILD_DIR)/userland/xserver/%.o: $(ROOT_DIR)/userland/xserver/src/%.c | $(BUILD_DIR)/userland/xserver
+$(BUILD_DIR)/userland/xserver/%.o: $(ROOT_DIR)/userland/xserver/src/%.c $(HDRS) | $(BUILD_DIR)/userland/xserver
 	@mkdir -p $(BUILD_DIR)/userland/xserver
 	@echo "  [CC-SZPONTX11] $<"
 	@$(CC) $(USER_CFLAGS) -I$(ROOT_DIR)/userland/xserver/include -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include/libdrm -I$(ROOT_DIR)/compat/linux/include -c $< -o $@

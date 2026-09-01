@@ -5,6 +5,7 @@
 #include <mm/heap.h>
 #include <mm/pmm.h>
 #include <mm/vmm.h>
+#include <mm/shm.h>
 #include <fs/vfs.h>
 #include <kernel/string.h>
 #include <kernel/kprint.h>
@@ -189,6 +190,9 @@ void process_exit(int exit_code) {
     process_t *proc = sched_get_current_process();
     if (!proc)
         return;
+
+    /* Detach all active shared memory mappings */
+    shm_process_exit(proc);
 
     proc->status = PROCESS_ZOMBIE;
     proc->exit_code = exit_code;

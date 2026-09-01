@@ -12,6 +12,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
 
 static void apply_window_attributes(window_t *win, client_t *c, uint32_t value_mask, const uint32_t *values) {
     int val_idx = 0;
@@ -911,28 +913,232 @@ static void handle_put_image(client_t *c, const uint8_t *req, size_t len) {
     if (!pix || !pix->data) return;
 
     const uint8_t *data = req + 24;
-    size_t data_avail = len - 24;
 
     /* Handle ZPixmap (32bpp BGRX / RGBX) */
     if (format == 2 /* ZPixmap */) {
         const uint32_t *src_pixels = (const uint32_t *)data;
-        int stride = pix->pitch / 4;
-
-        for (int y = 0; y < height; y++) {
-            int dy = dst_y + y;
-            if (dy < 0 || dy >= pix->height) continue;
-
-            for (int x = 0; x < width; x++) {
-                int dx = dst_x + x;
-                if (dx < 0 || dx >= pix->width) continue;
-
-                size_t src_idx = (size_t)y * width + x;
-                if (src_idx * 4 + 3 >= data_avail) break;
-
-                uint32_t pixel = src_pixels[src_idx];
-                pix->data[dy * stride + dx] = (0xFF << 24) | (pixel & 0x00FFFFFF);
-            }
+        int src_pitch = (int)width * 4;
+        draw_blit(pix->data, pix->pitch, pix->width, pix->height,
+                  dst_x, dst_y, src_pixels, src_pitch, width, height,
+                  0, 0, width, height);
+        if (win) {
+            g_server.needs_redraw = true;
         }
+    }
+}
+
+/* ==============================================================================
+ * MIT-SHM Extension Implementation (Zero-Copy Shared Memory Support)
+ * ============================================================================== */
+
+#define X_Shm_Opcode 130
+#define X_ShmQueryVersion 0
+#define X_ShmAttach 1
+#define X_ShmDetach 2
+#define X_ShmPutImage 3
+#define X_ShmGetImage 4
+#define X_ShmCreatePixmap 5
+
+#define ShmCompletionEvent 64
+#define BadShmSeg 128
+
+shmseg_t *shm_find_seg(client_t *c, uint32_t seg_id) {
+    if (!c || seg_id == 0) return NULL;
+    for (int i = 0; i < MAX_SHMSEGS; i++) {
+        if (c->shm_segments[i].active && c->shm_segments[i].seg_id == seg_id) {
+            return &c->shm_segments[i];
+        }
+    }
+    return NULL;
+}
+
+void shm_cleanup_client(client_t *c) {
+    if (!c) return;
+    for (int i = 0; i < MAX_SHMSEGS; i++) {
+        if (c->shm_segments[i].active) {
+            if (c->shm_segments[i].mapped_addr) {
+                shmdt(c->shm_segments[i].mapped_addr);
+            }
+            memset(&c->shm_segments[i], 0, sizeof(shmseg_t));
+        }
+    }
+}
+
+static void handle_shm_query_version(client_t *c) {
+    struct {
+        uint8_t  type;
+        uint8_t  shared_pixmaps;
+        uint16_t sequence_number;
+        uint32_t length;
+        uint16_t major_version;
+        uint16_t minor_version;
+        uint16_t uid;
+        uint16_t gid;
+        uint8_t  pixmap_format;
+        uint8_t  pad0;
+        uint16_t pad1;
+        uint8_t  pad2[12];
+    } __attribute__((packed)) reply;
+
+    memset(&reply, 0, sizeof(reply));
+    reply.type = 1;
+    reply.shared_pixmaps = 1;
+    reply.sequence_number = c->sequence;
+    reply.length = 0;
+    reply.major_version = 1;
+    reply.minor_version = 2;
+    reply.uid = 0;
+    reply.gid = 0;
+    reply.pixmap_format = 2; /* ZPixmap */
+    client_send_reply(c, &reply, sizeof(reply));
+}
+
+static void handle_shm_attach(client_t *c, const uint8_t *req, size_t len) {
+    if (len < 16) return;
+    uint32_t shmseg_id = *(const uint32_t *)(req + 4);
+    int shmid = *(const int *)(req + 8);
+    bool read_only = (req[12] != 0);
+
+    /* Attach shared memory in X server */
+    void *mapped = shmat(shmid, NULL, read_only ? SHM_RDONLY : 0);
+    if (mapped == (void *)-1) {
+        printf("[SzpontX11] MIT-SHM: shmat failed for SHMID %d\n", shmid);
+        client_send_error(c, BadAlloc, X_Shm_Opcode, X_ShmAttach, shmseg_id);
+        return;
+    }
+
+    shmseg_t *seg = NULL;
+    for (int i = 0; i < MAX_SHMSEGS; i++) {
+        if (!c->shm_segments[i].active) {
+            seg = &c->shm_segments[i];
+            break;
+        }
+    }
+
+    if (!seg) {
+        shmdt(mapped);
+        client_send_error(c, BadAlloc, X_Shm_Opcode, X_ShmAttach, shmseg_id);
+        return;
+    }
+
+    seg->seg_id = shmseg_id;
+    seg->shmid = shmid;
+    seg->mapped_addr = mapped;
+    seg->read_only = read_only;
+    seg->active = true;
+    printf("[SzpontX11] MIT-SHM: Attached SegID 0x%x -> SHMID %d at %p (Zero-Copy Active)\n",
+           shmseg_id, shmid, mapped);
+}
+
+static void handle_shm_detach(client_t *c, const uint8_t *req, size_t len) {
+    if (len < 8) return;
+    uint32_t shmseg_id = *(const uint32_t *)(req + 4);
+    shmseg_t *seg = shm_find_seg(c, shmseg_id);
+    if (seg) {
+        if (seg->mapped_addr) {
+            shmdt(seg->mapped_addr);
+        }
+        memset(seg, 0, sizeof(shmseg_t));
+        printf("[SzpontX11] MIT-SHM: Detached SegID 0x%x\n", shmseg_id);
+    }
+}
+
+static void handle_shm_put_image(client_t *c, const uint8_t *req, size_t len) {
+    if (len < 40) return;
+    uint32_t drawable_id = *(const uint32_t *)(req + 4);
+    /* uint32_t gc_id = *(const uint32_t *)(req + 8); */
+    uint16_t total_w = *(const uint16_t *)(req + 12);
+    uint16_t total_h = *(const uint16_t *)(req + 14);
+    uint16_t src_x = *(const uint16_t *)(req + 16);
+    uint16_t src_y = *(const uint16_t *)(req + 18);
+    uint16_t src_w = *(const uint16_t *)(req + 20);
+    uint16_t src_h = *(const uint16_t *)(req + 22);
+    int16_t dst_x = *(const int16_t *)(req + 24);
+    int16_t dst_y = *(const int16_t *)(req + 26);
+    /* uint8_t depth = req[28]; */
+    /* uint8_t format = req[29]; */
+    uint8_t send_event = req[30];
+    uint32_t shmseg_id = *(const uint32_t *)(req + 32);
+    uint32_t offset = *(const uint32_t *)(req + 36);
+
+    shmseg_t *seg = shm_find_seg(c, shmseg_id);
+    if (!seg || !seg->mapped_addr) {
+        client_send_error(c, BadShmSeg, X_Shm_Opcode, X_ShmPutImage, shmseg_id);
+        return;
+    }
+
+    pixmap_t *dst_pix = NULL;
+    window_t *win = window_find(drawable_id);
+    if (win) {
+        dst_pix = win->backing_pixmap;
+    } else {
+        dst_pix = pixmap_find(drawable_id);
+    }
+
+    if (dst_pix && dst_pix->data) {
+        const uint32_t *src_pixels = (const uint32_t *)((const uint8_t *)seg->mapped_addr + offset);
+        int src_pitch = (int)total_w * 4;
+
+        /* Zero-Copy Blit directly from shared memory into backing pixmap */
+        draw_blit(dst_pix->data, dst_pix->pitch, dst_pix->width, dst_pix->height,
+                  dst_x, dst_y, src_pixels, src_pitch, total_w, total_h,
+                  src_x, src_y, src_w, src_h);
+
+        if (win) {
+            g_server.needs_redraw = true;
+        }
+    }
+
+    if (send_event) {
+        struct {
+            uint8_t type;
+            uint8_t pad;
+            uint16_t sequence;
+            uint32_t drawable;
+            uint16_t minor_event;
+            uint8_t major_event;
+            uint8_t pad2;
+            uint32_t shmseg;
+            uint32_t offset;
+            uint8_t pad3[12];
+        } ev;
+        memset(&ev, 0, sizeof(ev));
+        ev.type = ShmCompletionEvent;
+        ev.sequence = c->sequence;
+        ev.drawable = drawable_id;
+        ev.minor_event = X_ShmPutImage;
+        ev.major_event = X_Shm_Opcode;
+        ev.shmseg = shmseg_id;
+        ev.offset = offset;
+        client_send_reply(c, &ev, sizeof(ev));
+    }
+}
+
+static void handle_shm_create_pixmap(client_t *c, const uint8_t *req, size_t len) {
+    if (len < 28) return;
+    uint32_t pid = *(const uint32_t *)(req + 4);
+    /* uint32_t drawable = *(const uint32_t *)(req + 8); */
+    uint16_t w = *(const uint16_t *)(req + 12);
+    uint16_t h = *(const uint16_t *)(req + 14);
+    uint8_t depth = req[16];
+    uint32_t shmseg_id = *(const uint32_t *)(req + 20);
+    uint32_t offset = *(const uint32_t *)(req + 24);
+
+    shmseg_t *seg = shm_find_seg(c, shmseg_id);
+    if (!seg || !seg->mapped_addr) {
+        client_send_error(c, BadShmSeg, X_Shm_Opcode, X_ShmCreatePixmap, shmseg_id);
+        return;
+    }
+
+    pixmap_t *pm = pixmap_create(c, pid, w, h, depth);
+    if (pm) {
+        if (pm->data) {
+            free(pm->data);
+        }
+        pm->data = (uint32_t *)((uint8_t *)seg->mapped_addr + offset);
+        pm->pitch = w * 4;
+        printf("[SzpontX11] MIT-SHM: Created Shared Pixmap 0x%x (%dx%d, Seg 0x%x offset %u)\n",
+               pid, w, h, shmseg_id, offset);
     }
 }
 
@@ -1181,6 +1387,16 @@ static void handle_translate_coords(client_t *c, const uint8_t *req, size_t len)
     client_send_reply(c, &reply, sizeof(reply));
 }
 
+static void handle_set_input_focus(client_t *c, const uint8_t *req, size_t len) {
+    (void)c;
+    if (len < 12) return;
+    uint32_t wid = *(const uint32_t *)(req + 4);
+    window_t *win = window_find(wid);
+    if (win) {
+        window_set_focus(win);
+    }
+}
+
 static void handle_get_input_focus(client_t *c, const uint8_t *req, size_t len) {
     (void)req; (void)len;
     struct {
@@ -1324,7 +1540,7 @@ void dispatch_request(client_t *c, const uint8_t *req, size_t len) {
     case X_GrabKeyboard:            handle_grab_pointer(c, req, len); break;
     case X_UngrabKeyboard:          break;
     case X_TranslateCoords:         handle_translate_coords(c, req, len); break;
-    case X_SetInputFocus:           break;
+    case X_SetInputFocus:           handle_set_input_focus(c, req, len); break;
     case X_GetInputFocus:           handle_get_input_focus(c, req, len); break;
     case X_OpenFont:                handle_open_font(c, req, len); break;
     case X_CloseFont:               handle_close_font(c, req, len); break;
@@ -1334,6 +1550,8 @@ void dispatch_request(client_t *c, const uint8_t *req, size_t len) {
     case X_ListFontsWithInfo:       handle_list_fonts(c, req, len); break;
     case X_NoOperation:             break;
     case X_QueryExtension: {
+        uint16_t nbytes = (len >= 8) ? *(const uint16_t *)(req + 4) : 0;
+        const char *name = (const char *)(req + 8);
         struct {
             x11_reply_header_t hdr;
             uint8_t present;
@@ -1344,7 +1562,29 @@ void dispatch_request(client_t *c, const uint8_t *req, size_t len) {
         } ext_reply;
         memset(&ext_reply, 0, sizeof(ext_reply));
         ext_reply.hdr.response_type = 1;
+
+        if (nbytes == 7 && strncmp(name, "MIT-SHM", 7) == 0) {
+            ext_reply.present = 1;
+            ext_reply.major_opcode = X_Shm_Opcode;
+            ext_reply.first_event = ShmCompletionEvent;
+            ext_reply.first_error = BadShmSeg;
+            printf("[SzpontX11] QueryExtension: MIT-SHM enabled (Opcode %d, Event %d, Error %d)\n",
+                   X_Shm_Opcode, ShmCompletionEvent, BadShmSeg);
+        }
+
         client_send_reply(c, &ext_reply, sizeof(ext_reply));
+        break;
+    }
+    case X_Shm_Opcode: {
+        uint8_t minor = req[1];
+        switch (minor) {
+        case X_ShmQueryVersion: handle_shm_query_version(c); break;
+        case X_ShmAttach:       handle_shm_attach(c, req, len); break;
+        case X_ShmDetach:       handle_shm_detach(c, req, len); break;
+        case X_ShmPutImage:     handle_shm_put_image(c, req, len); break;
+        case X_ShmCreatePixmap: handle_shm_create_pixmap(c, req, len); break;
+        default: break;
+        }
         break;
     }
     default:

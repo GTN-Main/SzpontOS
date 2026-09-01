@@ -177,91 +177,624 @@ void draw_blit(uint32_t *dst, int dst_pitch, int dst_w, int dst_h, int dst_x, in
                const uint32_t *src, int src_pitch, int src_w, int src_h, int src_x, int src_y, int w, int h) {
     if (!dst || !src || w <= 0 || h <= 0) return;
 
+    /* Clip source bounds */
+    if (src_x < 0) { w += src_x; dst_x -= src_x; src_x = 0; }
+    if (src_y < 0) { h += src_y; dst_y -= src_y; src_y = 0; }
+    if (src_x + w > src_w) { w = src_w - src_x; }
+    if (src_y + h > src_h) { h = src_h - src_y; }
+
+    /* Clip destination bounds */
+    if (dst_x < 0) { w += dst_x; src_x -= dst_x; dst_x = 0; }
+    if (dst_y < 0) { h += dst_y; src_y -= dst_y; dst_y = 0; }
+    if (dst_x + w > dst_w) { w = dst_w - dst_x; }
+    if (dst_y + h > dst_h) { h = dst_h - dst_y; }
+
+    if (w <= 0 || h <= 0) return;
+
     int dst_stride = dst_pitch / 4;
     int src_stride = src_pitch / 4;
+    size_t copy_bytes = (size_t)w * sizeof(uint32_t);
 
     for (int r = 0; r < h; r++) {
-        int sy = src_y + r;
-        int dy = dst_y + r;
-        if (sy < 0 || sy >= src_h || dy < 0 || dy >= dst_h) continue;
-
-        for (int c = 0; c < w; c++) {
-            int sx = src_x + c;
-            int dx = dst_x + c;
-            if (sx < 0 || sx >= src_w || dx < 0 || dx >= dst_w) continue;
-
-            dst[dy * dst_stride + dx] = src[sy * src_stride + sx];
-        }
+        uint32_t *d_row = &dst[(dst_y + r) * dst_stride + dst_x];
+        const uint32_t *s_row = &src[(src_y + r) * src_stride + src_x];
+        memcpy(d_row, s_row, copy_bytes);
     }
 }
 
-/* 24x24 Modern High-DPI Arrow Cursor with Drop Shadow */
-static const uint32_t g_cursor_bitmap_24[24] = {
-    0b100000000000000000000000,
-    0b110000000000000000000000,
-    0b111000000000000000000000,
-    0b111100000000000000000000,
-    0b111110000000000000000000,
-    0b111111000000000000000000,
-    0b111111100000000000000000,
-    0b111111110000000000000000,
-    0b111111111000000000000000,
-    0b111111111100000000000000,
-    0b111111111110000000000000,
-    0b111111111111000000000000,
-    0b111111111111100000000000,
-    0b111111111111110000000000,
-    0b111111111100000000000000,
-    0b111101111110000000000000,
-    0b111000111111000000000000,
-    0b110000011111100000000000,
-    0b100000001111110000000000,
-    0b000000000111111000000000,
-    0b000000000011111100000000,
-    0b000000000001111100000000,
-    0b000000000000111000000000,
-    0b000000000000000000000000,
-};
+/* =========================================================================
+ * 24x24 Cursor Bitmaps & Outlines for Multiple Cursor Types
+ * ========================================================================= */
 
-static const uint32_t g_cursor_outline_24[24] = {
-    0b110000000000000000000000,
-    0b111000000000000000000000,
-    0b111100000000000000000000,
-    0b111110000000000000000000,
-    0b111111000000000000000000,
-    0b111111100000000000000000,
-    0b111111110000000000000000,
-    0b111111111000000000000000,
-    0b111111111100000000000000,
-    0b111111111110000000000000,
-    0b111111111111000000000000,
-    0b111111111111100000000000,
-    0b111111111111110000000000,
-    0b111111111111111000000000,
-    0b111111111111111100000000,
-    0b111111111111111100000000,
-    0b111101111111111100000000,
-    0b111001111111111100000000,
-    0b110000111111111000000000,
-    0b100000011111110000000000,
-    0b000000001111110000000000,
-    0b000000000111110000000000,
-    0b000000000011100000000000,
-    0b000000000000000000000000,
+typedef struct {
+    int      hot_x;
+    int      hot_y;
+    uint32_t bitmap[24];
+    uint32_t outline[24];
+} cursor_def_t;
+
+static const cursor_def_t g_cursor_defs[MAX_CURSOR_TYPES] = {
+    /* [0] CURSOR_ARROW */
+    {
+        .hot_x = 0, .hot_y = 0,
+        .bitmap = {
+            0b100000000000000000000000,
+            0b110000000000000000000000,
+            0b111000000000000000000000,
+            0b111100000000000000000000,
+            0b111110000000000000000000,
+            0b111111000000000000000000,
+            0b111111100000000000000000,
+            0b111111110000000000000000,
+            0b111111111000000000000000,
+            0b111111111100000000000000,
+            0b111111111110000000000000,
+            0b111111111111000000000000,
+            0b111111111111100000000000,
+            0b111111111111110000000000,
+            0b111111111100000000000000,
+            0b111101111110000000000000,
+            0b111000111111000000000000,
+            0b110000011111100000000000,
+            0b100000001111110000000000,
+            0b000000000111111000000000,
+            0b000000000011111100000000,
+            0b000000000001111100000000,
+            0b000000000000111000000000,
+            0b000000000000000000000000,
+        },
+        .outline = {
+            0b110000000000000000000000,
+            0b111000000000000000000000,
+            0b111100000000000000000000,
+            0b111110000000000000000000,
+            0b111111000000000000000000,
+            0b111111100000000000000000,
+            0b111111110000000000000000,
+            0b111111111000000000000000,
+            0b111111111100000000000000,
+            0b111111111110000000000000,
+            0b111111111111000000000000,
+            0b111111111111100000000000,
+            0b111111111111110000000000,
+            0b111111111111111000000000,
+            0b111111111111111100000000,
+            0b111111111111111100000000,
+            0b111101111111111100000000,
+            0b111001111111111100000000,
+            0b110000111111111000000000,
+            0b100000011111110000000000,
+            0b000000001111110000000000,
+            0b000000000111110000000000,
+            0b000000000011100000000000,
+            0b000000000000000000000000,
+        }
+    },
+    /* [1] CURSOR_IBEAM */
+    {
+        .hot_x = 8, .hot_y = 11,
+        .bitmap = {
+            0b000000000000000000000000,
+            0b000111111111000000000000,
+            0b000000011000000000000000,
+            0b000000011000000000000000,
+            0b000000011000000000000000,
+            0b000000011000000000000000,
+            0b000000011000000000000000,
+            0b000000011000000000000000,
+            0b000000011000000000000000,
+            0b000000011000000000000000,
+            0b000000011000000000000000,
+            0b000000011000000000000000,
+            0b000000011000000000000000,
+            0b000000011000000000000000,
+            0b000000011000000000000000,
+            0b000000011000000000000000,
+            0b000000011000000000000000,
+            0b000000011000000000000000,
+            0b000000011000000000000000,
+            0b000111111111000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+        },
+        .outline = {
+            0b001111111111100000000000,
+            0b001111111111100000000000,
+            0b000000111100000000000000,
+            0b000000111100000000000000,
+            0b000000111100000000000000,
+            0b000000111100000000000000,
+            0b000000111100000000000000,
+            0b000000111100000000000000,
+            0b000000111100000000000000,
+            0b000000111100000000000000,
+            0b000000111100000000000000,
+            0b000000111100000000000000,
+            0b000000111100000000000000,
+            0b000000111100000000000000,
+            0b000000111100000000000000,
+            0b000000111100000000000000,
+            0b000000111100000000000000,
+            0b000000111100000000000000,
+            0b001111111111100000000000,
+            0b001111111111100000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+        }
+    },
+    /* [2] CURSOR_HAND */
+    {
+        .hot_x = 5, .hot_y = 1,
+        .bitmap = {
+            0b000011000000000000000000,
+            0b000011000000000000000000,
+            0b000011000000000000000000,
+            0b000011001100000000000000,
+            0b000011011110110000000000,
+            0b000011011111111000000000,
+            0b001111011111111000000000,
+            0b011111111111111000000000,
+            0b011111111111111000000000,
+            0b011111111111111000000000,
+            0b011111111111111000000000,
+            0b001111111111110000000000,
+            0b000111111111110000000000,
+            0b000011111111100000000000,
+            0b000011111111000000000000,
+            0b000011111111000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+        },
+        .outline = {
+            0b000111100000000000000000,
+            0b000111100000000000000000,
+            0b000111100110000000000000,
+            0b000111111111011000000000,
+            0b000111111111111100000000,
+            0b001111111111111110000000,
+            0b011111111111111110000000,
+            0b111111111111111110000000,
+            0b111111111111111110000000,
+            0b111111111111111110000000,
+            0b111111111111111110000000,
+            0b011111111111111100000000,
+            0b001111111111111100000000,
+            0b000111111111111000000000,
+            0b000111111111110000000000,
+            0b000111111111110000000000,
+            0b000011111111000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+        }
+    },
+    /* [3] CURSOR_RESIZE_NWSE */
+    {
+        .hot_x = 11, .hot_y = 11,
+        .bitmap = {
+            0b111111100000000000000000,
+            0b111111000000000000000000,
+            0b111110000000000000000000,
+            0b111110000000000000000000,
+            0b111011000000000000000000,
+            0b110001100000000000000000,
+            0b100000110000000000000000,
+            0b000000011000000000000000,
+            0b000000001100000000000000,
+            0b000000000110000000000000,
+            0b000000000011000000000000,
+            0b000000000001100000000000,
+            0b000000000000110000000000,
+            0b000000000000011000000000,
+            0b000000000000001100000000,
+            0b000000000000000110000001,
+            0b000000000000000011000011,
+            0b000000000000000001101111,
+            0b000000000000000000111111,
+            0b000000000000000000111111,
+            0b000000000000000000011111,
+            0b000000000000000000001111,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+        },
+        .outline = {
+            0b111111110000000000000000,
+            0b111111110000000000000000,
+            0b111111100000000000000000,
+            0b111111100000000000000000,
+            0b111111110000000000000000,
+            0b111011110000000000000000,
+            0b110001111000000000000000,
+            0b100000111100000000000000,
+            0b000000011110000000000000,
+            0b000000001111000000000000,
+            0b000000000111100000000000,
+            0b000000000011110000000000,
+            0b000000000001111000000000,
+            0b000000000000111100000000,
+            0b000000000000011110000000,
+            0b000000000000001111000011,
+            0b000000000000000111100111,
+            0b000000000000000011111111,
+            0b000000000000000001111111,
+            0b000000000000000001111111,
+            0b000000000000000000111111,
+            0b000000000000000000111111,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+        }
+    },
+    /* [4] CURSOR_RESIZE_NESW */
+    {
+        .hot_x = 11, .hot_y = 11,
+        .bitmap = {
+            0b000000000000000011111110,
+            0b000000000000000000111111,
+            0b000000000000000000011111,
+            0b000000000000000000011111,
+            0b000000000000000000110111,
+            0b000000000000000001100011,
+            0b000000000000000011000001,
+            0b000000000000000110000000,
+            0b000000000000001100000000,
+            0b000000000000011000000000,
+            0b000000000000110000000000,
+            0b000000000001100000000000,
+            0b000000000011000000000000,
+            0b000000000110000000000000,
+            0b000000001100000000000000,
+            0b100000011000000000000000,
+            0b110000110000000000000000,
+            0b111011000000000000000000,
+            0b111111000000000000000000,
+            0b111111000000000000000000,
+            0b111110000000000000000000,
+            0b111100000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+        },
+        .outline = {
+            0b000000000000000011111111,
+            0b000000000000000011111111,
+            0b000000000000000001111111,
+            0b000000000000000001111111,
+            0b000000000000000011111111,
+            0b000000000000000011110111,
+            0b000000000000000111100011,
+            0b000000000000001111000001,
+            0b000000000000011110000000,
+            0b000000000000111100000000,
+            0b000000000001111000000000,
+            0b000000000011110000000000,
+            0b000000000111100000000000,
+            0b000000001111000000000000,
+            0b000000011110000000000000,
+            0b110000111100000000000000,
+            0b111001111000000000000000,
+            0b111111110000000000000000,
+            0b111111100000000000000000,
+            0b111111100000000000000000,
+            0b111111000000000000000000,
+            0b111111000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+        }
+    },
+    /* [5] CURSOR_RESIZE_WE */
+    {
+        .hot_x = 11, .hot_y = 11,
+        .bitmap = {
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000010000000000001000000,
+            0b000110000000000011000000,
+            0b001110000000000111000000,
+            0b011110000000001111000000,
+            0b111111111111111111100000,
+            0b111111111111111111100000,
+            0b011110000000001111000000,
+            0b001110000000000111000000,
+            0b000110000000000011000000,
+            0b000010000000000001000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+        },
+        .outline = {
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000011000000000011000000,
+            0b000111000000000111000000,
+            0b001111000000001111000000,
+            0b011111000000011111000000,
+            0b111111111111111111110000,
+            0b111111111111111111110000,
+            0b111111111111111111110000,
+            0b111111111111111111110000,
+            0b011111000000011111000000,
+            0b001111000000001111000000,
+            0b000111000000000111000000,
+            0b000011000000000011000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+        }
+    },
+    /* [6] CURSOR_RESIZE_NS */
+    {
+        .hot_x = 11, .hot_y = 11,
+        .bitmap = {
+            0b000000000100000000000000,
+            0b000000001110000000000000,
+            0b000000011111000000000000,
+            0b000000111111100000000000,
+            0b000000001110000000000000,
+            0b000000001110000000000000,
+            0b000000001110000000000000,
+            0b000000001110000000000000,
+            0b000000001110000000000000,
+            0b000000001110000000000000,
+            0b000000001110000000000000,
+            0b000000001110000000000000,
+            0b000000001110000000000000,
+            0b000000001110000000000000,
+            0b000000001110000000000000,
+            0b000000001110000000000000,
+            0b000000111111100000000000,
+            0b000000011111000000000000,
+            0b000000001110000000000000,
+            0b000000000100000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+        },
+        .outline = {
+            0b000000001110000000000000,
+            0b000000011111000000000000,
+            0b000000111111100000000000,
+            0b000001111111110000000000,
+            0b000000011111000000000000,
+            0b000000011111000000000000,
+            0b000000011111000000000000,
+            0b000000011111000000000000,
+            0b000000011111000000000000,
+            0b000000011111000000000000,
+            0b000000011111000000000000,
+            0b000000011111000000000000,
+            0b000000011111000000000000,
+            0b000000011111000000000000,
+            0b000000011111000000000000,
+            0b000001111111110000000000,
+            0b000000111111100000000000,
+            0b000000011111000000000000,
+            0b000000001110000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+        }
+    },
+    /* [7] CURSOR_MOVE (4-way crosshair) */
+    {
+        .hot_x = 11, .hot_y = 11,
+        .bitmap = {
+            0b000000000100000000000000,
+            0b000000001110000000000000,
+            0b000000011111000000000000,
+            0b000000001110000000000000,
+            0b000000001110000000000000,
+            0b000010001110001000000000,
+            0b000110001110011000000000,
+            0b001111111111111000000000,
+            0b011111111111111100000000,
+            0b001111111111111000000000,
+            0b000110001110011000000000,
+            0b000010001110001000000000,
+            0b000000001110000000000000,
+            0b000000001110000000000000,
+            0b000000011111000000000000,
+            0b000000001110000000000000,
+            0b000000000100000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+        },
+        .outline = {
+            0b000000001110000000000000,
+            0b000000011111000000000000,
+            0b000000111111100000000000,
+            0b000000011111000000000000,
+            0b000011011111011000000000,
+            0b000111011111011100000000,
+            0b001111111111111100000000,
+            0b011111111111111110000000,
+            0b111111111111111111000000,
+            0b011111111111111110000000,
+            0b001111111111111100000000,
+            0b000111011111011100000000,
+            0b000011011111011000000000,
+            0b000000011111000000000000,
+            0b000000111111100000000000,
+            0b000000011111000000000000,
+            0b000000001110000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+        }
+    },
+    /* [8] CURSOR_WAIT (Hourglass) */
+    {
+        .hot_x = 11, .hot_y = 11,
+        .bitmap = {
+            0b000111111111111000000000,
+            0b000111111111111000000000,
+            0b000011111111110000000000,
+            0b000001111111100000000000,
+            0b000000111111000000000000,
+            0b000000011110000000000000,
+            0b000000001100000000000000,
+            0b000000011110000000000000,
+            0b000000111111000000000000,
+            0b000001111111100000000000,
+            0b000011111111110000000000,
+            0b000111111111111000000000,
+            0b000111111111111000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+        },
+        .outline = {
+            0b001111111111111100000000,
+            0b001111111111111100000000,
+            0b000111111111111000000000,
+            0b000011111111110000000000,
+            0b000001111111100000000000,
+            0b000000111111000000000000,
+            0b000000011110000000000000,
+            0b000000111111000000000000,
+            0b000001111111100000000000,
+            0b000011111111110000000000,
+            0b000111111111111000000000,
+            0b001111111111111100000000,
+            0b001111111111111100000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+        }
+    },
+    /* [9] CURSOR_CROSSHAIR */
+    {
+        .hot_x = 11, .hot_y = 11,
+        .bitmap = {
+            0b000000000001100000000000,
+            0b000000000001100000000000,
+            0b000000000001100000000000,
+            0b000000000001100000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b111100000000000000001111,
+            0b111100000000000000001111,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000001100000000000,
+            0b000000000001100000000000,
+            0b000000000001100000000000,
+            0b000000000001100000000000,
+        },
+        .outline = {
+            0b000000000011110000000000,
+            0b000000000011110000000000,
+            0b000000000011110000000000,
+            0b000000000011110000000000,
+            0b000000000011110000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b111110000000000000011111,
+            0b111110000000000000011111,
+            0b111110000000000000011111,
+            0b111110000000000000011111,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000000000000000000,
+            0b000000000011110000000000,
+            0b000000000011110000000000,
+            0b000000000011110000000000,
+            0b000000000011110000000000,
+            0b000000000011110000000000,
+        }
+    }
 };
 
 void draw_cursor(uint32_t *dst, int pitch, int dst_w, int dst_h, int cx, int cy) {
     if (!dst) return;
     int stride = pitch / 4;
 
+    int ctype = g_server.active_cursor_type;
+    if (ctype < 0 || ctype >= MAX_CURSOR_TYPES) ctype = CURSOR_ARROW;
+
+    const cursor_def_t *cdef = &g_cursor_defs[ctype];
+    int ox = cx - cdef->hot_x;
+    int oy = cy - cdef->hot_y;
+
     /* 1. Draw subtle dark drop shadow (+2, +2 offset) */
     for (int y = 0; y < 24; y++) {
-        int py = cy + y + 2;
+        int py = oy + y + 2;
         if (py < 0 || py >= dst_h) continue;
 
-        uint32_t outline = g_cursor_outline_24[y];
+        uint32_t outline = cdef->outline[y];
         for (int x = 0; x < 24; x++) {
-            int px = cx + x + 2;
+            int px = ox + x + 2;
             if (px < 0 || px >= dst_w) continue;
 
             if ((outline >> (23 - x)) & 1) {
@@ -276,14 +809,14 @@ void draw_cursor(uint32_t *dst, int pitch, int dst_w, int dst_h, int cx, int cy)
 
     /* 2. Draw black border outline and crisp white body */
     for (int y = 0; y < 24; y++) {
-        int py = cy + y;
+        int py = oy + y;
         if (py < 0 || py >= dst_h) continue;
 
-        uint32_t mask = g_cursor_bitmap_24[y];
-        uint32_t outline = g_cursor_outline_24[y];
+        uint32_t mask = cdef->bitmap[y];
+        uint32_t outline = cdef->outline[y];
 
         for (int x = 0; x < 24; x++) {
-            int px = cx + x;
+            int px = ox + x;
             if (px < 0 || px >= dst_w) continue;
 
             if ((mask >> (23 - x)) & 1) {
@@ -295,6 +828,52 @@ void draw_cursor(uint32_t *dst, int pitch, int dst_w, int dst_h, int cx, int cy)
     }
 }
 
+static void draw_traffic_light(uint32_t *dst, int pitch, int dst_w, int dst_h, int cx, int cy, int r, uint32_t color) {
+    if (!dst) return;
+    int stride = pitch / 4;
+    for (int dy = -r; dy <= r; dy++) {
+        int py = cy + dy;
+        if (py < 0 || py >= dst_h) continue;
+        for (int dx = -r; dx <= r; dx++) {
+            int px = cx + dx;
+            if (px < 0 || px >= dst_w) continue;
+            if (dx * dx + dy * dy <= r * r) {
+                dst[py * stride + px] = color;
+            }
+        }
+    }
+}
+
+static void draw_window_shadow(uint32_t *dst, int pitch, int dst_w, int dst_h, int x, int y, int w, int h) {
+    if (!dst) return;
+    int stride = pitch / 4;
+    int shadow_size = 6;
+
+    int sx0 = x - shadow_size;
+    int sy0 = y - shadow_size;
+    int sx1 = x + w + shadow_size;
+    int sy1 = y + h + shadow_size;
+
+    if (sx0 < 0) sx0 = 0;
+    if (sy0 < 0) sy0 = 0;
+    if (sx1 > dst_w) sx1 = dst_w;
+    if (sy1 > dst_h) sy1 = dst_h;
+
+    for (int r = sy0; r < sy1; r++) {
+        uint32_t *row = &dst[r * stride];
+        for (int c = sx0; c < sx1; c++) {
+            if (c >= x && c < x + w && r >= y && r < y + h)
+                continue;
+
+            uint32_t cur = row[c];
+            uint8_t cr = (uint8_t)((cur >> 16) & 0xFF) / 2;
+            uint8_t cg = (uint8_t)((cur >> 8) & 0xFF) / 2;
+            uint8_t cb = (uint8_t)(cur & 0xFF) / 2;
+            row[c] = (0xFF << 24) | (cr << 16) | (cg << 8) | cb;
+        }
+    }
+}
+
 static void composite_window_recursive(window_t *win, uint32_t *dst, int dst_pitch, int dst_w, int dst_h) {
     if (!win) return;
 
@@ -302,26 +881,41 @@ static void composite_window_recursive(window_t *win, uint32_t *dst, int dst_pit
         int abs_x, abs_y;
         window_get_absolute_coords(win, &abs_x, &abs_y);
 
-        /* Draw decorative titlebar and border for top-level application windows */
-        if (win->parent == &g_server.root_window && win->id >= 0x500000 && win->width > 100 && win->height > 60) {
-            uint32_t border_col = (g_server.focus_window == win || (g_server.focus_window && g_server.focus_window->parent == win)) ? 0xFF3B82F6 : 0xFF475569;
+        /* Draw decorative titlebar, drop shadow, and glowing border for top-level decorated windows */
+        if (win->is_decorated && win->width > 60 && win->height > 40) {
+            bool is_focused = (g_server.focus_window == win || (g_server.focus_window && g_server.focus_window->parent == win));
+            uint32_t border_col = is_focused ? 0xFF38BDF8 : 0xFF334155;
+            uint32_t titlebar_bg = is_focused ? 0xFF181825 : 0xFF11111B;
+            uint32_t title_text_col = is_focused ? 0xFFF8FAFC : 0xFF94A3B8;
 
-            /* Titlebar background (28px height above window) */
-            draw_fill_rect(dst, dst_pitch, dst_w, dst_h, abs_x - 2, abs_y - 28, win->width + 4, 28, 0xFF1E293B, GXcopy);
-            draw_fill_rect(dst, dst_pitch, dst_w, dst_h, abs_x - 2, abs_y - 28, win->width + 4, 2, border_col, GXcopy);
+            /* 1. Ambient Drop Shadow */
+            draw_window_shadow(dst, dst_pitch, dst_w, dst_h,
+                               abs_x - WINDOW_BORDER_W, abs_y - TITLEBAR_HEIGHT,
+                               win->width + WINDOW_BORDER_W * 2, win->height + TITLEBAR_HEIGHT + WINDOW_BORDER_W);
 
-            /* Title text */
-            draw_text(dst, dst_pitch, dst_w, dst_h, abs_x + 12, abs_y - 22, "XTerm — /bin/sh", 15, 0xFFE2E8F0, 0, true);
+            /* 2. Titlebar background (28px height above window) */
+            draw_fill_rect(dst, dst_pitch, dst_w, dst_h,
+                           abs_x - WINDOW_BORDER_W, abs_y - TITLEBAR_HEIGHT,
+                           win->width + WINDOW_BORDER_W * 2, TITLEBAR_HEIGHT, titlebar_bg, GXcopy);
 
-            /* Window action controls (close, minimize, maximize) */
-            draw_fill_rect(dst, dst_pitch, dst_w, dst_h, abs_x + win->width - 18, abs_y - 20, 10, 10, 0xFFEF4444, GXcopy);
-            draw_fill_rect(dst, dst_pitch, dst_w, dst_h, abs_x + win->width - 34, abs_y - 20, 10, 10, 0xFFF59E0B, GXcopy);
-            draw_fill_rect(dst, dst_pitch, dst_w, dst_h, abs_x + win->width - 50, abs_y - 20, 10, 10, 0xFF10B981, GXcopy);
+            /* Top Accent line */
+            draw_fill_rect(dst, dst_pitch, dst_w, dst_h,
+                           abs_x - WINDOW_BORDER_W, abs_y - TITLEBAR_HEIGHT,
+                           win->width + WINDOW_BORDER_W * 2, 2, border_col, GXcopy);
 
-            /* Outer side and bottom borders */
-            draw_fill_rect(dst, dst_pitch, dst_w, dst_h, abs_x - 2, abs_y, 2, win->height, border_col, GXcopy);
-            draw_fill_rect(dst, dst_pitch, dst_w, dst_h, abs_x + win->width, abs_y, 2, win->height, border_col, GXcopy);
-            draw_fill_rect(dst, dst_pitch, dst_w, dst_h, abs_x - 2, abs_y + win->height, win->width + 4, 2, border_col, GXcopy);
+            /* 3. Traffic Light Controls (Close: Red, Minimize: Yellow, Maximize: Green) */
+            draw_traffic_light(dst, dst_pitch, dst_w, dst_h, abs_x + 14, abs_y - TITLEBAR_HEIGHT + 14, 5, 0xFFEF4444);
+            draw_traffic_light(dst, dst_pitch, dst_w, dst_h, abs_x + 30, abs_y - TITLEBAR_HEIGHT + 14, 5, 0xFFF59E0B);
+            draw_traffic_light(dst, dst_pitch, dst_w, dst_h, abs_x + 46, abs_y - TITLEBAR_HEIGHT + 14, 5, 0xFF10B981);
+
+            /* 4. Window Title Text */
+            const char *title = win->title[0] ? win->title : "SzpontOS Application";
+            draw_text(dst, dst_pitch, dst_w, dst_h, abs_x + 64, abs_y - TITLEBAR_HEIGHT + 6, title, strlen(title), title_text_col, 0, true);
+
+            /* 5. Outer side and bottom borders */
+            draw_fill_rect(dst, dst_pitch, dst_w, dst_h, abs_x - WINDOW_BORDER_W, abs_y, WINDOW_BORDER_W, win->height, border_col, GXcopy);
+            draw_fill_rect(dst, dst_pitch, dst_w, dst_h, abs_x + win->width, abs_y, WINDOW_BORDER_W, win->height, border_col, GXcopy);
+            draw_fill_rect(dst, dst_pitch, dst_w, dst_h, abs_x - WINDOW_BORDER_W, abs_y + win->height, win->width + WINDOW_BORDER_W * 2, WINDOW_BORDER_W, border_col, GXcopy);
         } else if (win->border_width > 0) {
             draw_rect(dst, dst_pitch, dst_w, dst_h,
                       abs_x - win->border_width, abs_y - win->border_width,
@@ -344,38 +938,80 @@ static void composite_window_recursive(window_t *win, uint32_t *dst, int dst_pit
 }
 
 static uint32_t s_cursor_bg[32 * 32];
-static int s_prev_cx = -1;
-static int s_prev_cy = -1;
+static int s_prev_ox = -1;
+static int s_prev_oy = -1;
 static bool s_has_saved_bg = false;
+
+static void update_active_cursor_type(void) {
+    int ctype = CURSOR_ARROW;
+    if (g_server.dragging_window) {
+        ctype = CURSOR_MOVE;
+    } else if (g_server.grab_window) {
+        ctype = CURSOR_RESIZE_NWSE;
+    } else {
+        window_t *win = g_server.pointer_window;
+        if (win && win != &g_server.root_window) {
+            int abs_x, abs_y;
+            window_get_absolute_coords(win, &abs_x, &abs_y);
+            int rel_x = g_server.mouse_x - abs_x;
+            int rel_y = g_server.mouse_y - abs_y;
+
+            if (rel_y < 0 && rel_y >= -TITLEBAR_HEIGHT) {
+                if (rel_x >= 8 && rel_x <= 56) {
+                    ctype = CURSOR_HAND;
+                } else {
+                    ctype = CURSOR_MOVE;
+                }
+            } else if (win->id == 0x400001 || (win->y == 0 && win->height <= 36)) {
+                if (rel_x >= 160 && rel_x <= 800) {
+                    ctype = CURSOR_HAND;
+                }
+            } else if (rel_x >= (int)win->width - 24 && rel_y >= (int)win->height - 24) {
+                ctype = CURSOR_RESIZE_NWSE;
+            } else if (rel_x >= (int)win->width - 6) {
+                ctype = CURSOR_RESIZE_WE;
+            } else if (rel_y >= (int)win->height - 6) {
+                ctype = CURSOR_RESIZE_NS;
+            } else if (win->backing_pixmap && win->id != 0x400001) {
+                ctype = CURSOR_IBEAM;
+            }
+        }
+    }
+    g_server.active_cursor_type = (uint8_t)ctype;
+}
 
 void draw_update_cursor(void) {
     if (!g_server.shadow_fb || !g_server.fb_mapped) return;
 
+    update_active_cursor_type();
+
     int new_cx = g_server.mouse_x;
     int new_cy = g_server.mouse_y;
+    int new_ox = new_cx - 16;
+    int new_oy = new_cy - 16;
     int stride = g_server.pitch / 4;
     int dw = g_server.width;
     int dh = g_server.height;
 
     /* 1. Restore previous cursor background if we had one */
-    if (s_has_saved_bg && s_prev_cx >= 0 && s_prev_cy >= 0) {
-        for (int y = 0; y < 28; y++) {
-            int py = s_prev_cy + y;
+    if (s_has_saved_bg && s_prev_ox != -1 && s_prev_oy != -1) {
+        for (int y = 0; y < 32; y++) {
+            int py = s_prev_oy + y;
             if (py < 0 || py >= dh) continue;
-            for (int x = 0; x < 28; x++) {
-                int px = s_prev_cx + x;
+            for (int x = 0; x < 32; x++) {
+                int px = s_prev_ox + x;
                 if (px < 0 || px >= dw) continue;
                 g_server.shadow_fb[py * stride + px] = s_cursor_bg[y * 32 + x];
             }
         }
-        drm_flush_rect(s_prev_cx, s_prev_cy, 28, 28);
+        drm_flush_rect(s_prev_ox, s_prev_oy, 32, 32);
     }
 
     /* 2. Save new background */
-    for (int y = 0; y < 28; y++) {
-        int py = new_cy + y;
-        for (int x = 0; x < 28; x++) {
-            int px = new_cx + x;
+    for (int y = 0; y < 32; y++) {
+        int py = new_oy + y;
+        for (int x = 0; x < 32; x++) {
+            int px = new_ox + x;
             if (py >= 0 && py < dh && px >= 0 && px < dw) {
                 s_cursor_bg[y * 32 + x] = g_server.shadow_fb[py * stride + px];
             } else {
@@ -384,18 +1020,20 @@ void draw_update_cursor(void) {
         }
     }
     s_has_saved_bg = true;
-    s_prev_cx = new_cx;
-    s_prev_cy = new_cy;
+    s_prev_ox = new_ox;
+    s_prev_oy = new_oy;
 
     /* 3. Draw cursor on shadow_fb */
     draw_cursor(g_server.shadow_fb, g_server.pitch, dw, dh, new_cx, new_cy);
 
-    /* 4. Flush only the 28x28 cursor rect to DRM */
-    drm_flush_rect(new_cx, new_cy, 28, 28);
+    /* 4. Flush only the 32x32 cursor rect to DRM */
+    drm_flush_rect(new_ox, new_oy, 32, 32);
 }
 
 void draw_composite_scene(void) {
     if (!g_server.shadow_fb) return;
+
+    update_active_cursor_type();
 
     /* 1. Composite Root Window and all mapped children */
     composite_window_recursive(&g_server.root_window, g_server.shadow_fb,
@@ -404,14 +1042,16 @@ void draw_composite_scene(void) {
     /* 2. Save background under current cursor */
     int cx = g_server.mouse_x;
     int cy = g_server.mouse_y;
+    int ox = cx - 16;
+    int oy = cy - 16;
     int stride = g_server.pitch / 4;
     int dw = g_server.width;
     int dh = g_server.height;
 
-    for (int y = 0; y < 28; y++) {
-        int py = cy + y;
-        for (int x = 0; x < 28; x++) {
-            int px = cx + x;
+    for (int y = 0; y < 32; y++) {
+        int py = oy + y;
+        for (int x = 0; x < 32; x++) {
+            int px = ox + x;
             if (py >= 0 && py < dh && px >= 0 && px < dw) {
                 s_cursor_bg[y * 32 + x] = g_server.shadow_fb[py * stride + px];
             } else {
@@ -420,8 +1060,8 @@ void draw_composite_scene(void) {
         }
     }
     s_has_saved_bg = true;
-    s_prev_cx = cx;
-    s_prev_cy = cy;
+    s_prev_ox = ox;
+    s_prev_oy = oy;
 
     /* 3. Draw software cursor at live mouse position */
     draw_cursor(g_server.shadow_fb, g_server.pitch, g_server.width, g_server.height,

@@ -43,6 +43,7 @@ LIBC_C_SRCS := \
     $(ROOT_DIR)/libc/src/sched/sched.c \
     $(ROOT_DIR)/libc/src/drm/drm.c \
     $(ROOT_DIR)/libc/src/pty/pty.c \
+    $(ROOT_DIR)/libc/src/shm/shm.c \
     $(ROOT_DIR)/libc/src/arch/x86_64/builtins.c
 
 LIBC_ASM_SRCS := \

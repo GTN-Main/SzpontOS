@@ -201,7 +201,7 @@ All build workflows are managed through the central [Makefile](Makefile).
 # Build complete bootable ISO (builds libc, third_party, userland, kernel, initramfs, and ISO)
 make iso
 
-# Run SzpontOS in graphical 4:3 QEMU window (1280x960)
+# Run SzpontOS in graphical QEMU window (1920x1080)
 make run
 
 # Run SzpontOS in graphical QEMU with Virtio-VGA acceleration (Recommended)

@@ -39,8 +39,12 @@ int ptsname_r(int fd, char *buf, size_t buflen) {
         errno = EINVAL;
         return EINVAL;
     }
-    /* In SzpontOS, devfs registers /dev/pts0 for the master ptmx handle */
-    snprintf(buf, buflen, "/dev/pts0");
+    int ptn = 0;
+    if (ioctl(fd, TIOCGPTN, &ptn) == 0) {
+        snprintf(buf, buflen, "/dev/pts%d", ptn);
+    } else {
+        snprintf(buf, buflen, "/dev/pts0");
+    }
     return 0;
 }
 

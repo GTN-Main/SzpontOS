@@ -8,6 +8,7 @@
 #include <mm/pmm.h>
 #include <mm/heap.h>
 #include <mm/vmm.h>
+#include <mm/shm.h>
 #include <fs/vfs.h>
 #include <fs/bcache.h>
 #include <fs/elf.h>
@@ -323,10 +324,16 @@ static int64_t sys_open(const char *path, int flags, mode_t mode) {
     }
 
     /* Call open operation if defined */
+    vfs_node_t *open_node = node;
     if (node->ops && node->ops->open) {
-        int r = node->ops->open(node, flags);
-        if (r < 0)
+        vfs_node_t *cloned = (vfs_node_t *)kzalloc(sizeof(vfs_node_t));
+        memcpy(cloned, node, sizeof(vfs_node_t));
+        int r = cloned->ops->open(cloned, flags);
+        if (r < 0) {
+            kfree(cloned);
             return r;
+        }
+        open_node = cloned;
     }
 
     /* Find free file descriptor */
@@ -337,13 +344,17 @@ static int64_t sys_open(const char *path, int flags, mode_t mode) {
             break;
         }
     }
-    if (fd == -1)
+    if (fd == -1) {
+        if (open_node != node) {
+            kfree(open_node);
+        }
         return -1;
+    }
 
     file_descriptor_t *f = (file_descriptor_t *)kzalloc(sizeof(file_descriptor_t));
-    f->node = node;
+    f->node = open_node;
     f->flags = flags;
-    f->offset = (flags & O_APPEND) ? (off_t)node->length : 0;
+    f->offset = (flags & O_APPEND) ? (off_t)open_node->length : 0;
     f->refcount = 1;
 
     proc->fds[fd] = f;
@@ -599,12 +610,19 @@ static int64_t sys_brk(uintptr_t new_brk) {
         return proc->brk_current;
     }
 
+    /* Guard: Prevent heap from expanding into mmap area (0x600000000000) or exceeding 256 MiB */
+    if (new_brk >= 0x0000600000000000ULL || (new_brk - proc->brk_start) > (256 * 1024 * 1024ULL)) {
+        return proc->brk_current;
+    }
+
     if (new_brk > proc->brk_current) {
         uintptr_t start_page = ALIGN_DOWN(proc->brk_current, PAGE_SIZE);
         uintptr_t end_page = ALIGN_UP(new_brk, PAGE_SIZE);
 
         for (uintptr_t p = start_page; p < end_page; p += PAGE_SIZE) {
-            vmm_alloc_user_page(proc->pagemap, p, VMM_FLAG_WRITABLE);
+            if (!vmm_alloc_user_page(proc->pagemap, p, VMM_FLAG_WRITABLE)) {
+                return proc->brk_current; /* Return current brk on allocation failure */
+            }
         }
     }
 
@@ -2091,6 +2109,38 @@ static int64_t sys_nanosleep(const struct timespec_kernel *req, struct timespec_
     return 0;
 }
 
+static int64_t sys_shmget(key_t key, size_t size, int shmflg) {
+    int shmid = 0;
+    int ret = shm_get(key, size, shmflg, &shmid);
+    if (ret < 0) return ret;
+    return shmid;
+}
+
+static uint64_t sys_shmat_handler(int shmid, const void *shmaddr, int shmflg) {
+    process_t *proc = sched_get_current_process();
+    return (uint64_t)shm_at(shmid, shmaddr, shmflg, proc);
+}
+
+static int64_t sys_shmdt_handler(const void *shmaddr) {
+    process_t *proc = sched_get_current_process();
+    return shm_dt(shmaddr, proc);
+}
+
+static int64_t sys_shmctl_handler(int shmid, int cmd, struct shmid_ds *buf) {
+    process_t *proc = sched_get_current_process();
+    return shm_ctl(shmid, cmd, buf, proc);
+}
+
+static int64_t sys_memfd_create_handler(const char *name, unsigned int flags) {
+    (void)name;
+    (void)flags;
+    char path[64];
+    static int memfd_id = 1;
+    process_t *proc = sched_get_current_process();
+    ksnprintf(path, sizeof(path), "/tmp/.memfd_%d_%d", proc ? proc->pid : 0, memfd_id++);
+    return sys_open(path, O_RDWR | O_CREAT | O_TRUNC, 0600);
+}
+
 uint64_t syscall_dispatcher(uint64_t sys_no, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5,
                             uint64_t a6) {
     (void)a6;
@@ -2137,6 +2187,16 @@ uint64_t syscall_dispatcher(uint64_t sys_no, uint64_t a1, uint64_t a2, uint64_t 
         return sys_pipe((int *)a1);
     case SYS_select:
         return kernel_sys_poll(NULL, 0, 0);
+    case SYS_shmget:
+        return sys_shmget((key_t)a1, (size_t)a2, (int)a3);
+    case SYS_shmat:
+        return sys_shmat_handler((int)a1, (const void *)a2, (int)a3);
+    case SYS_shmctl:
+        return sys_shmctl_handler((int)a1, (int)a2, (struct shmid_ds *)a3);
+    case SYS_shmdt:
+        return sys_shmdt_handler((const void *)a1);
+    case SYS_memfd_create:
+        return sys_memfd_create_handler((const char *)a1, (unsigned int)a2);
     case SYS_dup:
         return sys_dup((int)a1);
     case SYS_dup2:

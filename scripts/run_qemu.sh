@@ -4,7 +4,7 @@ set -e
 ISO_PATH="build/szpontos.iso"
 DISPLAY_OPT="cocoa"
 EXTRA_FLAGS=()
-VGA_FLAGS=("-vga" "std" "-global" "VGA.xres=1920" "-global" "VGA.yres=1080")
+VGA_FLAGS=("-vga" "std" "-global" "VGA.vgamem_mb=64" "-global" "VGA.xres=2560" "-global" "VGA.yres=1440")
 MACHINE_OPT="q35,i8042=on"
 ENABLE_USB_KBD=true
 
@@ -37,7 +37,7 @@ for arg in "$@"; do
             DISPLAY_OPT="none"
             ;;
         --virtio)
-            VGA_FLAGS=("-vga" "virtio")
+            VGA_FLAGS=("-vga" "virtio" "-global" "virtio-vga.xres=2560" "-global" "virtio-vga.yres=1440")
             ;;
         --baremetal-ps2|--ps2)
             echo "[*] Tryb Bare Metal PS/2: Włączono kontroler i8042 PS/2 na płycie Q35"
@@ -93,11 +93,11 @@ fi
 
 
 
-# Intel E1000 Network Card with User-mode NAT and port forwarding (Host 8080/8088 -> Guest 80)
+# Intel E1000 Network Card with User-mode NAT and port forwarding
 HTTP_PORT=8080
-if lsof -Pi :8080 -sTCP:LISTEN -t >/dev/null 2>&1; then
-    HTTP_PORT=8088
-fi
+while lsof -Pi :${HTTP_PORT} -sTCP:LISTEN -t >/dev/null 2>&1; do
+    HTTP_PORT=$((HTTP_PORT + 1))
+done
 EXTRA_FLAGS+=("-netdev" "user,id=net0,hostfwd=tcp::${HTTP_PORT}-:80" "-device" "e1000,netdev=net0")
 
 

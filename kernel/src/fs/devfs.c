@@ -303,6 +303,7 @@ int devfs_register_device_in_dir(vfs_node_t *dir, const char *name, vfs_node_t *
         return -1;
 
     strncpy(data->entries[data->count].name, name, sizeof(data->entries[data->count].name) - 1);
+    strncpy(node->name, name, sizeof(node->name) - 1);
     if (!node->permissions) {
         node->permissions = 0666;
     }
@@ -315,6 +316,7 @@ int devfs_register_device(const char *name, vfs_node_t *node) {
         return -1;
 
     strncpy(g_devices[g_device_count].name, name, sizeof(g_devices[g_device_count].name) - 1);
+    strncpy(node->name, name, sizeof(node->name) - 1);
     if (!node->permissions) {
         node->permissions = 0666;
     }

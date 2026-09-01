@@ -14,15 +14,15 @@
 #include <sys/types.h>
 #include "xproto_defs.h"
 
-#define MAX_CLIENTS         64
-#define MAX_WINDOWS         1024
-#define MAX_GCS             512
-#define MAX_PIXMAPS         512
-#define MAX_ATOMS           512
+#define MAX_CLIENTS         32
+#define MAX_WINDOWS         256
+#define MAX_GCS             128
+#define MAX_PIXMAPS         128
+#define MAX_ATOMS           256
 #define MAX_CLIPS           32
 
-#define CLIENT_BUF_SIZE     (256 * 1024)
-#define EVENT_QUEUE_SIZE    256
+#define CLIENT_BUF_SIZE     (32 * 1024)
+#define EVENT_QUEUE_SIZE    128
 
 /* Forward declarations */
 typedef struct window window_t;
@@ -96,12 +96,36 @@ struct window {
     pixmap_t *backing_pixmap;
     property_t *properties;
     bool     is_active;
+
+    /* Window Decorator & Compositor State */
+    char     title[64];
+    bool     is_decorated;
+    bool     is_maximized;
+    int16_t  restore_x;
+    int16_t  restore_y;
+    uint16_t restore_w;
+    uint16_t restore_h;
 };
+
+#define TITLEBAR_HEIGHT     28
+#define WINDOW_BORDER_W     2
+#define BUTTON_SIZE         12
 
 typedef struct {
     uint32_t id;
     char     *name;
 } atom_entry_t;
+
+#define MAX_SHMSEGS         64
+
+typedef struct shmseg {
+    uint32_t seg_id;       /* X11 SHM Seg ID */
+    int      shmid;        /* Kernel IPC SHMID */
+    void     *mapped_addr; /* Address in Xserver process */
+    size_t   size;
+    bool     read_only;
+    bool     active;
+} shmseg_t;
 
 struct client {
     int      fd;
@@ -112,27 +136,40 @@ struct client {
     uint32_t xid_base;
     uint32_t xid_mask;
 
-    uint8_t  in_buf[CLIENT_BUF_SIZE];
+    uint8_t  *in_buf;
     size_t   in_len;
-
-    uint8_t  out_buf[CLIENT_BUF_SIZE];
-    size_t   out_len;
+    size_t   in_cap;
 
     uint32_t event_queue[EVENT_QUEUE_SIZE][8]; /* 32 bytes per X11 wire event */
     int      event_head;
     int      event_tail;
     int      event_count;
+
+    shmseg_t shm_segments[MAX_SHMSEGS];
 };
 
 typedef struct {
-    /* Screen and Framebuffer */
+    /* Screen and Framebuffer (Hardware Double Buffering) */
     int      drm_fd;
     uint32_t crtc_id;
     uint32_t conn_id;
+
+    /* Front Buffer (Current CRTC Scanout) */
+    uint32_t front_fb_id;
+    uint32_t front_dumb_handle;
+    uint32_t *front_fb_mapped;
+
+    /* Back Buffer (Active Render Target) */
+    uint32_t back_fb_id;
+    uint32_t back_dumb_handle;
+    uint32_t *back_fb_mapped;
+
+    /* Compatibility pointers */
     uint32_t fb_id;
     uint32_t dumb_handle;
     uint32_t *fb_mapped;
     uint32_t *shadow_fb;
+
     int      width;
     int      height;
     int      pitch;
@@ -168,9 +205,28 @@ typedef struct {
     client_t clients[MAX_CLIENTS];
     window_t *focus_window;
     window_t *pointer_window;
+    window_t *grab_window;
+    window_t *dragging_window;
+    int      drag_offset_x;
+    int      drag_offset_y;
+    uint8_t  active_cursor_type;
     bool     needs_redraw;
     bool     running;
 } server_t;
+
+enum cursor_type {
+    CURSOR_ARROW = 0,
+    CURSOR_IBEAM,
+    CURSOR_HAND,
+    CURSOR_RESIZE_NWSE,
+    CURSOR_RESIZE_NESW,
+    CURSOR_RESIZE_WE,
+    CURSOR_RESIZE_NS,
+    CURSOR_MOVE,
+    CURSOR_WAIT,
+    CURSOR_CROSSHAIR,
+    MAX_CURSOR_TYPES
+};
 
 extern server_t g_server;
 
@@ -181,6 +237,11 @@ bool drm_init_display(void);
 void drm_cleanup_display(void);
 void drm_flush_rect(int x, int y, int w, int h);
 void drm_flush_screen(void);
+void drm_swap_buffers(void);
+
+/* SHM Segment Management */
+shmseg_t *shm_find_seg(client_t *c, uint32_t seg_id);
+void shm_cleanup_client(client_t *c);
 
 /* Input */
 bool input_init(void);
@@ -197,6 +258,7 @@ void window_map(window_t *win);
 void window_unmap(window_t *win);
 void window_configure(window_t *win, int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t bw);
 void window_raise(window_t *win);
+void window_set_focus(window_t *win);
 window_t *window_find_at_pos(int x, int y);
 void window_get_absolute_coords(window_t *win, int *abs_x, int *abs_y);
 void window_send_event(window_t *win, void *event_wire_32bytes, uint32_t event_mask);

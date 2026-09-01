@@ -42,6 +42,7 @@
 #include <mm/heap.h>
 #include <mm/pmm.h>
 #include <mm/vmm.h>
+#include <mm/shm.h>
 #include <drivers/acpi.h>
 #include <drivers/ioapic.h>
 #include <drivers/usb.h>
@@ -222,9 +223,10 @@ void _start(void) {
     sysctl_init();
     syscall_init();
 
-    /* Step 10: Multitasking, Futexes, Modules & Scheduler */
+    /* Step 10: Multitasking, Futexes, Modules, Shared Memory & Scheduler */
     process_init();
     futex_init();
+    shm_init();
     module_init_subsystem();
     sched_init();
 

@@ -606,8 +606,13 @@ int drmModeObjectSetProperty(int fd, uint32_t object_id, uint32_t object_type, u
 }
 
 int drmModePageFlip(int fd, uint32_t crtc_id, uint32_t fb_id, uint32_t flags, void *user_data) {
-    (void)fd; (void)crtc_id; (void)fb_id; (void)flags; (void)user_data;
-    return 0;
+    struct drm_mode_crtc_page_flip flip;
+    memset(&flip, 0, sizeof(flip));
+    flip.crtc_id = crtc_id;
+    flip.fb_id = fb_id;
+    flip.flags = flags;
+    flip.user_data = (uint64_t)(uintptr_t)user_data;
+    return ioctl(fd, DRM_IOCTL_MODE_PAGE_FLIP, &flip);
 }
 
 struct _drmModeAtomicReq {

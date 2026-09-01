@@ -98,14 +98,73 @@ static void send_button_event(window_t *win, uint8_t button, bool pressed, int r
     ev.state = (uint16_t)g_server.mouse_buttons;
     ev.same_screen = 1;
 
-    if (pressed) {
-        g_server.focus_window = win;
-        if (win) {
-            window_raise(win);
-            if (win->parent && win->parent != &g_server.root_window)
-                window_raise(win->parent);
+    if (pressed && win && win != &g_server.root_window) {
+        window_raise(win);
+        if (win->parent && win->parent != &g_server.root_window)
+            window_raise(win->parent);
+        window_set_focus(win);
+
+        if (win->is_decorated && button == 1) {
+            int abs_x, abs_y;
+            window_get_absolute_coords(win, &abs_x, &abs_y);
+            if (root_y >= abs_y - TITLEBAR_HEIGHT && root_y < abs_y) {
+                /* Clicked in Titlebar */
+                /* 1. Traffic Light: Close (Red) */
+                if (root_x >= abs_x + 8 && root_x <= abs_x + 20) {
+                    x11_client_message_event_t cmsg;
+                    memset(&cmsg, 0, sizeof(cmsg));
+                    cmsg.type = X_ClientMessage;
+                    cmsg.format = 32;
+                    cmsg.window = win->id;
+                    cmsg.message_type = atom_intern("WM_PROTOCOLS", false);
+                    cmsg.data.l[0] = atom_intern("WM_DELETE_WINDOW", false);
+                    window_send_event(win, &cmsg, 0);
+                    return;
+                }
+                /* 2. Traffic Light: Minimize (Yellow) */
+                if (root_x >= abs_x + 24 && root_x <= abs_x + 36) {
+                    window_unmap(win);
+                    return;
+                }
+                /* 3. Traffic Light: Maximize / Restore (Green) */
+                if (root_x >= abs_x + 40 && root_x <= abs_x + 52) {
+                    if (!win->is_maximized) {
+                        win->restore_x = win->x;
+                        win->restore_y = win->y;
+                        win->restore_w = win->width;
+                        win->restore_h = win->height;
+                        win->x = 0;
+                        win->y = 36 + TITLEBAR_HEIGHT;
+                        win->width = g_server.width;
+                        win->height = g_server.height - 36 - TITLEBAR_HEIGHT;
+                        win->is_maximized = true;
+                    } else {
+                        win->x = win->restore_x;
+                        win->y = win->restore_y;
+                        win->width = win->restore_w;
+                        win->height = win->restore_h;
+                        win->is_maximized = false;
+                    }
+                    g_server.needs_redraw = true;
+                    return;
+                }
+                /* 4. Titlebar Dragging */
+                g_server.dragging_window = win;
+                g_server.drag_offset_x = root_x - win->x;
+                g_server.drag_offset_y = root_y - win->y;
+            }
         }
-        g_server.needs_redraw = true;
+    }
+
+    if (pressed) {
+        g_server.grab_window = win;
+    } else if (!pressed) {
+        if (button == 1) {
+            g_server.dragging_window = NULL;
+        }
+        if (g_server.mouse_buttons == 0) {
+            g_server.grab_window = NULL;
+        }
     }
 
     window_send_event(win, &ev, pressed ? ButtonPressMask : ButtonReleaseMask);
@@ -273,9 +332,22 @@ void input_process_events(void) {
     if (g_server.mouse_y >= g_server.height) g_server.mouse_y = g_server.height - 1;
 
     if (moved) {
-        window_t *under = window_find_at_pos(g_server.mouse_x, g_server.mouse_y);
-        g_server.pointer_window = under;
-        send_motion_event(under, g_server.mouse_x, g_server.mouse_y);
+        if (g_server.dragging_window) {
+            window_t *dwin = g_server.dragging_window;
+            int new_x = g_server.mouse_x - g_server.drag_offset_x;
+            int new_y = g_server.mouse_y - g_server.drag_offset_y;
+            if (new_y < 36 + TITLEBAR_HEIGHT) new_y = 36 + TITLEBAR_HEIGHT;
+            dwin->x = (int16_t)new_x;
+            dwin->y = (int16_t)new_y;
+            g_server.needs_redraw = true;
+        }
+
+        window_t *target_win = g_server.grab_window;
+        if (!target_win) {
+            target_win = window_find_at_pos(g_server.mouse_x, g_server.mouse_y);
+        }
+        g_server.pointer_window = target_win;
+        send_motion_event(target_win, g_server.mouse_x, g_server.mouse_y);
         draw_update_cursor();
     }
 

@@ -35,6 +35,11 @@ client_t *client_accept(int listen_fd) {
             c->xid_base = g_next_xid_base;
             c->xid_mask = 0x001FFFFF;
             g_next_xid_base += 0x00200000;
+
+            c->in_cap = 64 * 1024;
+            c->in_buf = (uint8_t *)malloc(c->in_cap);
+            c->in_len = 0;
+
             printf("[SzpontX11] New X11 client connected! (FD %d, Slot %d)\n", client_fd, i);
             fflush(stdout);
             return c;
@@ -71,6 +76,16 @@ void client_close(client_t *c) {
         }
     }
 
+    /* Detach and cleanup SHM segments */
+    shm_cleanup_client(c);
+
+    if (c->in_buf) {
+        free(c->in_buf);
+        c->in_buf = NULL;
+    }
+    c->in_cap = 0;
+    c->in_len = 0;
+
     if (c->fd >= 0) {
         close(c->fd);
         c->fd = -1;
@@ -78,8 +93,6 @@ void client_close(client_t *c) {
 
     c->active = false;
     c->authenticated = false;
-    c->in_len = 0;
-    c->out_len = 0;
     c->event_count = 0;
 }
 
@@ -235,11 +248,21 @@ static void send_connection_setup_reply(client_t *c) {
 }
 
 void client_process_data(client_t *c) {
-    if (!c || !c->active) return;
+    if (!c || !c->active || !c->in_buf) return;
+
+    /* Ensure there is buffer space to read incoming data */
+    if (c->in_len >= c->in_cap) {
+        size_t new_cap = c->in_cap * 2;
+        uint8_t *new_buf = (uint8_t *)realloc(c->in_buf, new_cap);
+        if (new_buf) {
+            c->in_buf = new_buf;
+            c->in_cap = new_cap;
+        }
+    }
 
     /* Read as much data as available into in_buf */
-    while (c->in_len < CLIENT_BUF_SIZE) {
-        ssize_t n = recv(c->fd, &c->in_buf[c->in_len], CLIENT_BUF_SIZE - c->in_len, MSG_DONTWAIT);
+    while (c->in_len < c->in_cap) {
+        ssize_t n = recv(c->fd, &c->in_buf[c->in_len], c->in_cap - c->in_len, MSG_DONTWAIT);
         if (n <= 0) {
             if (n == 0) {
                 client_close(c);
@@ -288,8 +311,26 @@ void client_process_data(client_t *c) {
             req_len = sizeof(x11_req_header_t);
         }
 
+        /* If request is larger than current capacity, expand buffer */
+        if (req_len > c->in_cap) {
+            size_t new_cap = req_len + 65536;
+            uint8_t *new_buf = (uint8_t *)realloc(c->in_buf, new_cap);
+            if (new_buf) {
+                c->in_buf = new_buf;
+                c->in_cap = new_cap;
+            }
+        }
+
+        /* If we don't have the complete request yet, attempt to read more bytes */
         if (c->in_len < req_len) {
-            break; /* Incomplete packet, wait for more data */
+            while (c->in_len < req_len && c->in_len < c->in_cap) {
+                ssize_t n = recv(c->fd, &c->in_buf[c->in_len], c->in_cap - c->in_len, MSG_DONTWAIT);
+                if (n <= 0) break;
+                c->in_len += (size_t)n;
+            }
+            if (c->in_len < req_len) {
+                break; /* Still incomplete, wait for next poll */
+            }
         }
 
         c->sequence++;

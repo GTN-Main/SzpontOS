@@ -44,6 +44,14 @@ typedef struct process {
     uintptr_t brk_current;
     uintptr_t mmap_current;
 
+    /* Shared Memory Mappings (SYSV SHM / Zero-Copy) */
+    struct {
+        int shmid;
+        uintptr_t vaddr;
+        size_t size;
+        bool active;
+    } shm_mappings[32];
+
     int exit_code;
 
     uint32_t pending_signals;

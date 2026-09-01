@@ -181,6 +181,16 @@ struct drm_mode_get_blob {
 #define DRM_MODE_PROP_LEGACY_TYPE   (DRM_MODE_PROP_RANGE | DRM_MODE_PROP_ENUM | DRM_MODE_PROP_BLOB | DRM_MODE_PROP_BITMASK)
 #define DRM_MODE_PROP_EXTENDED_TYPE 0x0000ffc0
 #define DRM_MODE_TYPE_PREFERRED    (1<<3)
+struct drm_mode_crtc_page_flip {
+    uint32_t crtc_id;
+    uint32_t fb_id;
+    uint32_t flags;
+    uint32_t reserved;
+    uint64_t user_data;
+};
+
+#define DRM_MODE_PAGE_FLIP_EVENT 0x01
+#define DRM_MODE_PAGE_FLIP_ASYNC 0x02
 
 #define DRM_IOCTL_MODE_GETRESOURCES DRM_IOWR(0xA0, struct drm_mode_card_res)
 #define DRM_IOCTL_MODE_GETCRTC      DRM_IOWR(0xA1, struct drm_mode_crtc)
@@ -192,6 +202,7 @@ struct drm_mode_get_blob {
 #define DRM_IOCTL_MODE_GETFB        DRM_IOWR(0xAD, struct drm_mode_fb_cmd)
 #define DRM_IOCTL_MODE_ADDFB        DRM_IOWR(0xAE, struct drm_mode_fb_cmd)
 #define DRM_IOCTL_MODE_RMFB         DRM_IOWR(0xAF, unsigned int)
+#define DRM_IOCTL_MODE_PAGE_FLIP    DRM_IOWR(0xB0, struct drm_mode_crtc_page_flip)
 #define DRM_IOCTL_MODE_DIRTYFB      DRM_IOWR(0xB1, struct drm_mode_fb_dirty_cmd)
 #define DRM_IOCTL_MODE_CREATE_DUMB  DRM_IOWR(0xB2, struct drm_mode_create_dumb)
 #define DRM_IOCTL_MODE_MAP_DUMB     DRM_IOWR(0xB3, struct drm_mode_map_dumb)
