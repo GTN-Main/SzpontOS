@@ -52,6 +52,7 @@ KERNEL_C_SRCS := \
     $(ROOT_DIR)/kernel/src/drivers/ahci.c \
     $(ROOT_DIR)/kernel/src/drivers/pci.c \
     $(ROOT_DIR)/kernel/src/drivers/e1000.c \
+    $(ROOT_DIR)/kernel/src/drivers/virtio_net.c \
     $(ROOT_DIR)/kernel/src/drivers/rtl8139.c \
     $(ROOT_DIR)/kernel/src/net/net.c \
     $(ROOT_DIR)/kernel/src/net/netif.c \
@@ -95,7 +96,7 @@ $(BUILD_DIR)/kernel/src/panic.o: $(GEN_PANIC_IMAGE)
 $(BUILD_DIR)/kernel/%.o: $(ROOT_DIR)/kernel/%.c
 	@mkdir -p $(dir $@)
 	@echo "  [CC]  $<"
-	@$(CC) $(CFLAGS) -c $< -o $@
+	@$(CC) $(CFLAGS) -MMD -MP -MF $(BUILD_DIR)/kernel/$*.d -c $< -o $@
 
 $(BUILD_DIR)/kernel/%.o: $(ROOT_DIR)/kernel/%.asm
 	@mkdir -p $(dir $@)
@@ -106,3 +107,6 @@ $(KERNEL_ELF): $(KERNEL_ALL_OBJS) $(ROOT_DIR)/kernel/linker.ld
 	@mkdir -p $(BUILD_DIR)
 	@echo "  [LD]  $@"
 	@$(LD) $(LDFLAGS) $(KERNEL_ALL_OBJS) -o $@
+
+KERNEL_DEPS := $(KERNEL_C_OBJS:.o=.d)
+-include $(KERNEL_DEPS)

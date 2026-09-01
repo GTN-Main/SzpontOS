@@ -10,7 +10,7 @@
 #define USER_STACK_BASE 0x00007FFFF0000000ULL
 #define USER_STACK_SIZE (4 * 1024 * 1024)
 #define SO_BASE_START 0x0000700000000000ULL
-#define MAX_LOADED_SO 16
+#define MAX_LOADED_SO 64
 
 extern void arch_enter_user_mode(uintptr_t rip, uintptr_t rsp);
 
@@ -221,13 +221,24 @@ static int elf_parse_dynamic(pagemap_t *map, uintptr_t dyn_vaddr, uintptr_t base
         elf_read_user_mem(map, strtab_vaddr, so->strtab, strsz);
     }
 
-    if (symtab_vaddr && syment) {
-        size_t exact_syms = 0;
-        if (hash_vaddr) {
-            uint32_t hash_hdr[2] = {0, 0};
-            elf_read_user_mem(map, hash_vaddr, hash_hdr, sizeof(hash_hdr));
-            exact_syms = hash_hdr[1]; /* nchain = exact dynamic symbol count */
+    if (hash_vaddr) {
+        uint32_t hash_hdr[2] = {0, 0};
+        elf_read_user_mem(map, hash_vaddr, hash_hdr, sizeof(hash_hdr));
+        if (hash_hdr[0] > 0 && hash_hdr[1] > 0) {
+            so->nbucket = hash_hdr[0];
+            so->nchain = hash_hdr[1];
+            size_t hash_words = 2 + so->nbucket + so->nchain;
+            so->hashtab = (uint32_t *)kmalloc(hash_words * sizeof(uint32_t));
+            if (so->hashtab) {
+                elf_read_user_mem(map, hash_vaddr, so->hashtab, hash_words * sizeof(uint32_t));
+                so->buckets = &so->hashtab[2];
+                so->chains = &so->hashtab[2 + so->nbucket];
+            }
         }
+    }
+
+    if (symtab_vaddr && syment) {
+        size_t exact_syms = so->nchain;
         if (exact_syms == 0) {
             exact_syms = (strtab_vaddr > symtab_vaddr) ? (strtab_vaddr - symtab_vaddr) / syment : 2048;
         }
@@ -253,23 +264,46 @@ static int elf_parse_dynamic(pagemap_t *map, uintptr_t dyn_vaddr, uintptr_t base
     return 0;
 }
 
-static uintptr_t elf_resolve_symbol_ext(const char *name, elf_loaded_so_t *so_list, size_t so_count, size_t *out_size) {
-    if (!name || !*name)
+static inline uint32_t elf_hash(const char *name) {
+    uint32_t h = 0, g;
+    while (*name) {
+        h = (h << 4) + (uint8_t)*name++;
+        if ((g = h & 0xf0000000))
+            h ^= g >> 24;
+        h &= ~g;
+    }
+    return h;
+}
+
+static uintptr_t elf_lookup_symbol_in_so(elf_loaded_so_t *so, const char *name, uint32_t h, size_t *out_size) {
+    if (!so->symtab || !so->strtab)
         return 0;
 
-    for (size_t i = 0; i < so_count; i++) {
-        elf_loaded_so_t *so = &so_list[i];
-        if (!so->symtab || !so->strtab)
-            continue;
+    if (so->hashtab && so->nbucket > 0) {
+        uint32_t sym_idx = so->buckets[h % so->nbucket];
+        while (sym_idx != 0 && sym_idx < so->sym_count) {
+            Elf64_Sym *sym = &so->symtab[sym_idx];
+            if (sym->st_name < so->str_size) {
+                const char *sym_name = so->strtab + sym->st_name;
+                if (strcmp(sym_name, name) == 0) {
+                    if (sym->st_shndx != 0) {
+                        if (out_size)
+                            *out_size = sym->st_size;
+                        return so->base_vaddr + sym->st_value;
+                    }
+                }
+            }
+            sym_idx = so->chains[sym_idx];
+        }
+        return 0;
+    }
 
-        for (size_t s = 0; s < so->sym_count; s++) {
-            Elf64_Sym *sym = &so->symtab[s];
-            if (sym->st_name >= so->str_size)
-                continue;
-
+    for (size_t s = 0; s < so->sym_count; s++) {
+        Elf64_Sym *sym = &so->symtab[s];
+        if (sym->st_name < so->str_size) {
             const char *sym_name = so->strtab + sym->st_name;
             if (strcmp(sym_name, name) == 0) {
-                if (sym->st_shndx != 0) { /* Defined symbol */
+                if (sym->st_shndx != 0) {
                     if (out_size)
                         *out_size = sym->st_size;
                     return so->base_vaddr + sym->st_value;
@@ -280,13 +314,49 @@ static uintptr_t elf_resolve_symbol_ext(const char *name, elf_loaded_so_t *so_li
     return 0;
 }
 
+static uintptr_t elf_resolve_symbol_ext(const char *name, elf_loaded_so_t *so_list, size_t so_count, size_t *out_size) {
+    if (!name || !*name)
+        return 0;
+
+    uint32_t h = elf_hash(name);
+    for (size_t i = 0; i < so_count; i++) {
+        uintptr_t addr = elf_lookup_symbol_in_so(&so_list[i], name, h, out_size);
+        if (addr != 0)
+            return addr;
+    }
+    return 0;
+}
+
 static uintptr_t elf_resolve_symbol(const char *name, elf_loaded_so_t *so_list, size_t so_count) {
     return elf_resolve_symbol_ext(name, so_list, so_count, NULL);
+}
+
+static inline void elf_write_u64_cached(pagemap_t *map, uintptr_t vaddr, uint64_t val, uintptr_t *last_vpage, uint8_t **last_kptr) {
+    uintptr_t page_vaddr = ALIGN_DOWN(vaddr, PAGE_SIZE);
+    size_t page_off = vaddr - page_vaddr;
+    if (page_off + sizeof(uint64_t) <= PAGE_SIZE) {
+        if (page_vaddr != *last_vpage || !*last_kptr) {
+            uintptr_t phys = vmm_virt_to_phys(map, page_vaddr);
+            if (!phys) {
+                phys = pmm_alloc_page();
+                memset(PHYS_TO_VIRT(phys), 0, PAGE_SIZE);
+                vmm_map_page(map, page_vaddr, phys, VMM_FLAG_USER | VMM_FLAG_WRITABLE | VMM_FLAG_PRESENT);
+            }
+            *last_vpage = page_vaddr;
+            *last_kptr = (uint8_t *)PHYS_TO_VIRT(phys);
+        }
+        *(uint64_t *)(*last_kptr + page_off) = val;
+    } else {
+        elf_write_user_mem(map, vaddr, &val, sizeof(uint64_t));
+    }
 }
 
 static int elf_apply_relocations(pagemap_t *map, elf_loaded_so_t *target, elf_loaded_so_t *so_list, size_t so_count) {
     if (!target)
         return -1;
+
+    uintptr_t last_vpage = 0;
+    uint8_t *last_kptr = NULL;
 
     /* Process .rela.dyn */
     if (target->rela && target->rela_count) {
@@ -295,6 +365,15 @@ static int elf_apply_relocations(pagemap_t *map, elf_loaded_so_t *target, elf_lo
             uint32_t type = ELF64_R_TYPE(rel->r_info);
             uint32_t sym_idx = ELF64_R_SYM(rel->r_info);
             uintptr_t dest_vaddr = target->base_vaddr + rel->r_offset;
+
+            if (type == R_X86_64_RELATIVE) {
+                uint64_t val = target->base_vaddr + rel->r_addend;
+                elf_write_u64_cached(map, dest_vaddr, val, &last_vpage, &last_kptr);
+                continue;
+            }
+
+            if (type == R_X86_64_NONE)
+                continue;
 
             uintptr_t sym_val = 0;
             size_t sym_size = 0;
@@ -316,20 +395,14 @@ static int elf_apply_relocations(pagemap_t *map, elf_loaded_so_t *target, elf_lo
 
             uint64_t val = 0;
             switch (type) {
-            case R_X86_64_NONE:
-                break;
-            case R_X86_64_RELATIVE:
-                val = target->base_vaddr + rel->r_addend;
-                elf_write_user_mem(map, dest_vaddr, &val, sizeof(uint64_t));
-                break;
             case R_X86_64_GLOB_DAT:
             case R_X86_64_JUMP_SLOT:
                 val = sym_val;
-                elf_write_user_mem(map, dest_vaddr, &val, sizeof(uint64_t));
+                elf_write_u64_cached(map, dest_vaddr, val, &last_vpage, &last_kptr);
                 break;
             case R_X86_64_64:
                 val = sym_val + rel->r_addend;
-                elf_write_user_mem(map, dest_vaddr, &val, sizeof(uint64_t));
+                elf_write_u64_cached(map, dest_vaddr, val, &last_vpage, &last_kptr);
                 break;
             case R_X86_64_32:
             case R_X86_64_32S: {
@@ -373,19 +446,12 @@ static int elf_apply_relocations(pagemap_t *map, elf_loaded_so_t *target, elf_lo
                 }
             }
 
-            uint64_t val = 0;
-            switch (type) {
-            case R_X86_64_JUMP_SLOT:
-            case R_X86_64_GLOB_DAT:
-                val = sym_val;
-                elf_write_user_mem(map, dest_vaddr, &val, sizeof(uint64_t));
-                break;
-            case R_X86_64_RELATIVE:
-                val = target->base_vaddr + rel->r_addend;
-                elf_write_user_mem(map, dest_vaddr, &val, sizeof(uint64_t));
-                break;
-            default:
-                break;
+            if (type == R_X86_64_JUMP_SLOT || type == R_X86_64_GLOB_DAT) {
+                elf_write_u64_cached(map, dest_vaddr, sym_val, &last_vpage, &last_kptr);
+            } else if (type == R_X86_64_64) {
+                elf_write_u64_cached(map, dest_vaddr, sym_val + rel->r_addend, &last_vpage, &last_kptr);
+            } else if (type == R_X86_64_RELATIVE) {
+                elf_write_u64_cached(map, dest_vaddr, target->base_vaddr + rel->r_addend, &last_vpage, &last_kptr);
             }
         }
     }
@@ -415,8 +481,13 @@ int elf_load_binary(vfs_node_t *file, pagemap_t *map, uintptr_t *out_entry, uint
         return -1;
     }
 
-    elf_loaded_so_t loaded_sos[MAX_LOADED_SO];
-    memset(loaded_sos, 0, sizeof(loaded_sos));
+    elf_loaded_so_t *loaded_sos = kmalloc(MAX_LOADED_SO * sizeof(elf_loaded_so_t));
+    if (!loaded_sos) {
+        if (exe_phdrs)
+            kfree(exe_phdrs);
+        return -1;
+    }
+    memset(loaded_sos, 0, MAX_LOADED_SO * sizeof(elf_loaded_so_t));
     size_t loaded_so_count = 0;
 
     /* Register main executable in loaded_sos[0] */
@@ -533,11 +604,14 @@ int elf_load_binary(vfs_node_t *file, pagemap_t *map, uintptr_t *out_entry, uint
             kfree(loaded_sos[i].symtab);
         if (loaded_sos[i].strtab)
             kfree(loaded_sos[i].strtab);
+        if (loaded_sos[i].hashtab)
+            kfree(loaded_sos[i].hashtab);
         if (loaded_sos[i].rela)
             kfree(loaded_sos[i].rela);
         if (loaded_sos[i].jmprel)
             kfree(loaded_sos[i].jmprel);
     }
+    kfree(loaded_sos);
     if (exe_phdrs)
         kfree(exe_phdrs);
 

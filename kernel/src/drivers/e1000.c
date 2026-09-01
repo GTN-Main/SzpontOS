@@ -226,6 +226,7 @@ bool e1000_init(pci_device_t *pci_dev) {
     g_e1000_netif.gateway = (10) | (0 << 8) | (2 << 16) | (2 << 24);
     g_e1000_netif.flags = NETIF_FLAG_UP | NETIF_FLAG_RUNNING;
     g_e1000_netif.send = e1000_send;
+    g_e1000_netif.poll = (void (*)(netif_t *))e1000_poll;
 
     netif_register(&g_e1000_netif);
 

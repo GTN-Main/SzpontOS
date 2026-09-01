@@ -16,6 +16,7 @@
 #include <kernel/kprint.h>
 #include <kernel/spinlock.h>
 #include <kernel/string.h>
+#include <kernel/sysctl.h>
 
 #define I8042_DATA_PORT 0x60
 #define I8042_STATUS_PORT 0x64
@@ -58,6 +59,29 @@ static uint8_t g_packet_bytes[4];
 static uint8_t g_packet_idx = 0;
 static bool g_has_wheel = false;
 static bool g_mouse_initialized = false;
+
+/*
+ * PS/2 Mouse Y Inversion Setting:
+ * -1 = Auto-detect (invert on bare-metal hardware, preserve on QEMU / hypervisors)
+ *  0 = Off (Standard QEMU / hypervisor virtual pointer orientation)
+ *  1 = On  (Invert Cartesian Y displacement for legacy bare-metal hardware)
+ */
+static int g_ps2_invert_y = -1;
+
+static bool is_hypervisor(void) {
+    uint32_t eax = 0, ebx = 0, ecx = 0, edx = 0;
+    __asm__ volatile("cpuid" : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx) : "a"(1), "c"(0));
+    return (ecx & (1U << 31)) != 0;
+}
+
+static bool should_invert_y(void) {
+    if (g_ps2_invert_y == 1)
+        return true;
+    if (g_ps2_invert_y == 0)
+        return false;
+    /* Auto-detect: invert only on real bare metal */
+    return !is_hypervisor();
+}
 
 static bool ps2_mouse_wait_write(void) {
     int timeout = 2000;
@@ -152,6 +176,16 @@ void ps2_mouse_handle_byte(uint8_t byte) {
             dx |= 0xFFFFFF00; /* X sign bit */
         if (flags & 0x20)
             dy |= 0xFFFFFF00; /* Y sign bit */
+
+        /*
+         * PS/2 hardware reports Y displacement in Cartesian coordinates (positive = UP, negative = DOWN).
+         * Standard OS / evdev / screen coordinates use positive = DOWN, negative = UP.
+         * QEMU/KVM virtual pointers already emit screen coordinates, whereas real bare-metal hardware
+         * emits Cartesian Y deltas. should_invert_y() dynamically reconciles this difference.
+         */
+        if (should_invert_y()) {
+            dy = -dy;
+        }
 
         if (g_has_wheel) {
             dz = (int8_t)g_packet_bytes[3];
@@ -277,8 +311,12 @@ void ps2_mouse_init(void) {
     }
     ioapic_map_irq(12, 0x2C, 0, false, false);
 
+    sysctl_register("hw.ps2_mouse.invert_y", CTLTYPE_INT, CTLFLAG_RW, &g_ps2_invert_y, sizeof(int), NULL,
+                    "Invert PS/2 Mouse Y Axis (-1=Auto, 0=Off, 1=On)");
+
     g_mouse_initialized = true;
-    klog_info("PS/2 Mouse: Driver initialized successfully (IRQ 12 active)");
+    klog_info("PS/2 Mouse: Driver initialized successfully (IRQ 12 active, Y-invert: %s)",
+              should_invert_y() ? "ON [Bare-Metal]" : "OFF [Hypervisor/QEMU]");
     return;
 
 no_mouse:

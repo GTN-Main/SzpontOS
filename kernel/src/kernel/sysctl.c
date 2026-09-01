@@ -88,6 +88,19 @@ int sysctl_register(const char *name, uint32_t type, uint32_t flags, void *val_p
     return 0;
 }
 
+static int katoi(const char *s) {
+    int res = 0;
+    int sign = 1;
+    while (*s == ' ' || *s == '\t') s++;
+    if (*s == '-') { sign = -1; s++; }
+    else if (*s == '+') { s++; }
+    while (*s >= '0' && *s <= '9') {
+        res = res * 10 + (*s - '0');
+        s++;
+    }
+    return res * sign;
+}
+
 int sysctl_byname(const char *name, void *oldp, size_t *oldlenp, const void *newp, size_t newlen) {
     if (!name)
         return -1;
@@ -147,10 +160,26 @@ int sysctl_byname(const char *name, void *oldp, size_t *oldlenp, const void *new
             size_t copy_sz = (newlen < node->val_size) ? newlen : (node->val_size - 1);
             memcpy(node->val_ptr, newp, copy_sz);
             ((char *)node->val_ptr)[copy_sz] = '\0';
-        } else if (node->type == CTLTYPE_INT && newlen >= sizeof(int)) {
-            memcpy(node->val_ptr, newp, sizeof(int));
-        } else if (node->type == CTLTYPE_ULONG && newlen >= sizeof(uint64_t)) {
-            memcpy(node->val_ptr, newp, sizeof(uint64_t));
+        } else if (node->type == CTLTYPE_INT) {
+            if (newlen == sizeof(int)) {
+                memcpy(node->val_ptr, newp, sizeof(int));
+            } else {
+                char tmp[32];
+                size_t sz = (newlen < 31) ? newlen : 31;
+                memcpy(tmp, newp, sz);
+                tmp[sz] = '\0';
+                *(int *)node->val_ptr = katoi(tmp);
+            }
+        } else if (node->type == CTLTYPE_ULONG) {
+            if (newlen == sizeof(uint64_t)) {
+                memcpy(node->val_ptr, newp, sizeof(uint64_t));
+            } else {
+                char tmp[32];
+                size_t sz = (newlen < 31) ? newlen : 31;
+                memcpy(tmp, newp, sz);
+                tmp[sz] = '\0';
+                *(uint64_t *)node->val_ptr = (uint64_t)katoi(tmp);
+            }
         }
     }
 

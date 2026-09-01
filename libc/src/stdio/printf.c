@@ -47,6 +47,14 @@ FILE *fopen(const char *pathname, const char *mode) {
     memset(f, 0, sizeof(FILE));
     f->fd = fd;
     f->flags = flags;
+    f->buf = (unsigned char *)malloc(BUFSIZ);
+    if (f->buf) {
+        f->buf_size = BUFSIZ;
+        f->own_buf = 1;
+        f->buf_mode = _IOFBF;
+    } else {
+        f->buf_mode = _IONBF;
+    }
     return f;
 }
 
@@ -59,6 +67,14 @@ FILE *fdopen(int fd, const char *mode) {
         return NULL;
     memset(f, 0, sizeof(FILE));
     f->fd = fd;
+    f->buf = (unsigned char *)malloc(BUFSIZ);
+    if (f->buf) {
+        f->buf_size = BUFSIZ;
+        f->own_buf = 1;
+        f->buf_mode = _IOFBF;
+    } else {
+        f->buf_mode = _IONBF;
+    }
     return f;
 }
 
@@ -70,6 +86,9 @@ FILE *freopen(const char *pathname, const char *mode, FILE *stream) {
     if (!new_f)
         return NULL;
     if (stream) {
+        if (stream->own_buf && stream->buf) {
+            free(stream->buf);
+        }
         memcpy(stream, new_f, sizeof(FILE));
         free(new_f);
         return stream;
@@ -83,6 +102,10 @@ int fclose(FILE *stream) {
     if (stream->fd >= 0) {
         close(stream->fd);
         stream->fd = -1;
+    }
+    if (stream->own_buf && stream->buf) {
+        free(stream->buf);
+        stream->buf = NULL;
     }
     if (stream != stdin && stream != stdout && stream != stderr) {
         free(stream);
@@ -102,18 +125,45 @@ size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream) {
         stream->has_unget = 0;
     }
 
-    while (bytes_read < total_bytes) {
-        ssize_t ret = read(stream->fd, dst + bytes_read, total_bytes - bytes_read);
-        if (ret < 0) {
-            stream->error = 1;
-            break;
-        }
-        if (ret == 0) {
-            stream->eof = 1;
-            break;
-        }
-        bytes_read += ret;
+    /* 1. Consume existing buffered bytes */
+    while (bytes_read < total_bytes && stream->buf && stream->buf_pos < stream->buf_end) {
+        dst[bytes_read++] = stream->buf[stream->buf_pos++];
     }
+
+    if (bytes_read >= total_bytes) {
+        return bytes_read / size;
+    }
+
+    /* 2. Direct read if unbuffered or large chunk */
+    if (stream->buf_mode == _IONBF || !stream->buf || (total_bytes - bytes_read) >= stream->buf_size) {
+        while (bytes_read < total_bytes) {
+            ssize_t ret = read(stream->fd, dst + bytes_read, total_bytes - bytes_read);
+            if (ret < 0) {
+                stream->error = 1;
+                break;
+            }
+            if (ret == 0) {
+                stream->eof = 1;
+                break;
+            }
+            bytes_read += ret;
+        }
+    } else {
+        /* 3. Refill buffer */
+        ssize_t ret = read(stream->fd, stream->buf, stream->buf_size);
+        if (ret > 0) {
+            stream->buf_pos = 0;
+            stream->buf_end = (size_t)ret;
+            while (bytes_read < total_bytes && stream->buf_pos < stream->buf_end) {
+                dst[bytes_read++] = stream->buf[stream->buf_pos++];
+            }
+        } else if (ret == 0) {
+            stream->eof = 1;
+        } else {
+            stream->error = 1;
+        }
+    }
+
     return bytes_read / size;
 }
 
@@ -140,6 +190,8 @@ int fseek(FILE *stream, long offset, int whence) {
         return -1;
     stream->has_unget = 0;
     stream->eof = 0;
+    stream->buf_pos = 0;
+    stream->buf_end = 0;
     off_t ret = lseek(stream->fd, (off_t)offset, whence);
     return (ret == (off_t)-1) ? -1 : 0;
 }
@@ -147,7 +199,11 @@ int fseek(FILE *stream, long offset, int whence) {
 long ftell(FILE *stream) {
     if (!stream)
         return -1;
-    return (long)lseek(stream->fd, 0, SEEK_CUR);
+    long pos = (long)lseek(stream->fd, 0, SEEK_CUR);
+    if (pos >= 0 && stream->buf && stream->buf_end > stream->buf_pos) {
+        pos -= (long)(stream->buf_end - stream->buf_pos);
+    }
+    return pos;
 }
 
 void rewind(FILE *stream) {
@@ -186,16 +242,33 @@ int fgetc(FILE *stream) {
         stream->has_unget = 0;
         return stream->unget;
     }
-    uint8_t c;
-    ssize_t ret = read(stream->fd, &c, 1);
-    if (ret <= 0) {
-        if (ret == 0)
-            stream->eof = 1;
-        else
-            stream->error = 1;
-        return EOF;
+    if (stream->buf_mode == _IONBF || !stream->buf) {
+        uint8_t c;
+        ssize_t ret = read(stream->fd, &c, 1);
+        if (ret <= 0) {
+            if (ret == 0)
+                stream->eof = 1;
+            else
+                stream->error = 1;
+            return EOF;
+        }
+        return (int)c;
     }
-    return (int)c;
+
+    if (stream->buf_pos >= stream->buf_end) {
+        ssize_t ret = read(stream->fd, stream->buf, stream->buf_size);
+        if (ret <= 0) {
+            if (ret == 0)
+                stream->eof = 1;
+            else
+                stream->error = 1;
+            return EOF;
+        }
+        stream->buf_pos = 0;
+        stream->buf_end = (size_t)ret;
+    }
+
+    return (int)stream->buf[stream->buf_pos++];
 }
 
 char *fgets(char *s, int size, FILE *stream) {

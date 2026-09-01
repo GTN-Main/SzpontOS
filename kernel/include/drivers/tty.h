@@ -73,5 +73,6 @@ void tty_init(void);
 ssize_t tty_read(void *buffer, size_t count);
 ssize_t tty_write(const void *buffer, size_t count);
 int tty_ioctl(uint64_t request, void *arg);
+bool tty_has_input(void);
 
 #endif /* SZPONTOS_DRIVERS_TTY_H */

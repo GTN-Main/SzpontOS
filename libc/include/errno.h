@@ -43,6 +43,14 @@ typedef int errno_t;
 #define ENOSYS 38       /* Function not implemented */
 #define ELOOP 40        /* Too many levels of symbolic links */
 
+#define EPROTO 71        /* Protocol error */
+#define EOVERFLOW 75     /* Value too large for defined data type */
+#define EILSEQ 84        /* Illegal byte sequence */
+#define ENOMSG 42        /* No message of desired type */
+#define EIDRM 43         /* Identifier removed */
+#define ECANCELED 125    /* Operation Canceled */
+#define ENOTRECOVERABLE 131 /* State not recoverable */
+
 #define ENOTSOCK 88        /* Socket operation on non-socket */
 #define EDESTADDRREQ 89    /* Destination address required */
 #define EMSGSIZE 90        /* Message too long */

@@ -13,7 +13,7 @@
 #define IP_PROTO_TCP 6
 #define IP_PROTO_UDP 17
 
-#define NET_MAX_PACKET_SIZE 1536
+#define NET_MAX_PACKET_SIZE 2048
 
 /* Network Buffer (sk_buff equivalent) */
 typedef struct net_buf {
@@ -113,6 +113,8 @@ typedef struct netif {
     size_t rx_bytes;
     size_t tx_bytes;
     int (*send)(struct netif *netif, net_buf_t *buf);
+    void (*poll)(struct netif *netif);
+    void *driver_data;
     struct netif *next;
 } netif_t;
 
@@ -149,6 +151,8 @@ netif_t *netif_get_loopback(void);
 netif_t *netif_find_by_name(const char *name);
 netif_t *netif_find_by_ip(uint32_t ip);
 netif_t *netif_get_list(void);
+void netif_poll_all(void);
+void netif_init_drivers(void);
 
 void netif_input(netif_t *netif, net_buf_t *buf);
 int netif_output(netif_t *netif, net_buf_t *buf);

@@ -60,6 +60,14 @@ struct servent {
     char *s_proto;
 };
 
+#define HOST_NOT_FOUND 1
+#define TRY_AGAIN      2
+#define NO_RECOVERY    3
+#define NO_DATA        4
+#define NO_ADDRESS     NO_DATA
+
+extern int h_errno;
+
 int getaddrinfo(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res);
 void freeaddrinfo(struct addrinfo *res);
 int getnameinfo(const struct sockaddr *sa, socklen_t salen, char *host, socklen_t hostlen, char *serv, socklen_t servlen, int flags);
@@ -67,5 +75,7 @@ const char *gai_strerror(int errcode);
 struct hostent *gethostbyname(const char *name);
 struct servent *getservbyname(const char *name, const char *proto);
 struct servent *getservbyport(int port, const char *proto);
+const char *hstrerror(int err);
+void herror(const char *s);
 
 #endif /* _NETDB_H */

@@ -3,7 +3,13 @@
 
 #include <netinet/in.h>
 #include <inttypes.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 
+#define INET_ADDRSTRLEN 16
+#define INET6_ADDRSTRLEN 46
+
+int inet_aton(const char *cp, struct in_addr *pin);
 in_addr_t inet_addr(const char *cp);
 char *inet_ntoa(struct in_addr in);
 int inet_pton(int af, const char *src, void *dst);

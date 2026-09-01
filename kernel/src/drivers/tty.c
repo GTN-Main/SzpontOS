@@ -377,3 +377,10 @@ int tty_ioctl(uint64_t request, void *arg) {
         return 0; /* Graceful fallback */
     }
 }
+
+bool tty_has_input(void) {
+    if (g_canon_len > g_canon_pos || g_line_ready)
+        return true;
+    return (keyboard_has_char() || serial_received());
+}
+

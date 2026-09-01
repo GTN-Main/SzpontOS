@@ -680,3 +680,38 @@ int dlclose(void *handle) {
     (void)handle;
     return 0;
 }
+
+int dladdr(const void *addr, Dl_info *info) {
+    if (!info) return 0;
+    init_main_binary_symbols();
+    uintptr_t uaddr = (uintptr_t)addr;
+    for (size_t i = 0; i < g_dl_count; i++) {
+        dl_handle_t *h = &g_dl_handles[i];
+        if (h->base_addr <= uaddr) {
+            info->dli_fname = h->name;
+            info->dli_fbase = (void *)h->base_addr;
+            info->dli_sname = NULL;
+            info->dli_saddr = NULL;
+            if (h->symtab && h->strtab) {
+                for (size_t s = 0; s < h->sym_count; s++) {
+                    local_elf_sym_t *sym = &h->symtab[s];
+                    if (sym->st_shndx != 0 && sym->st_name < h->str_size) {
+                        uintptr_t sym_addr = h->base_addr + sym->st_value;
+                        if (sym_addr == uaddr || (sym_addr <= uaddr && uaddr < sym_addr + sym->st_size)) {
+                            info->dli_sname = h->strtab + sym->st_name;
+                            info->dli_saddr = (void *)sym_addr;
+                            break;
+                        }
+                    }
+                }
+            }
+            return 1;
+        }
+    }
+    info->dli_fname = "/lib/libc.so";
+    info->dli_fbase = (void *)0;
+    info->dli_sname = "unknown";
+    info->dli_saddr = (void *)addr;
+    return 1;
+}
+

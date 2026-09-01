@@ -19,6 +19,11 @@ struct sockaddr_storage {
     char __ss_pad2[112];
 };
 
+struct linger {
+    int l_onoff;
+    int l_linger;
+};
+
 #define AF_UNSPEC 0
 #define AF_UNIX 1
 #define AF_LOCAL AF_UNIX

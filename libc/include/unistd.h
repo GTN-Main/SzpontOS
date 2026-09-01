@@ -164,6 +164,9 @@ int setgroups(size_t size, const gid_t *list);
 void sync(void);
 int fsync(int fd);
 
+int getentropy(void *buffer, size_t length);
+ssize_t getrandom(void *buf, size_t buflen, unsigned int flags);
+
 extern char **environ;
 
 int64_t syscall(int64_t num, ...);

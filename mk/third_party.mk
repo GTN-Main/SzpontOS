@@ -23,7 +23,10 @@ ALL_ROOTFS_SOS := \
 	$(ROOTFS_DIR)/lib/libXext.so \
 	$(ROOTFS_DIR)/lib/libXt.so \
 	$(ROOTFS_DIR)/lib/libXmu.so \
-	$(ROOTFS_DIR)/lib/libXaw.so
+	$(ROOTFS_DIR)/lib/libXaw.so \
+	$(ROOTFS_DIR)/lib/libcrypto.so \
+	$(ROOTFS_DIR)/lib/libssl.so \
+	$(ROOTFS_DIR)/lib/libcurl.so
 
 # ==============================================================================
 # GNU Ncurses (Cross-compiled via original Autotools)
@@ -167,6 +170,7 @@ $(MAGIC_DB): scripts/build_magic_db.py | $(ROOTFS_DIR)
 # ==============================================================================
 third_party/zsh/configure:
 	@echo "  [PRECONF-ZSH] Generowanie configure dla Zsh..."
+	@mkdir -p third_party/zsh/Doc && touch third_party/zsh/Doc/help.txt
 	@cd third_party/zsh && (./Util/preconfig || (autoconf && autoheader && echo > stamp-h.in))
 
 $(ZSH_BUILD_DIR)/Makefile: third_party/zsh/configure $(LIBNCURSES_A) $(SYSROOT_STAMP) | $(ZSH_BUILD_DIR)
@@ -683,5 +687,218 @@ $(ROOTFS_DIR)/bin/xterm: $(ROOTFS_DIR)/lib/libXaw.so $(ROOTFS_DIR)/lib/libXmu.so
 	    cp -f resize $(abspath $(ROOTFS_DIR))/bin/resize 2>/dev/null || true
 	@chmod +x $@
 
+# ==============================================================================
+# CA Certificates and SSL Setup
+# ==============================================================================
+$(ROOTFS_DIR)/etc/ssl/cert.pem: scripts/fetch_cacerts.py | $(ROOTFS_DIR)
+	@mkdir -p $(ROOTFS_DIR)/etc/ssl/certs $(ROOTFS_DIR)/etc/ssl/private $(SYSROOT_DIR)/etc/ssl/certs
+	@python3 scripts/fetch_cacerts.py $(ROOTFS_DIR)/etc/ssl/cert.pem $(ROOTFS_DIR)/etc/ssl/certs/ca-certificates.crt $(SYSROOT_DIR)/etc/ssl/cert.pem
+	@if [ -f $(ROOTFS_SKELETON_DIR)/etc/ssl/openssl.cnf ]; then \
+	    cp -f $(ROOTFS_SKELETON_DIR)/etc/ssl/openssl.cnf $(ROOTFS_DIR)/etc/ssl/openssl.cnf; \
+	    cp -f $(ROOTFS_SKELETON_DIR)/etc/ssl/openssl.cnf $(SYSROOT_DIR)/etc/ssl/openssl.cnf 2>/dev/null || true; \
+	fi
+
+# ==============================================================================
+# OpenSSL (libcrypto.so, libssl.so, /bin/openssl)
+# ==============================================================================
+$(OPENSSL_BUILD_DIR)/Makefile: $(SYSROOT_STAMP) | $(OPENSSL_BUILD_DIR)
+	@echo "  [CONF-OPENSSL] Konfiguracja OpenSSL (x86_64 cross-compile)..."
+	@cd $(OPENSSL_BUILD_DIR) && \
+	perl $(abspath third_party/openssl)/Configure \
+	    linux-x86_64 \
+	    shared \
+	    no-threads \
+	    no-async \
+	    no-tests \
+	    no-docs \
+	    no-module \
+	    no-engine \
+	    no-legacy \
+	    --prefix=/usr \
+	    --openssldir=/etc/ssl \
+	    CC="$(CC)" \
+	    AR="$(AR)" \
+	    RANLIB="$(RANLIB)" \
+	    CFLAGS="-O2 -ffreestanding -fno-builtin -isystem $(abspath $(SYSROOT_DIR))/usr/include -B$(abspath $(SYSROOT_DIR))/usr/lib -fPIC" \
+	    LDFLAGS="-nostdlib -Wl,-shared -L$(abspath $(SYSROOT_DIR))/usr/lib -B$(abspath $(SYSROOT_DIR))/usr/lib" \
+	    LDLIBS="-lc -lm"
+
+$(OPENSSL_BUILD_DIR):
+	@mkdir -p $@
+
+OPENSSL_APP_OBJS = \
+	$(OPENSSL_BUILD_DIR)/apps/lib/openssl-bin-cmp_mock_srv.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-asn1parse.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-ca.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-ciphers.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-cmp.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-cms.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-configutl.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-crl.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-crl2pkcs7.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-dgst.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-dhparam.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-dsa.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-dsaparam.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-ec.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-ech.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-ecparam.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-enc.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-errstr.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-fipsinstall.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-gendsa.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-genpkey.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-genrsa.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-info.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-kdf.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-list.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-mac.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-nseq.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-ocsp.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-openssl.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-passwd.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-pkcs12.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-pkcs7.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-pkcs8.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-pkey.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-pkeyparam.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-pkeyutl.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-prime.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-progs.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-rand.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-rehash.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-req.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-rsa.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-rsautl.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-s_client.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-s_server.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-s_time.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-sess_id.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-skeyutl.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-smime.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-speed.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-spkac.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-srp.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-storeutl.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-ts.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-verify.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-version.o \
+	$(OPENSSL_BUILD_DIR)/apps/openssl-bin-x509.o
+
+OPENSSL_STAMP := $(OPENSSL_BUILD_DIR)/.built
+
+$(OPENSSL_STAMP): $(OPENSSL_BUILD_DIR)/Makefile $(LIBC_SO) $(LIBM_SO) $(CRT0_O) $(LIBC_A) | $(ROOTFS_DIR)
+	@mkdir -p $(OPENSSL_BUILD_DIR) $(ROOTFS_DIR)/lib $(ROOTFS_DIR)/bin $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/openssl $(SYSROOT_DIR)/usr/lib/pkgconfig $(SYSROOT_DIR)/usr/share/pkgconfig
+	@echo "  [MAKE-OPENSSL] Kompilacja OpenSSL (libcrypto, libssl, CLI)..."
+	@$(MAKE) -C $(OPENSSL_BUILD_DIR) build_sw
+	@$(LD) -shared -soname libcrypto.so.4 -o $(OPENSSL_BUILD_DIR)/libcrypto.so.4 --whole-archive $(OPENSSL_BUILD_DIR)/libcrypto.a --no-whole-archive -L$(abspath $(SYSROOT_DIR))/usr/lib -lc -lm
+	@rm -f $(OPENSSL_BUILD_DIR)/libcrypto.so
+	@ln -sf libcrypto.so.4 $(OPENSSL_BUILD_DIR)/libcrypto.so
+	@rm -f $(SYSROOT_DIR)/usr/lib/libcrypto.so $(SYSROOT_DIR)/usr/lib/libcrypto.so.4 $(ROOTFS_DIR)/lib/libcrypto.so $(ROOTFS_DIR)/lib/libcrypto.so.4
+	@cp -f $(OPENSSL_BUILD_DIR)/libcrypto.so.4 $(SYSROOT_DIR)/usr/lib/libcrypto.so.4
+	@ln -sf libcrypto.so.4 $(SYSROOT_DIR)/usr/lib/libcrypto.so
+	@cp -f $(OPENSSL_BUILD_DIR)/libcrypto.so.4 $(ROOTFS_DIR)/lib/libcrypto.so.4
+	@ln -sf libcrypto.so.4 $(ROOTFS_DIR)/lib/libcrypto.so
+	@cp -f $(OPENSSL_BUILD_DIR)/libcrypto.a $(SYSROOT_DIR)/usr/lib/ 2>/dev/null || true
+	@cp -rf $(OPENSSL_BUILD_DIR)/include/openssl/* $(SYSROOT_DIR)/usr/include/openssl/ 2>/dev/null || true
+	@cp -rf third_party/openssl/include/openssl/* $(SYSROOT_DIR)/usr/include/openssl/ 2>/dev/null || true
+	@cp -f $(OPENSSL_BUILD_DIR)/*.pc $(SYSROOT_DIR)/usr/lib/pkgconfig/ 2>/dev/null || true
+	@cp -f $(OPENSSL_BUILD_DIR)/*.pc $(SYSROOT_DIR)/usr/share/pkgconfig/ 2>/dev/null || true
+	@$(LD) -shared -soname libssl.so.4 -o $(OPENSSL_BUILD_DIR)/libssl.so.4 --whole-archive $(OPENSSL_BUILD_DIR)/libssl.a --no-whole-archive -L$(OPENSSL_BUILD_DIR) -L$(abspath $(SYSROOT_DIR))/usr/lib -lcrypto -lc -lm
+	@rm -f $(OPENSSL_BUILD_DIR)/libssl.so
+	@ln -sf libssl.so.4 $(OPENSSL_BUILD_DIR)/libssl.so
+	@rm -f $(SYSROOT_DIR)/usr/lib/libssl.so $(SYSROOT_DIR)/usr/lib/libssl.so.4 $(ROOTFS_DIR)/lib/libssl.so $(ROOTFS_DIR)/lib/libssl.so.4
+	@cp -f $(OPENSSL_BUILD_DIR)/libssl.so.4 $(SYSROOT_DIR)/usr/lib/libssl.so.4
+	@ln -sf libssl.so.4 $(SYSROOT_DIR)/usr/lib/libssl.so
+	@cp -f $(OPENSSL_BUILD_DIR)/libssl.so.4 $(ROOTFS_DIR)/lib/libssl.so.4
+	@ln -sf libssl.so.4 $(ROOTFS_DIR)/lib/libssl.so
+	@cp -f $(OPENSSL_BUILD_DIR)/libssl.a $(SYSROOT_DIR)/usr/lib/ 2>/dev/null || true
+	@$(CC) $(USER_CFLAGS) -nostdlib $(abspath $(SYSROOT_DIR))/usr/lib/crt0.o -o $(ROOTFS_DIR)/bin/openssl \
+	    $(OPENSSL_APP_OBJS) \
+	    $(OPENSSL_BUILD_DIR)/apps/libapps.a \
+	    -L$(OPENSSL_BUILD_DIR) -L$(abspath $(SYSROOT_DIR))/usr/lib -lssl -lcrypto -ldl -lc -lm
+	@touch $@
+
+$(ROOTFS_DIR)/lib/libcrypto.so: $(OPENSSL_STAMP)
+$(ROOTFS_DIR)/lib/libssl.so: $(OPENSSL_STAMP)
+$(ROOTFS_DIR)/bin/openssl: $(OPENSSL_STAMP)
+
+# ==============================================================================
+# cURL (libcurl.so, /bin/curl with OpenSSL & Zlib support)
+# ==============================================================================
+third_party/curl/configure: third_party/curl/configure.ac
+	@echo "  [PRECONF-CURL] Generowanie configure dla cURL..."
+	@cd third_party/curl && autoreconf -fi 2>/dev/null || true
+
+$(CURL_BUILD_DIR)/Makefile: third_party/curl/configure $(ROOTFS_DIR)/lib/libssl.so $(ROOTFS_DIR)/lib/libcrypto.so $(LIBZ_A) $(SYSROOT_STAMP) | $(CURL_BUILD_DIR)
+	@echo "  [CONF-CURL] Konfiguracja cURL (Autotools cross-compile z OpenSSL)..."
+	@cd $(CURL_BUILD_DIR) && \
+	PKG_CONFIG_PATH="$(abspath $(SYSROOT_DIR))/usr/lib/pkgconfig:$(abspath $(SYSROOT_DIR))/usr/share/pkgconfig" \
+	PKG_CONFIG_LIBDIR="$(abspath $(SYSROOT_DIR))/usr/lib/pkgconfig:$(abspath $(SYSROOT_DIR))/usr/share/pkgconfig" \
+	$(abspath third_party/curl)/configure \
+	    --host=x86_64-elf \
+	    --prefix=/usr \
+	    --with-openssl="$(abspath $(SYSROOT_DIR))/usr" \
+	    --with-zlib="$(abspath $(SYSROOT_DIR))/usr" \
+	    --without-libpsl \
+	    --without-libidn2 \
+	    --with-ca-bundle=/etc/ssl/cert.pem \
+	    --with-ca-path=/etc/ssl/certs \
+	    --enable-shared \
+	    --disable-static \
+	    --disable-symbol-hiding \
+	    --disable-versioned-symbols \
+	    --disable-manual \
+	    --disable-ldap \
+	    --disable-ldaps \
+	    --disable-rtsp \
+	    --disable-dict \
+	    --disable-telnet \
+	    --disable-tftp \
+	    --disable-pop3 \
+	    --disable-imap \
+	    --disable-smtp \
+	    --disable-gopher \
+	    --disable-mqtt \
+	    --disable-threaded-resolver \
+	    --enable-http \
+	    --enable-proxy \
+	    CC="$(CC)" \
+	    AR="$(AR)" \
+	    RANLIB="$(RANLIB)" \
+	    CFLAGS="-O2 -ffreestanding -fno-builtin -isystem $(abspath $(SYSROOT_DIR))/usr/include -B$(abspath $(SYSROOT_DIR))/usr/lib -fPIC" \
+	    LDFLAGS="-nostdlib -L$(abspath $(SYSROOT_DIR))/usr/lib -B$(abspath $(SYSROOT_DIR))/usr/lib" \
+	    LIBS="-lssl -lcrypto -lz -lm -lc"
+
+$(CURL_BUILD_DIR):
+	@mkdir -p $@
+
+$(ROOTFS_DIR)/lib/libcurl.so: $(CURL_BUILD_DIR)/Makefile $(ROOTFS_DIR)/lib/libssl.so $(ROOTFS_DIR)/lib/libcrypto.so $(LIBZ_A)
+	@mkdir -p $(CURL_BUILD_DIR) $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/curl $(SYSROOT_DIR)/usr/lib/pkgconfig
+	@echo "  [MAKE-LIBCURL] Kompilacja libcurl..."
+	@$(MAKE) -C $(CURL_BUILD_DIR)/lib
+	@$(LD) -shared -soname libcurl.so.4 -o $(CURL_BUILD_DIR)/lib/libcurl.so.4 --whole-archive $(CURL_BUILD_DIR)/lib/.libs/libcurl.a --no-whole-archive -L$(abspath $(SYSROOT_DIR))/usr/lib -lssl -lcrypto -lz -lc -lm
+	@rm -f $(CURL_BUILD_DIR)/lib/libcurl.so
+	@ln -sf libcurl.so.4 $(CURL_BUILD_DIR)/lib/libcurl.so
+	@rm -f $(SYSROOT_DIR)/usr/lib/libcurl.so $(SYSROOT_DIR)/usr/lib/libcurl.so.4 $(ROOTFS_DIR)/lib/libcurl.so $(ROOTFS_DIR)/lib/libcurl.so.4
+	@cp -f $(CURL_BUILD_DIR)/lib/libcurl.so.4 $(SYSROOT_DIR)/usr/lib/libcurl.so.4
+	@ln -sf libcurl.so.4 $(SYSROOT_DIR)/usr/lib/libcurl.so
+	@cp -f $(CURL_BUILD_DIR)/lib/libcurl.so.4 $(ROOTFS_DIR)/lib/libcurl.so.4
+	@ln -sf libcurl.so.4 $(ROOTFS_DIR)/lib/libcurl.so
+	@cp -rf third_party/curl/include/curl/*.h $(SYSROOT_DIR)/usr/include/curl/ 2>/dev/null || true
+	@cp -f $(CURL_BUILD_DIR)/libcurl.pc $(SYSROOT_DIR)/usr/lib/pkgconfig/ 2>/dev/null || true
+	@cp -f $(CURL_BUILD_DIR)/libcurl.pc $(SYSROOT_DIR)/usr/share/pkgconfig/ 2>/dev/null || true
+
+$(ROOTFS_DIR)/bin/curl: $(ROOTFS_DIR)/lib/libcurl.so $(ROOTFS_DIR)/lib/libssl.so $(ROOTFS_DIR)/lib/libcrypto.so $(LIBZ_A) $(CRT0_O) | $(ROOTFS_DIR)
+	@mkdir -p $(ROOTFS_DIR)/bin
+	@echo "  [MAKE-CURL] Kompilacja narzędzia CLI cURL..."
+	@$(MAKE) -C $(CURL_BUILD_DIR)/src curl-config2setopts.o curl-tool_main.o 2>/dev/null || true
+	@$(MAKE) -C $(CURL_BUILD_DIR)/src curl 2>/dev/null || true
+	@$(CC) $(USER_CFLAGS) -nostdlib $(abspath $(SYSROOT_DIR))/usr/lib/crt0.o -o $@ \
+	    $(CURL_BUILD_DIR)/src/curl-*.o \
+	    $(CURL_BUILD_DIR)/src/toolx/curl-*.o \
+	    $(CURL_BUILD_DIR)/lib/.libs/libcurlu.a \
+	    -L$(CURL_BUILD_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lcurl -lssl -lcrypto -lz -ldl -lc -lm
+
 .PHONY: third-party
-third-party: $(LIBNCURSES_A) $(LIBZ_A) $(ROOTFS_DIR)/bin/nano $(ROOTFS_DIR)/bin/file $(MAGIC_DB) $(ROOTFS_DIR)/bin/zsh $(ROOTFS_DIR)/bin/fastfetch $(ROOTFS_DIR)/bin/git $(ALL_ROOTFS_SOS) $(ROOTFS_DIR)/bin/xterm
+third-party: $(LIBNCURSES_A) $(LIBZ_A) $(ROOTFS_DIR)/bin/nano $(ROOTFS_DIR)/bin/file $(MAGIC_DB) $(ROOTFS_DIR)/bin/zsh $(ROOTFS_DIR)/bin/fastfetch $(ROOTFS_DIR)/bin/git $(ALL_ROOTFS_SOS) $(ROOTFS_DIR)/bin/xterm $(ROOTFS_DIR)/bin/openssl $(ROOTFS_DIR)/bin/curl $(ROOTFS_DIR)/etc/ssl/cert.pem

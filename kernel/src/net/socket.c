@@ -28,8 +28,7 @@ static ssize_t socket_vfs_read(vfs_node_t *node, off_t offset, size_t size, void
         return 0;
     socket_t *sock = (socket_t *)node->device_data;
 
-    extern void e1000_poll(void);
-    e1000_poll();
+    netif_poll_all();
 
     process_t *proc = sched_get_current_process();
     bool is_nonblock = false;
@@ -43,17 +42,33 @@ static ssize_t socket_vfs_read(vfs_node_t *node, off_t offset, size_t size, void
             }
         }
     }
-    if (is_nonblock && sock->rx_len == 0) {
-        return -11; /* -EAGAIN */
-    }
-
-    while (sock->rx_len == 0) {
-        if (sock->state == SS_CLOSED || sock->tcp_state == TCP_STATE_CLOSE_WAIT ||
-            sock->tcp_state == TCP_STATE_CLOSED) {
-            return 0; /* EOF */
+    if (sock->domain == AF_UNIX) {
+        if (is_nonblock && sock->rx_len == 0) {
+            if (sock->state == SS_CLOSED) {
+                return 0; /* EOF */
+            }
+            return -11; /* -EAGAIN */
         }
-        if (sock->domain != AF_UNIX) e1000_poll();
-        thread_sleep(1);
+        while (sock->rx_len == 0) {
+            if (sock->state == SS_CLOSED) {
+                return 0; /* EOF */
+            }
+            thread_sleep(1);
+        }
+    } else {
+        if (is_nonblock && sock->rx_len == 0) {
+            if (sock->state == SS_CLOSED || (sock->type == SOCK_STREAM && (sock->tcp_state == TCP_STATE_CLOSE_WAIT || sock->tcp_state == TCP_STATE_CLOSED))) {
+                return 0; /* EOF */
+            }
+            return -11; /* -EAGAIN */
+        }
+        while (sock->rx_len == 0) {
+            if (sock->state == SS_CLOSED || (sock->type == SOCK_STREAM && (sock->tcp_state == TCP_STATE_CLOSE_WAIT || sock->tcp_state == TCP_STATE_CLOSED))) {
+                return 0; /* EOF */
+            }
+            netif_poll_all();
+            thread_sleep(1);
+        }
     }
 
     spinlock_acquire(&sock->lock);
@@ -118,8 +133,10 @@ static ssize_t socket_vfs_write(vfs_node_t *node, off_t offset, size_t size, con
     }
 
     if (sock->type == SOCK_STREAM) {
-        if (sock->tcp_state != TCP_STATE_ESTABLISHED)
-            return -1;
+        if (sock->state != SS_CONNECTED && sock->tcp_state != TCP_STATE_ESTABLISHED &&
+            sock->tcp_state != TCP_STATE_SYN_RECEIVED) {
+            return -107; /* -ENOTCONN */
+        }
         tcp_send_segment(sock->local_ip, sock->local_port, sock->remote_ip, sock->remote_port, sock->snd_nxt,
                          sock->rcv_nxt, TCP_FLAG_ACK | TCP_FLAG_PSH, buffer, size);
         sock->snd_nxt += (uint32_t)size;
@@ -143,6 +160,14 @@ static int socket_vfs_close(vfs_node_t *node) {
         return 0;
     socket_t *sock = (socket_t *)node->device_data;
     if (sock) {
+        if (sock->domain == AF_INET && sock->type == SOCK_STREAM &&
+            (sock->tcp_state == TCP_STATE_ESTABLISHED || sock->tcp_state == TCP_STATE_SYN_RECEIVED)) {
+            tcp_send_segment(sock->local_ip, sock->local_port, sock->remote_ip, sock->remote_port,
+                             sock->snd_nxt, sock->rcv_nxt, TCP_FLAG_FIN | TCP_FLAG_ACK, NULL, 0);
+            sock->snd_nxt++;
+            sock->tcp_state = TCP_STATE_FIN_WAIT_1;
+            sock->state = SS_CLOSED;
+        }
         socket_destroy(sock);
     }
     kfree(node);
@@ -337,10 +362,11 @@ int sys_socket(int domain, int type, int protocol) {
             break;
         }
     }
-    if (fd == -1)
-        return -1;
+    int base_type = type & 0xFF;
+    bool is_nonblock = (type & (0x800 | 0x4000)) != 0;
+    bool is_cloexec = (type & (0x80000 | 0x200000)) != 0;
 
-    socket_t *sock = socket_create(domain, type, protocol);
+    socket_t *sock = socket_create(domain, base_type, protocol);
     if (!sock)
         return -1;
 
@@ -363,11 +389,12 @@ int sys_socket(int domain, int type, int protocol) {
         return -1;
     }
     fdesc->node = node;
-    fdesc->flags = O_RDWR;
+    fdesc->flags = O_RDWR | (is_nonblock ? 0x800 : 0);
     fdesc->offset = 0;
     fdesc->refcount = 1;
 
     proc->fds[fd] = fdesc;
+    proc->fd_cloexec[fd] = is_cloexec;
     return fd;
 }
 
@@ -408,29 +435,50 @@ int sys_accept(int fd, struct sockaddr *addr, uint32_t *addrlen) {
     if (!sock || sock->state != SS_LISTENING)
         return -1;
 
-    /* Retrieve child socket from accept_queue */
-    socket_t *child = NULL;
-    spinlock_acquire(&sock->lock);
-    if (sock->accept_count > 0) {
-        child = sock->accept_queue[0];
-        for (size_t i = 1; i < sock->accept_count; i++) {
-            sock->accept_queue[i - 1] = sock->accept_queue[i];
+    process_t *proc = sched_get_current_process();
+    if (!proc)
+        return -1;
+
+    bool is_nonblock = false;
+    if (fd >= 0 && fd < MAX_FD && proc->fds[fd]) {
+        if (proc->fds[fd]->flags & 0x0800 /* O_NONBLOCK */) {
+            is_nonblock = true;
         }
-        sock->accept_count--;
     }
-    spinlock_release(&sock->lock);
+
+    socket_t *child = NULL;
+
+    /* Wait for child socket in accept_queue */
+    while (1) {
+        if (sock->state != SS_LISTENING)
+            return -1;
+
+        spinlock_acquire(&sock->lock);
+        if (sock->accept_count > 0) {
+            child = sock->accept_queue[0];
+            for (size_t i = 1; i < sock->accept_count; i++) {
+                sock->accept_queue[i - 1] = sock->accept_queue[i];
+            }
+            sock->accept_count--;
+            spinlock_release(&sock->lock);
+            break;
+        }
+        spinlock_release(&sock->lock);
+
+        if (is_nonblock) {
+            return -11; /* -EAGAIN / -EWOULDBLOCK */
+        }
+
+        if (sock->domain != AF_UNIX)
+            netif_poll_all();
+        thread_sleep(5);
+    }
 
     if (!child) {
         return -1;
     }
 
     /* Allocate new FD for child socket */
-    process_t *proc = sched_get_current_process();
-    if (!proc) {
-        socket_destroy(child);
-        return -1;
-    }
-
     int new_fd = -1;
     for (int i = 3; i < MAX_FD; i++) {
         if (!proc->fds[i]) {
@@ -514,14 +562,34 @@ int sys_connect(int fd, const struct sockaddr *addr, uint32_t addrlen) {
                              TCP_FLAG_SYN, NULL, 0);
             sock->snd_nxt++;
 
+            if (sock->tcp_state == TCP_STATE_ESTABLISHED) {
+                sock->state = SS_CONNECTED;
+                return 0;
+            }
+
+            /* Check if non-blocking */
+            file_descriptor_t *fdesc = NULL;
+            process_t *proc = sched_get_current_process();
+            if (proc && fd >= 0 && fd < MAX_FD) {
+                fdesc = proc->fds[fd];
+            }
+            if (fdesc && (fdesc->flags & 0x0800 /* O_NONBLOCK */)) {
+                return -115; /* -EINPROGRESS */
+            }
+
             /* Wait for ESTABLISHED or timeout */
-            for (int t = 0; t < 50; t++) {
+            for (int t = 0; t < 300; t++) {
+                netif_poll_all();
                 if (sock->tcp_state == TCP_STATE_ESTABLISHED) {
+                    sock->state = SS_CONNECTED;
                     return 0;
                 }
-                sched_yield();
+                if (sock->tcp_state == TCP_STATE_CLOSED) {
+                    return -1;
+                }
+                thread_sleep(10);
             }
-            return 0;
+            return (sock->tcp_state == TCP_STATE_ESTABLISHED) ? 0 : -1;
         }
         sock->state = SS_CONNECTED;
         return 0;
@@ -568,8 +636,12 @@ int sys_connect(int fd, const struct sockaddr *addr, uint32_t addrlen) {
 ssize_t sys_sendto(int fd, const void *buf, size_t len, int flags, const struct sockaddr *dest_addr, uint32_t addrlen) {
     (void)flags;
     socket_t *sock = get_socket_from_fd(fd);
-    if (!sock || !buf || len == 0)
-        return -1;
+    if (!sock)
+        return -9; /* -EBADF */
+    if (len == 0)
+        return 0;
+    if (!buf)
+        return -14; /* -EFAULT */
 
     if (sock->domain == AF_UNIX) {
         if (!sock->peer)
@@ -645,10 +717,31 @@ ssize_t sys_sendto(int fd, const void *buf, size_t len, int flags, const struct 
         ipv4_output(NULL, dest_ip, IP_PROTO_ICMP, pbuf);
         return (ssize_t)len;
     } else if (sock->type == SOCK_STREAM) {
-        tcp_send_segment(sock->local_ip, sock->local_port, dest_ip, dest_port, sock->snd_nxt, sock->rcv_nxt,
-                         TCP_FLAG_ACK | TCP_FLAG_PSH, buf, len);
-        sock->snd_nxt += (uint32_t)len;
-        return (ssize_t)len;
+        size_t sent_bytes = 0;
+        const uint8_t *src = (const uint8_t *)buf;
+        if (len == 0) {
+            tcp_send_segment(sock->local_ip, sock->local_port, dest_ip, dest_port, sock->snd_nxt, sock->rcv_nxt,
+                             TCP_FLAG_ACK, NULL, 0);
+            return 0;
+        }
+        while (sent_bytes < len) {
+            size_t chunk = len - sent_bytes;
+            if (chunk > 1460) {
+                chunk = 1460;
+            }
+            uint8_t flags = TCP_FLAG_ACK;
+            if (sent_bytes + chunk >= len) {
+                flags |= TCP_FLAG_PSH;
+            }
+            int res = tcp_send_segment(sock->local_ip, sock->local_port, dest_ip, dest_port, sock->snd_nxt, sock->rcv_nxt,
+                                       flags, src + sent_bytes, chunk);
+            if (res < 0) {
+                return (sent_bytes > 0) ? (ssize_t)sent_bytes : -1;
+            }
+            sock->snd_nxt += (uint32_t)chunk;
+            sent_bytes += chunk;
+        }
+        return (ssize_t)sent_bytes;
     } else if (sock->type == SOCK_DGRAM) {
         net_buf_t *pbuf = net_buf_alloc();
         if (!pbuf)
@@ -676,8 +769,7 @@ ssize_t sys_recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr *
         return 0;
     }
 
-    extern void e1000_poll(void);
-    e1000_poll();
+    netif_poll_all();
 
     /* If non-blocking (MSG_DONTWAIT or O_NONBLOCK) and no data, return -EAGAIN */
     bool is_nonblock = (flags & 0x40);
@@ -686,18 +778,33 @@ ssize_t sys_recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr *
             is_nonblock = true;
         }
     }
-    if (is_nonblock && sock->rx_len == 0) {
-        return -11; /* -EAGAIN */
-    }
-
-    /* Wait for data in rx_buf */
-    while (sock->rx_len == 0) {
-        if (sock->state == SS_CLOSED || sock->tcp_state == TCP_STATE_CLOSE_WAIT ||
-            sock->tcp_state == TCP_STATE_CLOSED) {
-            return 0; /* EOF */
+    if (sock->domain == AF_UNIX) {
+        if (is_nonblock && sock->rx_len == 0) {
+            if (sock->state == SS_CLOSED) {
+                return 0; /* EOF */
+            }
+            return -11; /* -EAGAIN */
         }
-        if (sock->domain != AF_UNIX) e1000_poll();
-        thread_sleep(1);
+        while (sock->rx_len == 0) {
+            if (sock->state == SS_CLOSED) {
+                return 0; /* EOF */
+            }
+            thread_sleep(1);
+        }
+    } else {
+        if (is_nonblock && sock->rx_len == 0) {
+            if (sock->state == SS_CLOSED || (sock->type == SOCK_STREAM && (sock->tcp_state == TCP_STATE_CLOSE_WAIT || sock->tcp_state == TCP_STATE_CLOSED))) {
+                return 0; /* EOF */
+            }
+            return -11; /* -EAGAIN */
+        }
+        while (sock->rx_len == 0) {
+            if (sock->state == SS_CLOSED || (sock->type == SOCK_STREAM && (sock->tcp_state == TCP_STATE_CLOSE_WAIT || sock->tcp_state == TCP_STATE_CLOSED))) {
+                return 0; /* EOF */
+            }
+            netif_poll_all();
+            thread_sleep(1);
+        }
     }
 
     spinlock_acquire(&sock->lock);
@@ -727,6 +834,13 @@ int sys_shutdown(int fd, int how) {
     socket_t *sock = get_socket_from_fd(fd);
     if (!sock)
         return -1;
+    if (sock->domain == AF_INET && sock->type == SOCK_STREAM &&
+        (sock->tcp_state == TCP_STATE_ESTABLISHED || sock->tcp_state == TCP_STATE_SYN_RECEIVED)) {
+        tcp_send_segment(sock->local_ip, sock->local_port, sock->remote_ip, sock->remote_port,
+                         sock->snd_nxt, sock->rcv_nxt, TCP_FLAG_FIN | TCP_FLAG_ACK, NULL, 0);
+        sock->snd_nxt++;
+        sock->tcp_state = TCP_STATE_FIN_WAIT_1;
+    }
     sock->state = SS_CLOSED;
     return 0;
 }
@@ -773,11 +887,42 @@ int sys_setsockopt(int fd, int level, int optname, const void *optval, uint32_t 
 }
 
 int sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *optlen) {
-    (void)fd;
-    (void)level;
-    (void)optname;
-    (void)optval;
-    (void)optlen;
+    socket_t *sock = get_socket_from_fd(fd);
+    if (!sock || !optval || !optlen)
+        return -1;
+
+    if (level == 1 /* SOL_SOCKET */) {
+        if (optname == 4 /* SO_ERROR */) {
+            if (*optlen >= sizeof(int)) {
+                if (sock->state == SS_CONNECTED || sock->tcp_state == TCP_STATE_ESTABLISHED) {
+                    *(int *)optval = 0;
+                } else if (sock->tcp_state == TCP_STATE_CLOSED) {
+                    *(int *)optval = 111; /* ECONNREFUSED */
+                } else {
+                    *(int *)optval = 0;
+                }
+                *optlen = sizeof(int);
+                return 0;
+            }
+        } else if (optname == 3 /* SO_TYPE */) {
+            if (*optlen >= sizeof(int)) {
+                *(int *)optval = sock->type;
+                *optlen = sizeof(int);
+                return 0;
+            }
+        } else if (optname == 7 /* SO_SNDBUF */ || optname == 8 /* SO_RCVBUF */) {
+            if (*optlen >= sizeof(int)) {
+                *(int *)optval = 65536;
+                *optlen = sizeof(int);
+                return 0;
+            }
+        }
+    }
+
+    if (*optlen >= sizeof(int)) {
+        *(int *)optval = 0;
+        *optlen = sizeof(int);
+    }
     return 0;
 }
 

@@ -4,6 +4,7 @@
  */
 
 #include <net/net.h>
+#include <sched/sched.h>
 #include <kernel/string.h>
 #include <kernel/kprint.h>
 
@@ -114,10 +115,18 @@ int ipv4_output(netif_t *netif, uint32_t dest_ip, uint8_t proto, net_buf_t *payl
         if (dest_ip == 0xFFFFFFFF) {
             memset(dst_mac, 0xFF, ETH_ALEN);
         } else if (!arp_lookup(next_hop_ip, dst_mac)) {
-            /* Send ARP request and fail transmission for now until ARP replies */
             arp_send_request(netif, next_hop_ip);
-            net_buf_free(payload);
-            return -1;
+            for (int r = 0; r < 20; r++) {
+                netif_poll_all();
+                if (arp_lookup(next_hop_ip, dst_mac)) {
+                    break;
+                }
+                thread_sleep(1);
+            }
+            if (!arp_lookup(next_hop_ip, dst_mac)) {
+                net_buf_free(payload);
+                return -1;
+            }
         }
     }
 

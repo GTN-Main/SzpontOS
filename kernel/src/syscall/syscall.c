@@ -2003,9 +2003,12 @@ static int kernel_sys_poll(struct pollfd *fds, unsigned int nfds, int timeout) {
     if (!proc)
         return 0;
     int ready = 0;
+    netif_poll_all();
 
-    int loops = (timeout < 0) ? -1 : (timeout / 10 + 1);
-    for (int l = 0; loops < 0 || l < loops; l++) {
+    uint64_t start_tick = pit_get_ticks();
+    uint64_t timeout_ticks = (timeout > 0) ? ((uint64_t)timeout * pit_get_frequency() + 999) / 1000 : 0;
+
+    while (1) {
         ready = 0;
         for (unsigned int i = 0; i < nfds; i++) {
             fds[i].revents = 0;
@@ -2024,12 +2027,36 @@ static int kernel_sys_poll(struct pollfd *fds, unsigned int nfds, int timeout) {
             if (node->flags == VFS_TYPE_SOCKET) {
                 socket_t *sock = (socket_t *)node->device_data;
                 if (sock) {
-                    if ((fds[i].events & POLLIN) &&
-                        (sock->rx_len > 0 || sock->accept_count > 0 || sock->state == SS_CLOSED)) {
-                        fds[i].revents |= POLLIN;
-                    }
-                    if ((fds[i].events & POLLOUT) && (sock->state == SS_CONNECTED || sock->type == SOCK_DGRAM)) {
-                        fds[i].revents |= POLLOUT;
+                    if (sock->domain == AF_UNIX) {
+                        if ((fds[i].events & (0x0001 /* POLLIN */ | 0x0040 /* POLLRDNORM */ | 0x0080 /* POLLRDBAND */)) &&
+                            (sock->rx_len > 0 || sock->accept_count > 0 || sock->state == SS_CLOSED)) {
+                            fds[i].revents |= (fds[i].events & (0x0001 | 0x0040 | 0x0080));
+                        }
+                        if ((fds[i].events & (0x0004 /* POLLOUT */ | 0x0100 /* POLLWRNORM */ | 0x0200 /* POLLWRBAND */)) &&
+                            (sock->state == SS_CONNECTED || sock->state == SS_BIND)) {
+                            fds[i].revents |= (fds[i].events & (0x0004 | 0x0100 | 0x0200));
+                        }
+                    } else if (sock->type == SOCK_DGRAM) {
+                        if ((fds[i].events & (0x0001 /* POLLIN */ | 0x0040 /* POLLRDNORM */ | 0x0080 /* POLLRDBAND */)) &&
+                            sock->rx_len > 0) {
+                            fds[i].revents |= (fds[i].events & (0x0001 | 0x0040 | 0x0080));
+                        }
+                        if (fds[i].events & (0x0004 /* POLLOUT */ | 0x0100 /* POLLWRNORM */ | 0x0200 /* POLLWRBAND */)) {
+                            fds[i].revents |= (fds[i].events & (0x0004 | 0x0100 | 0x0200));
+                        }
+                    } else if (sock->type == SOCK_STREAM) {
+                        if ((fds[i].events & (0x0001 /* POLLIN */ | 0x0040 /* POLLRDNORM */ | 0x0080 /* POLLRDBAND */)) &&
+                            (sock->rx_len > 0 || sock->accept_count > 0 || sock->state == SS_CLOSED ||
+                             sock->tcp_state == TCP_STATE_CLOSE_WAIT || sock->tcp_state == TCP_STATE_CLOSED)) {
+                            fds[i].revents |= (fds[i].events & (0x0001 | 0x0040 | 0x0080));
+                        }
+                        if ((fds[i].events & (0x0004 /* POLLOUT */ | 0x0100 /* POLLWRNORM */ | 0x0200 /* POLLWRBAND */)) &&
+                            (sock->state == SS_CONNECTED || sock->tcp_state == TCP_STATE_ESTABLISHED)) {
+                            fds[i].revents |= (fds[i].events & (0x0004 | 0x0100 | 0x0200));
+                        }
+                        if (sock->tcp_state == TCP_STATE_CLOSED && sock->state == SS_CONNECTING) {
+                            fds[i].revents |= (POLLERR | POLLHUP);
+                        }
                     }
                 }
             } else if (strcmp(node->name, "event0") == 0 || strcmp(node->name, "mouse") == 0) {
@@ -2046,6 +2073,30 @@ static int kernel_sys_poll(struct pollfd *fds, unsigned int nfds, int timeout) {
                     fds[i].revents |= POLLIN;
                 if ((fds[i].events & POLLOUT) && pty_node_has_pollout(node))
                     fds[i].revents |= POLLOUT;
+            } else if (node->flags == VFS_TYPE_PIPE && node->device_data) {
+                pipe_chan_t *p = (pipe_chan_t *)node->device_data;
+                if (fdesc->flags & O_WRONLY) {
+                    if ((fds[i].events & (0x0004 /* POLLOUT */ | 0x0100 /* POLLWRNORM */)) &&
+                        p->count < PIPE_BUF_SIZE && p->readers > 0) {
+                        fds[i].revents |= (fds[i].events & (0x0004 | 0x0100));
+                    }
+                    if (p->readers <= 0) {
+                        fds[i].revents |= (POLLERR | 0x0010 /* POLLHUP */);
+                    }
+                } else {
+                    if ((fds[i].events & (0x0001 /* POLLIN */ | 0x0040 /* POLLRDNORM */)) &&
+                        (p->count > 0 || p->writers == 0)) {
+                        fds[i].revents |= (fds[i].events & (0x0001 | 0x0040));
+                    }
+                    if (p->writers == 0) {
+                        fds[i].revents |= 0x0010 /* POLLHUP */;
+                    }
+                }
+            } else if (strcmp(node->name, "tty") == 0 || strcmp(node->name, "console") == 0 || strcmp(node->name, "serial") == 0) {
+                if ((fds[i].events & POLLIN) && tty_has_input())
+                    fds[i].revents |= POLLIN;
+                if (fds[i].events & POLLOUT)
+                    fds[i].revents |= POLLOUT;
             } else {
                 if (fds[i].events & POLLIN)
                     fds[i].revents |= POLLIN;
@@ -2059,9 +2110,10 @@ static int kernel_sys_poll(struct pollfd *fds, unsigned int nfds, int timeout) {
 
         if (ready > 0 || timeout == 0)
             break;
-        extern void e1000_poll(void);
-        e1000_poll();
-        thread_sleep(1);
+        if (timeout > 0 && (pit_get_ticks() - start_tick) >= timeout_ticks)
+            break;
+        netif_poll_all();
+        thread_sleep(2);
     }
     return ready;
 }
@@ -2144,6 +2196,7 @@ static int64_t sys_memfd_create_handler(const char *name, unsigned int flags) {
 uint64_t syscall_dispatcher(uint64_t sys_no, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5,
                             uint64_t a6) {
     (void)a6;
+
     switch (sys_no) {
     case SYS_read:
         return sys_read((int)a1, (void *)a2, (size_t)a3);

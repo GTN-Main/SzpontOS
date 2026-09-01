@@ -195,9 +195,9 @@ int main(int argc, char *argv[]) {
             move_to(canvas_top + cur_y, canvas_left + cur_x);
             printf("·");
 
-            /* Update virtual position (inverted Y for screen coords) */
+            /* Update virtual position (screen coords: positive dy = down) */
             cur_x += dx / 2;
-            cur_y -= dy / 2;
+            cur_y += dy / 2;
 
             if (cur_x < 1) cur_x = 1;
             if (cur_x > canvas_w - 2) cur_x = canvas_w - 2;

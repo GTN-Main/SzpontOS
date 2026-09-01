@@ -5,6 +5,7 @@
 #include <mm/vmm.h>
 #include <kernel/kprint.h>
 #include <kernel/spinlock.h>
+#include <net/net.h>
 
 static list_node_t g_ready_queue = LIST_HEAD_INIT(g_ready_queue);
 static list_node_t g_sleeping_queue = LIST_HEAD_INIT(g_sleeping_queue);
@@ -147,8 +148,7 @@ void thread_sleep(uint32_t ms) {
 }
 
 void sched_tick(void) {
-    extern void e1000_poll(void);
-    e1000_poll();
+    netif_poll_all();
     if (!g_sched_started)
         return;
     sched_yield();

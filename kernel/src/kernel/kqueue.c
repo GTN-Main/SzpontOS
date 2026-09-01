@@ -286,8 +286,7 @@ int sys_kevent(int kq_fd, const struct kevent *changelist, int nchanges, struct 
     }
 
     while (ready_events == 0 && eventlist && nevents > 0) {
-        extern void e1000_poll(void);
-        e1000_poll();
+        netif_poll_all();
 
         for (size_t i = 0; i < kq->count; i++) {
             if (kq->entries[i].active && check_event_ready(proc, &kq->entries[i])) {

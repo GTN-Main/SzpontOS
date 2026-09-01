@@ -293,7 +293,7 @@ void input_process_events(void) {
         uint8_t packet[4];
         while (read(raw_fds[fi], packet, 3) == 3) {
             int dx = (int)(int8_t)packet[1];
-            int dy = -(int)(int8_t)packet[2];
+            int dy = (int)(int8_t)packet[2];
             if (dx != 0 || dy != 0) {
                 g_server.mouse_x += dx;
                 g_server.mouse_y += dy;

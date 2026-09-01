@@ -19,6 +19,12 @@ typedef struct _FILE {
     int eof;
     int unget;
     int has_unget;
+    unsigned char *buf;
+    size_t buf_size;
+    size_t buf_pos;
+    size_t buf_end;
+    int buf_mode;
+    int own_buf;
 } FILE;
 
 #define _IOFBF 0

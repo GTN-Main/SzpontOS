@@ -22,33 +22,32 @@ typedef struct __attribute__((packed)) {
 } tcp_pseudo_header_t;
 
 static uint16_t tcp_checksum(uint32_t src_ip, uint32_t dest_ip, const tcp_hdr_t *tcp, size_t len) {
-    tcp_pseudo_header_t ph;
-    ph.src_ip = src_ip;
-    ph.dest_ip = dest_ip;
-    ph.zero = 0;
-    ph.protocol = IP_PROTO_TCP;
-    ph.tcp_len = htons((uint16_t)len);
-
     uint32_t sum = 0;
-    const uint16_t *p = (const uint16_t *)&ph;
-    for (size_t i = 0; i < sizeof(ph) / 2; i++) {
-        sum += *p++;
-    }
 
-    p = (const uint16_t *)tcp;
+    /* Pseudo-header sum */
+    sum += (src_ip & 0xFFFF);
+    sum += (src_ip >> 16);
+    sum += (dest_ip & 0xFFFF);
+    sum += (dest_ip >> 16);
+    sum += htons(IP_PROTO_TCP);
+    sum += htons((uint16_t)len);
+
+    /* TCP header and payload sum */
+    const uint16_t *w = (const uint16_t *)tcp;
     size_t l = len;
     while (l > 1) {
-        sum += *p++;
+        sum += *w++;
         l -= 2;
     }
     if (l == 1) {
-        sum += *(const uint8_t *)p;
+        sum += (uint8_t)(*(const uint8_t *)w);
     }
 
     while (sum >> 16) {
         sum = (sum & 0xFFFF) + (sum >> 16);
     }
-    return (uint16_t)(~sum);
+    uint16_t res = (uint16_t)(~sum);
+    return (res == 0) ? 0xFFFF : res;
 }
 
 int tcp_send_segment(uint32_t src_ip, uint16_t src_port, uint32_t dest_ip, uint16_t dest_port, uint32_t seq,
@@ -76,6 +75,12 @@ int tcp_send_segment(uint32_t src_ip, uint16_t src_port, uint32_t dest_ip, uint1
     buf->offset = 0;
     tcp->checksum = tcp_checksum(src_ip, dest_ip, tcp, buf->len);
 
+    klog_info("TCP: send flags=0x%02x seq=%u ack=%u from %d.%d.%d.%d:%u to %d.%d.%d.%d:%u (len=%zu cksum=0x%04x)",
+              flags, seq, ack,
+              src_ip & 0xFF, (src_ip >> 8) & 0xFF, (src_ip >> 16) & 0xFF, (src_ip >> 24) & 0xFF, src_port,
+              dest_ip & 0xFF, (dest_ip >> 8) & 0xFF, (dest_ip >> 16) & 0xFF, (dest_ip >> 24) & 0xFF, dest_port,
+              len, tcp->checksum);
+
     return ipv4_output(NULL, dest_ip, IP_PROTO_TCP, buf);
 }
 
@@ -95,16 +100,21 @@ void tcp_input(netif_t *netif, net_buf_t *buf) {
     uint16_t dest_port = ntohs(tcp->dest_port);
     uint32_t seq = ntohl(tcp->seq_num);
     uint32_t ack = ntohl(tcp->ack_num);
+    uint8_t hlen = (tcp->data_offset >> 4) * 4;
     uint8_t flags = tcp->flags;
 
-    uint8_t hlen = (tcp->data_offset >> 4) * 4;
-    if (hlen < sizeof(tcp_hdr_t) || hlen > buf->len) {
+    if (hlen < sizeof(tcp_hdr_t) || buf->len < hlen) {
         net_buf_free(buf);
         return;
     }
 
     const uint8_t *payload = buf->data + buf->offset + hlen;
     size_t payload_len = buf->len - hlen;
+
+    klog_info("TCP: input flags=0x%02x seq=%u ack=%u from %d.%d.%d.%d:%u to port %u (len=%zu)",
+              flags, seq, ack,
+              ip->src_ip & 0xFF, (ip->src_ip >> 8) & 0xFF, (ip->src_ip >> 16) & 0xFF, (ip->src_ip >> 24) & 0xFF,
+              src_port, dest_port, payload_len);
 
     /* 1. Try to find established/connecting socket */
     socket_t *sock = socket_find_tcp(ip->dest_ip, dest_port, ip->src_ip, src_port);
@@ -130,11 +140,18 @@ void tcp_input(netif_t *netif, net_buf_t *buf) {
     }
 
     if (!sock) {
-        /* Send RST if no socket found */
-        if (!(flags & TCP_FLAG_RST)) {
+        /* Send RST if no socket found for incoming SYN */
+        if (!(flags & TCP_FLAG_RST) && (flags & TCP_FLAG_SYN)) {
             tcp_send_segment(netif->ip, dest_port, ip->src_ip, src_port, ack,
                              seq + (payload_len ? (uint32_t)payload_len : 1), TCP_FLAG_RST | TCP_FLAG_ACK, NULL, 0);
         }
+        net_buf_free(buf);
+        return;
+    }
+
+    if (flags & TCP_FLAG_RST) {
+        sock->tcp_state = TCP_STATE_CLOSED;
+        sock->state = SS_CLOSED;
         net_buf_free(buf);
         return;
     }
@@ -174,6 +191,7 @@ void tcp_input(netif_t *netif, net_buf_t *buf) {
         if (flags & TCP_FLAG_FIN) {
             sock->rcv_nxt++;
             sock->tcp_state = TCP_STATE_CLOSE_WAIT;
+            sock->state = SS_CLOSED;
 
             /* Send ACK for FIN */
             tcp_send_segment(sock->local_ip, sock->local_port, sock->remote_ip, sock->remote_port, sock->snd_nxt,

@@ -1,0 +1,6 @@
+# SzpontOS /etc/hosts (Static Host Name Database)
+# (C) Copyright by Szpont Industries. All rights reserved.
+
+127.0.0.1       localhost localhost.localdomain
+::1             localhost ip6-localhost ip6-loopback
+10.0.2.15       szpontos-box

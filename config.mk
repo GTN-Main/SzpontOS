@@ -17,7 +17,6 @@ ARCH    := x86_64
 # ==============================================================================
 NPROC := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 JOBS  ?= $(NPROC)
-MAKEFLAGS += -j$(JOBS)
 
 # ==============================================================================
 # Toolchain Auto-detection (Prefer GCC, fallback to Clang)
@@ -117,6 +116,8 @@ ZLIB_BUILD_DIR      := $(BUILD_DIR)/third_party/zlib
 LIBZ_A              := $(SYSROOT_DIR)/usr/lib/libz.a
 GIT_BUILD_DIR       := $(BUILD_DIR)/third_party/git
 FASTFETCH_BUILD_DIR := $(BUILD_DIR)/third_party/fastfetch
+OPENSSL_BUILD_DIR   := $(BUILD_DIR)/third_party/openssl
+CURL_BUILD_DIR      := $(BUILD_DIR)/third_party/curl
 
 # Dynamic Kernel Modules
 MODULES := \
@@ -198,7 +199,9 @@ USER_PROGS := \
     $(ROOTFS_DIR)/bin/donut \
     $(ROOTFS_DIR)/bin/mousetest \
     $(ROOTFS_DIR)/bin/unixtest \
-    $(ROOTFS_DIR)/bin/gittest
+    $(ROOTFS_DIR)/bin/gittest \
+    $(ROOTFS_DIR)/bin/openssl \
+    $(ROOTFS_DIR)/bin/curl
 
 # Linux Compatibility Layer
 LINUX_COMPAT_DIR    := $(ROOT_DIR)/compat/linux
@@ -227,6 +230,8 @@ CFLAGS := \
     -std=c17 \
     -O2 \
     -g \
+    -MMD \
+    -MP \
     -I $(ROOT_DIR)/kernel/include \
     -I $(BUILD_DIR)/include \
     -I $(ROOT_DIR)
@@ -257,6 +262,8 @@ USER_CFLAGS := \
     -std=c17 \
     -O2 \
     -g \
+    -MMD \
+    -MP \
     -I $(ROOT_DIR)/libc/include
 
 ifeq ($(TOOLCHAIN_TYPE),clang)

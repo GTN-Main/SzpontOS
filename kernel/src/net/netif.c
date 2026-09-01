@@ -122,3 +122,78 @@ int netif_output(netif_t *netif, net_buf_t *buf) {
     net_buf_free(buf);
     return res;
 }
+
+void netif_poll_all(void) {
+    netif_t *poll_list[8];
+    size_t count = 0;
+
+    spinlock_acquire(&g_netif_lock);
+    for (netif_t *cur = g_netif_list; cur != NULL && count < 8; cur = cur->next) {
+        if (cur->poll && (cur->flags & NETIF_FLAG_UP)) {
+            poll_list[count++] = cur;
+        }
+    }
+    spinlock_release(&g_netif_lock);
+
+    for (size_t i = 0; i < count; i++) {
+        poll_list[i]->poll(poll_list[i]);
+    }
+}
+
+#include <drivers/pci.h>
+extern bool e1000_init(pci_device_t *pci_dev);
+extern bool virtio_net_init(pci_device_t *pci_dev);
+extern void rtl8139_init(void);
+
+void netif_init_drivers(void) {
+    pci_device_t *pci_list = pci_get_device_list();
+    bool found_nic = false;
+
+    for (pci_device_t *dev = pci_list; dev != NULL; dev = dev->next) {
+        if (dev->class_code == 0x02 /* PCI_CLASS_NETWORK */) {
+            if (dev->vendor_id == 0x8086) {
+                /* Intel E1000 Gigabit Network Cards (82540EM, 82545EM, 82574L, etc.) */
+                if (dev->device_id == 0x100e || dev->device_id == 0x1004 || dev->device_id == 0x100f ||
+                    dev->device_id == 0x10d3 || dev->device_id == 0x1079 || dev->device_id == 0x107c ||
+                    dev->device_id == 0x1539) {
+                    klog_info("NET: Initializing Intel Gigabit NIC [0x%04x:0x%04x] on PCI %02x:%02x.%d",
+                              dev->vendor_id, dev->device_id, dev->bus, dev->slot, dev->func);
+                    if (e1000_init(dev)) {
+                        found_nic = true;
+                    }
+                }
+            } else if (dev->vendor_id == 0x1af4) {
+                /* VirtIO Network Adapter */
+                if (dev->device_id == 0x1000 || dev->device_id == 0x1041) {
+                    klog_info("NET: Initializing VirtIO-Net NIC [0x%04x:0x%04x] on PCI %02x:%02x.%d",
+                              dev->vendor_id, dev->device_id, dev->bus, dev->slot, dev->func);
+                    if (virtio_net_init(dev)) {
+                        found_nic = true;
+                    }
+                }
+            } else if (dev->vendor_id == 0x10ec) {
+                /* Realtek RTL8139 10/100 Ethernet */
+                if (dev->device_id == 0x8139) {
+                    klog_info("NET: Initializing Realtek RTL8139 NIC [0x%04x:0x%04x] on PCI %02x:%02x.%d",
+                              dev->vendor_id, dev->device_id, dev->bus, dev->slot, dev->func);
+                    rtl8139_init();
+                    found_nic = true;
+                }
+            }
+        }
+    }
+
+    if (!found_nic) {
+        /* Fallback probe for older emulated configurations */
+        pci_device_t *e1000_dev = pci_find_device(0x8086, 0x100e);
+        if (e1000_dev) {
+            e1000_init(e1000_dev);
+            found_nic = true;
+        }
+    }
+
+    if (!found_nic) {
+        klog_info("NET: No physical PCI Ethernet NIC detected, operating in Loopback mode");
+    }
+}
+

@@ -34,19 +34,20 @@ static uint16_t icmp_checksum(const void *data, size_t len) {
 }
 
 int main(int argc, char *argv[]) {
-    if (argc < 2) {
-        printf("Usage: ping <host_or_ip> [-c count]\n");
-        return 1;
-    }
-
-    const char *host = argv[1];
+    const char *host = NULL;
     int count = 4;
 
-    for (int i = 2; i < argc; i++) {
+    for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-c") == 0 && i + 1 < argc) {
-            count = atoi(argv[i + 1]);
-            i++;
+            count = atoi(argv[++i]);
+        } else if (argv[i][0] != '-') {
+            host = argv[i];
         }
+    }
+
+    if (!host) {
+        printf("Usage: ping <host_or_ip> [-c count]\n");
+        return 1;
     }
 
     struct hostent *he = gethostbyname(host);

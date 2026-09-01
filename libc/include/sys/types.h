@@ -35,4 +35,6 @@ typedef unsigned long u_long;
 #define makedev(maj, min) ((dev_t)((((maj) & 0xff) << 8) | ((min) & 0xff)))
 #endif
 
+#include <sys/select.h>
+
 #endif /* _SYS_TYPES_H */

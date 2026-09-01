@@ -203,6 +203,7 @@ void rtl8139_init(void) {
     g_rtl8139_netif.gateway = (10) | (0 << 8) | (2 << 16) | (2 << 24);
     g_rtl8139_netif.flags = NETIF_FLAG_UP | NETIF_FLAG_RUNNING;
     g_rtl8139_netif.send = rtl8139_send;
+    g_rtl8139_netif.poll = (void (*)(netif_t *))rtl8139_poll;
 
     netif_register(&g_rtl8139_netif);
 

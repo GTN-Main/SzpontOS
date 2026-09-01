@@ -189,6 +189,11 @@ typedef struct elf_loaded_so {
     size_t sym_count;
     char *strtab;
     size_t str_size;
+    uint32_t *hashtab;
+    uint32_t nbucket;
+    uint32_t nchain;
+    uint32_t *buckets;
+    uint32_t *chains;
     Elf64_Rela *rela;
     size_t rela_count;
     Elf64_Rela *jmprel;

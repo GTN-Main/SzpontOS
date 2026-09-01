@@ -29,32 +29,20 @@ static int sysctl_read_all(void) {
 }
 
 static int sysctl_get(const char *name) {
-    char val[256];
-    size_t val_len = sizeof(val) - 1;
-    memset(val, 0, sizeof(val));
-
-    long ret = (long)__syscall5(SYS_sysctl, (int64_t)name, (int64_t)val, (int64_t)&val_len, 0, 0);
-    if (ret != 0) {
-        /* Fallback to checking line by line in /proc/sysctl */
-        FILE *f = fopen("/proc/sysctl", "r");
-        if (f) {
-            char line[256];
-            while (fgets(line, sizeof(line), f)) {
-                if (strncmp(line, name, strlen(name)) == 0 && line[strlen(name)] == ' ') {
-                    printf("%s", line);
-                    fclose(f);
-                    return 0;
-                }
+    FILE *f = fopen("/proc/sysctl", "r");
+    if (f) {
+        char line[256];
+        while (fgets(line, sizeof(line), f)) {
+            if (strncmp(line, name, strlen(name)) == 0 && line[strlen(name)] == ' ') {
+                printf("%s", line);
+                fclose(f);
+                return 0;
             }
-            fclose(f);
         }
-        fprintf(stderr, "sysctl: unknown oid '%s'\n", name);
-        return 1;
+        fclose(f);
     }
-
-    val[val_len] = '\0';
-    printf("%s: %s\n", name, val);
-    return 0;
+    fprintf(stderr, "sysctl: unknown oid '%s'\n", name);
+    return 1;
 }
 
 static int sysctl_set(const char *name, const char *value) {

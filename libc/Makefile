@@ -10,6 +10,7 @@ LIBC_C_SRCS := \
     $(ROOT_DIR)/libc/src/stdlib/system.c \
     $(ROOT_DIR)/libc/src/stdio/printf.c \
     $(ROOT_DIR)/libc/src/unistd/unistd.c \
+    $(ROOT_DIR)/libc/src/unistd/getrandom.c \
     $(ROOT_DIR)/libc/src/unistd/sysconf.c \
     $(ROOT_DIR)/libc/src/unistd/sendfile.c \
     $(ROOT_DIR)/libc/src/unistd/uio.c \
@@ -37,7 +38,9 @@ LIBC_C_SRCS := \
     $(ROOT_DIR)/libc/src/poll/poll.c \
     $(ROOT_DIR)/libc/src/uchar/uchar.c \
     $(ROOT_DIR)/libc/src/socket/socket.c \
+    $(ROOT_DIR)/libc/src/socket/inet.c \
     $(ROOT_DIR)/libc/src/netdb/netdb.c \
+    $(ROOT_DIR)/libc/src/netdb/resolv.c \
     $(ROOT_DIR)/libc/src/net/if.c \
     $(ROOT_DIR)/libc/src/utmp/utmp.c \
     $(ROOT_DIR)/libc/src/sched/sched.c \
@@ -64,7 +67,7 @@ libc: $(CRT0_O) $(LIBC_A) $(LIBC_SO) $(LIBM_A) $(LIBM_SO) $(LIBDL_A)
 $(BUILD_DIR)/libc/%.o: $(ROOT_DIR)/libc/%.c
 	@mkdir -p $(dir $@)
 	@echo "  [CC-LIBC] $<"
-	@$(CC) $(USER_CFLAGS) -c $< -o $@
+	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/libc/$*.d -c $< -o $@
 
 # Assemble Libc ASM sources
 $(BUILD_DIR)/libc/%.o: $(ROOT_DIR)/libc/%.asm
@@ -108,8 +111,10 @@ $(LIBDL_A):
 	@echo "  [AR]  $@"
 	@$(AR) rcs $@
 
+LIBC_HEADERS := $(shell find $(ROOT_DIR)/libc/include -type f 2>/dev/null)
+
 # Sysroot Target (cross-compilation root for third-party libraries)
-$(SYSROOT_STAMP): $(LIBC_A) $(CRT0_O) $(LIBM_A) $(LIBDL_A) $(LIBC_SO) $(LIBM_SO)
+$(SYSROOT_STAMP): $(LIBC_A) $(CRT0_O) $(LIBM_A) $(LIBDL_A) $(LIBC_SO) $(LIBM_SO) $(LIBC_HEADERS)
 	@mkdir -p $(SYSROOT_DIR)/usr/include $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib/pkgconfig $(SYSROOT_DIR)/usr/share/pkgconfig $(SYSROOT_DIR)/usr/share/xcb $(SYSROOT_DIR)/usr/include/libdrm $(SYSROOT_DIR)/usr/include/drm $(SYSROOT_DIR)/usr/include/libxcvt $(SYSROOT_DIR)/usr/include/pixman-1 $(SYSROOT_DIR)/usr/include/X11/Xtrans $(SYSROOT_DIR)/usr/include/X11/extensions
 	@cp -R $(ROOT_DIR)/libc/include/. $(SYSROOT_DIR)/usr/include/
 	@cp -f $(LIBC_A) $(CRT0_O) $(LIBM_A) $(LIBDL_A) $(SYSROOT_DIR)/usr/lib/ 2>/dev/null || true
@@ -181,5 +186,8 @@ $(SYSROOT_STAMP): $(LIBC_A) $(CRT0_O) $(LIBM_A) $(LIBDL_A) $(LIBC_SO) $(LIBM_SO)
 	@cp -f $(SYSROOT_DIR)/usr/lib/pkgconfig/*.pc $(SYSROOT_DIR)/usr/share/pkgconfig/ 2>/dev/null || true
 	@rm -f $(SYSROOT_DIR)/usr/lib/*.la
 	@touch $@
+
+LIBC_DEPS := $(LIBC_C_OBJS:.o=.d)
+-include $(LIBC_DEPS)
 
 sysroot: $(SYSROOT_STAMP)
