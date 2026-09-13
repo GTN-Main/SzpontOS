@@ -8,5 +8,8 @@ void ioapic_map_irq(uint8_t irq, uint8_t vector, uint8_t dest_apic_id, bool leve
 void lapic_eoi(void);
 bool ioapic_is_active(void);
 bool lapic_timer_init(uint32_t frequency_hz);
+void lapic_init_cpu(void);
+void lapic_timer_init_ap(void);
+void lapic_send_ipi(uint32_t lapic_id, uint8_t vector);
 
 #endif /* SZPONTOS_DRIVERS_IOAPIC_H */

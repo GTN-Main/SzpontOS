@@ -11,6 +11,7 @@
 #include <mm/pmm.h>
 #include <sched/process.h>
 #include <sched/sched.h>
+#include <kernel/smp.h>
 
 static sysctl_node_t g_sysctl_nodes[SYSCTL_MAX_NODES];
 static size_t g_sysctl_count = 0;
@@ -246,6 +247,7 @@ void sysctl_init(void) {
     sysctl_register("hw.machine", CTLTYPE_STRING, CTLFLAG_RD, g_hw_machine, sizeof(g_hw_machine), NULL,
                     "Target machine architecture");
     sysctl_register("hw.model", CTLTYPE_STRING, CTLFLAG_RD, g_hw_model, sizeof(g_hw_model), NULL, "Processor model");
+    g_hw_ncpu = smp_get_cpu_count();
     sysctl_register("hw.ncpu", CTLTYPE_ULONG, CTLFLAG_RD, &g_hw_ncpu, sizeof(g_hw_ncpu), NULL, "Number of active CPUs");
     sysctl_register("hw.pagesize", CTLTYPE_ULONG, CTLFLAG_RD, &g_hw_pagesize, sizeof(g_hw_pagesize), NULL,
                     "Hardware page size in bytes");

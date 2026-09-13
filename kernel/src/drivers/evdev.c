@@ -7,6 +7,7 @@
 #include <drivers/rtc.h>
 #include <fs/devfs.h>
 #include <mm/heap.h>
+#include <mm/usercopy.h>
 #include <kernel/spinlock.h>
 #include <kernel/string.h>
 #include <kernel/kprint.h>
@@ -104,6 +105,7 @@ void evdev_init(void) {
     vfs_node_t *mice_dev = (vfs_node_t *)kzalloc(sizeof(vfs_node_t));
     mice_dev->flags = VFS_TYPE_CHARDEVICE;
     mice_dev->permissions = 0666;
+    mice_dev->rdev = (13 << 8) | 63;
     mice_dev->ops = &g_mice_ops;
     devfs_register_device_path("input/mice", mice_dev);
 
@@ -112,6 +114,7 @@ void evdev_init(void) {
     vfs_node_t *event0_dev = (vfs_node_t *)kzalloc(sizeof(vfs_node_t));
     event0_dev->flags = VFS_TYPE_CHARDEVICE;
     event0_dev->permissions = 0666;
+    event0_dev->rdev = (13 << 8) | 64;
     event0_dev->ops = &g_event0_ops;
     devfs_register_device_path("input/event0", event0_dev);
 
@@ -120,6 +123,7 @@ void evdev_init(void) {
     vfs_node_t *event1_dev = (vfs_node_t *)kzalloc(sizeof(vfs_node_t));
     event1_dev->flags = VFS_TYPE_CHARDEVICE;
     event1_dev->permissions = 0666;
+    event1_dev->rdev = (13 << 8) | 65;
     event1_dev->ops = &g_event1_ops;
     devfs_register_device_path("input/event1", event1_dev);
 
@@ -162,20 +166,23 @@ void evdev_push_mouse_packet(int dx, int dy, int dz, uint8_t buttons) {
         evdev_enqueue(&g_mouse_queue, EV_SYN, SYN_REPORT, 0);
     }
 
-    /* Also feed raw 3-byte packet to /dev/input/mice */
+    /* Also feed raw 4-byte ExplorerPS/2 packet to /dev/input/mice */
     spinlock_acquire(&g_mice_lock);
-    if (g_mice_count + 3 <= sizeof(g_mice_buf)) {
+    if (g_mice_count + 4 <= sizeof(g_mice_buf)) {
+        int ps2_dy = -dy;
         uint8_t flags = 0x08 | (buttons & 0x07);
         if (dx < 0) flags |= 0x10;
-        if (dy < 0) flags |= 0x20;
+        if (ps2_dy < 0) flags |= 0x20;
 
         g_mice_buf[g_mice_tail] = flags;
         g_mice_tail = (g_mice_tail + 1) % sizeof(g_mice_buf);
         g_mice_buf[g_mice_tail] = (uint8_t)(dx & 0xFF);
         g_mice_tail = (g_mice_tail + 1) % sizeof(g_mice_buf);
-        g_mice_buf[g_mice_tail] = (uint8_t)(dy & 0xFF);
+        g_mice_buf[g_mice_tail] = (uint8_t)(ps2_dy & 0xFF);
         g_mice_tail = (g_mice_tail + 1) % sizeof(g_mice_buf);
-        g_mice_count += 3;
+        g_mice_buf[g_mice_tail] = (uint8_t)(dz & 0x0F);
+        g_mice_tail = (g_mice_tail + 1) % sizeof(g_mice_buf);
+        g_mice_count += 4;
     }
     spinlock_release(&g_mice_lock);
 }
@@ -190,12 +197,19 @@ ssize_t evdev_mice_read(void *buf, size_t count) {
         return 0;
 
     spinlock_acquire(&g_mice_lock);
-    if (g_mice_count == 0) {
+    if (g_mice_count < 4) {
         spinlock_release(&g_mice_lock);
-        return 0;
+        return -11; /* -EAGAIN */
     }
 
     size_t to_read = (count < g_mice_count) ? count : g_mice_count;
+    /* Always read complete 4-byte ExplorerPS/2 packets */
+    to_read -= (to_read % 4);
+    if (to_read == 0) {
+        spinlock_release(&g_mice_lock);
+        return -11; /* -EAGAIN */
+    }
+
     uint8_t *dst = (uint8_t *)buf;
     for (size_t i = 0; i < to_read; i++) {
         dst[i] = g_mice_buf[g_mice_head];
@@ -266,27 +280,40 @@ bool evdev_kbd_has_events(void) {
 }
 
 bool evdev_mice_has_data(void) {
-    return g_mice_count > 0;
+    return g_mice_count >= 4;
+}
+
+static inline bool evdev_put_user(uintptr_t user_dst, const void *src, size_t len) {
+    if (user_dst == 0 || len == 0) return false;
+    if (user_dst <= USER_ADDR_MAX) {
+        return copy_to_user(user_dst, src, len);
+    }
+    memcpy((void *)user_dst, src, len);
+    return true;
 }
 
 int evdev_mouse_ioctl(uint64_t request, uintptr_t arg) {
     if (request == EVIOCGVERSION) {
-        int *ver = (int *)arg;
-        if (ver) *ver = 0x010001;
+        int ver = 0x010001;
+        if (!evdev_put_user(arg, &ver, sizeof(int)))
+            return -14; /* -EFAULT */
         return 0;
     } else if (request == EVIOCGID) {
-        struct input_id *id = (struct input_id *)arg;
-        if (id) {
-            id->bustype = 0x0011; /* BUS_I8042 */
-            id->vendor = 0x0001;
-            id->product = 0x0001;
-            id->version = 0x0100;
-        }
+        struct input_id id;
+        memset(&id, 0, sizeof(id));
+        id.bustype = 0x0011; /* BUS_I8042 */
+        id.vendor = 0x0001;
+        id.product = 0x0001;
+        id.version = 0x0100;
+        if (!evdev_put_user(arg, &id, sizeof(struct input_id)))
+            return -14; /* -EFAULT */
         return 0;
     } else if ((request >> 8) == ('E' << 0) && (request & 0xFF) == 0x06) {
         /* EVIOCGNAME */
         const char *name = "SzpontOS PS/2 Mouse";
-        strncpy((char *)arg, name, 64);
+        size_t len = strlen(name) + 1;
+        if (!evdev_put_user(arg, name, len))
+            return -14; /* -EFAULT */
         return 0;
     }
     return -22;
@@ -294,22 +321,26 @@ int evdev_mouse_ioctl(uint64_t request, uintptr_t arg) {
 
 int evdev_kbd_ioctl(uint64_t request, uintptr_t arg) {
     if (request == EVIOCGVERSION) {
-        int *ver = (int *)arg;
-        if (ver) *ver = 0x010001;
+        int ver = 0x010001;
+        if (!evdev_put_user(arg, &ver, sizeof(int)))
+            return -14; /* -EFAULT */
         return 0;
     } else if (request == EVIOCGID) {
-        struct input_id *id = (struct input_id *)arg;
-        if (id) {
-            id->bustype = 0x0011; /* BUS_I8042 */
-            id->vendor = 0x0001;
-            id->product = 0x0002;
-            id->version = 0x0100;
-        }
+        struct input_id id;
+        memset(&id, 0, sizeof(id));
+        id.bustype = 0x0011; /* BUS_I8042 */
+        id.vendor = 0x0001;
+        id.product = 0x0002;
+        id.version = 0x0100;
+        if (!evdev_put_user(arg, &id, sizeof(struct input_id)))
+            return -14; /* -EFAULT */
         return 0;
     } else if ((request >> 8) == ('E' << 0) && (request & 0xFF) == 0x06) {
         /* EVIOCGNAME */
         const char *name = "SzpontOS PS/2 Keyboard";
-        strncpy((char *)arg, name, 64);
+        size_t len = strlen(name) + 1;
+        if (!evdev_put_user(arg, name, len))
+            return -14; /* -EFAULT */
         return 0;
     }
     return -22;

@@ -6,7 +6,10 @@
 #include <arch/x86_64/idt.h>
 
 void sched_init(void);
+void sched_init_cpu(uint32_t cpu_id);
 void sched_start(void);
+void sched_ap_start(void);
+bool sched_is_started(void);
 void sched_yield(void);
 void sched_tick(void);
 

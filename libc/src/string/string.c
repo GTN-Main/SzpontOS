@@ -437,6 +437,20 @@ char *strerror(int errnum) {
     }
 }
 
+int strerror_r(int errnum, char *buf, size_t buflen) {
+    if (!buf || buflen == 0)
+        return EINVAL;
+    const char *s = strerror(errnum);
+    size_t len = strlen(s);
+    if (len >= buflen) {
+        memcpy(buf, s, buflen - 1);
+        buf[buflen - 1] = '\0';
+        return ERANGE;
+    }
+    memcpy(buf, s, len + 1);
+    return 0;
+}
+
 char *strsignal(int sig) {
     switch (sig) {
     case 1:

@@ -35,6 +35,8 @@ extern "C" {
 #define TIOCSDTR 0x5417
 #define TIOCCDTR 0x5418
 #define FIONREAD 0x541B
+#define FIONBIO  0x5421
+#define FIOASYNC 0x5452
 
 #define TIOCM_LE  0x001
 #define TIOCM_DTR 0x002

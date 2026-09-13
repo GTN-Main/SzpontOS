@@ -12,6 +12,7 @@
 #include <mm/usercopy.h>
 #include <sched/process.h>
 #include <sched/sched.h>
+#include <arch/x86_64/io.h>
 #include <kernel/string.h>
 #include <kernel/kprint.h>
 #include <kernel/spinlock.h>
@@ -379,9 +380,21 @@ static int drm_ioctl_create_dumb(struct drm_mode_create_dumb *req) {
     uintptr_t phys = 0;
     void *virt = NULL;
 
-    if (lfb && lfb->address && req->width == fb_get_width() && req->height == fb_get_height()) {
+    bool direct_already_claimed = false;
+    for (size_t i = 0; i < DRM_MAX_DUMB_BUFFERS; i++) {
+        if (g_dumb_buffers[i].allocated && g_dumb_buffers[i].is_direct_vram) {
+            direct_already_claimed = true;
+            break;
+        }
+    }
+
+    if (!direct_already_claimed && lfb && lfb->address && req->width == fb_get_width() && req->height == fb_get_height()) {
         uintptr_t fb_virt = (uintptr_t)lfb->address;
-        phys = VIRT_TO_PHYS(fb_virt);
+        uintptr_t fb_phys = vmm_virt_to_phys(&g_kernel_pagemap, fb_virt);
+        if (!fb_phys) {
+            fb_phys = VIRT_TO_PHYS(fb_virt);
+        }
+        phys = fb_phys;
         virt = (void *)fb_virt;
         pitch = (uint32_t)lfb->pitch;
         size = ALIGN_UP((size_t)pitch * req->height, PAGE_SIZE);
@@ -703,6 +716,244 @@ static int drm_ioctl_page_flip(struct drm_mode_crtc_page_flip *flip) {
     return 0;
 }
 
+static int drm_ioctl_get_plane_res(struct drm_mode_get_plane_res *res) {
+    if (!res)
+        return -22;
+
+    if (res->count_planes == 0 || res->plane_id_ptr == 0) {
+        res->count_planes = 1;
+        return 0;
+    }
+
+    uint32_t plane_id = 1;
+    res->count_planes = 1;
+    copy_to_user((uintptr_t)res->plane_id_ptr, &plane_id, sizeof(uint32_t));
+    return 0;
+}
+
+static int drm_ioctl_get_plane(struct drm_mode_get_plane *p) {
+    if (!p)
+        return -22;
+
+    p->plane_id = 1;
+    p->crtc_id = g_crtc.crtc_id;
+    p->fb_id = g_crtc.fb_id;
+    p->possible_crtcs = 1;
+    p->gamma_size = 0;
+
+    if (p->count_format_types == 0 || p->format_type_ptr == 0) {
+        p->count_format_types = 2;
+        return 0;
+    }
+
+    uint32_t formats[2] = {DRM_FORMAT_XRGB8888, DRM_FORMAT_ARGB8888};
+    p->count_format_types = 2;
+    copy_to_user((uintptr_t)p->format_type_ptr, formats, sizeof(formats));
+    return 0;
+}
+
+static int drm_ioctl_set_plane(struct drm_mode_set_plane *plane) {
+    if (!plane)
+        return -22;
+
+    spinlock_acquire(&g_drm_lock);
+
+    if (plane->fb_id != 0) {
+        drm_fb_t *fb = drm_find_fb(plane->fb_id);
+        if (!fb) {
+            spinlock_release(&g_drm_lock);
+            return -22;
+        }
+
+        g_crtc.fb_id = plane->fb_id;
+        g_crtc.x = plane->crtc_x;
+        g_crtc.y = plane->crtc_y;
+
+        fb_set_graphics_mode(true);
+
+        drm_dumb_bo_t *bo = drm_find_bo(fb->bo_handle);
+        if (bo && bo->kernel_virt) {
+            if (!bo->is_direct_vram) {
+                uint32_t src_w = plane->src_w >> 16;
+                uint32_t src_h = plane->src_h >> 16;
+                if (src_w == 0) src_w = bo->width;
+                if (src_h == 0) src_h = bo->height;
+
+                uint32_t crtc_w = plane->crtc_w ? plane->crtc_w : src_w;
+                uint32_t crtc_h = plane->crtc_h ? plane->crtc_h : src_h;
+
+                fb_blit_from_buffer((const uint32_t *)bo->kernel_virt, bo->pitch / 4,
+                                    plane->crtc_x, plane->crtc_y,
+                                    crtc_w, crtc_h);
+            }
+        }
+    } else {
+        g_crtc.fb_id = 0;
+    }
+
+    spinlock_release(&g_drm_lock);
+    return 0;
+}
+
+static int drm_ioctl_obj_get_properties(struct drm_mode_obj_get_properties *p) {
+    if (!p)
+        return -22;
+    p->count_props = 0;
+    return 0;
+}
+
+static int drm_ioctl_obj_set_property(struct drm_mode_obj_set_property *p) {
+    if (!p)
+        return -22;
+    return 0;
+}
+
+static int drm_ioctl_cursor(struct drm_mode_cursor *c) {
+    if (!c)
+        return -22;
+    /* -ENXIO informs Xorg modesetting driver to fall back to software cursor */
+    return -6;
+}
+
+static int drm_ioctl_cursor2(struct drm_mode_cursor2 *c) {
+    if (!c)
+        return -22;
+    return -6;
+}
+
+static int drm_ioctl_atomic(struct drm_mode_atomic *atom) {
+    if (!atom)
+        return -22;
+    return 0;
+}
+
+#define DRM_MAX_BLOBS 64
+
+typedef struct {
+    uint32_t blob_id;
+    uint32_t length;
+    void *data;
+    bool allocated;
+} drm_blob_t;
+
+static drm_blob_t g_drm_blobs[DRM_MAX_BLOBS];
+static uint32_t g_next_blob_id = 1;
+
+static int drm_ioctl_create_blob(struct drm_mode_create_blob *blob) {
+    if (!blob || blob->length == 0 || blob->data == 0)
+        return -22;
+
+    spinlock_acquire(&g_drm_lock);
+    drm_blob_t *slot = NULL;
+    for (size_t i = 0; i < DRM_MAX_BLOBS; i++) {
+        if (!g_drm_blobs[i].allocated) {
+            slot = &g_drm_blobs[i];
+            break;
+        }
+    }
+    if (!slot) {
+        spinlock_release(&g_drm_lock);
+        return -12; /* ENOMEM */
+    }
+
+    void *kdata = kmalloc(blob->length);
+    if (!kdata) {
+        spinlock_release(&g_drm_lock);
+        return -12;
+    }
+
+    copy_from_user(kdata, (uintptr_t)blob->data, blob->length);
+    slot->blob_id = g_next_blob_id++;
+    slot->length = blob->length;
+    slot->data = kdata;
+    slot->allocated = true;
+    blob->blob_id = slot->blob_id;
+
+    spinlock_release(&g_drm_lock);
+    return 0;
+}
+
+static int drm_ioctl_get_prop_blob(struct drm_mode_get_blob *blob) {
+    if (!blob || blob->blob_id == 0)
+        return -22;
+
+    spinlock_acquire(&g_drm_lock);
+    drm_blob_t *found = NULL;
+    for (size_t i = 0; i < DRM_MAX_BLOBS; i++) {
+        if (g_drm_blobs[i].allocated && g_drm_blobs[i].blob_id == blob->blob_id) {
+            found = &g_drm_blobs[i];
+            break;
+        }
+    }
+    if (!found) {
+        spinlock_release(&g_drm_lock);
+        return -22;
+    }
+
+    if (blob->data != 0 && blob->length >= found->length) {
+        copy_to_user((uintptr_t)blob->data, found->data, found->length);
+    }
+    blob->length = found->length;
+    spinlock_release(&g_drm_lock);
+    return 0;
+}
+
+static int drm_ioctl_destroy_blob(struct drm_mode_destroy_blob *blob) {
+    if (!blob || blob->blob_id == 0)
+        return -22;
+
+    spinlock_acquire(&g_drm_lock);
+    for (size_t i = 0; i < DRM_MAX_BLOBS; i++) {
+        if (g_drm_blobs[i].allocated && g_drm_blobs[i].blob_id == blob->blob_id) {
+            if (g_drm_blobs[i].data) {
+                kfree(g_drm_blobs[i].data);
+            }
+            memset(&g_drm_blobs[i], 0, sizeof(drm_blob_t));
+            spinlock_release(&g_drm_lock);
+            return 0;
+        }
+    }
+    spinlock_release(&g_drm_lock);
+    return -22;
+}
+
+static int drm_ioctl_set_gamma(struct drm_mode_crtc_lut *lut) {
+    if (!lut)
+        return -22;
+    return 0;
+}
+
+static int drm_ioctl_get_property(struct drm_mode_get_property *p) {
+    if (!p)
+        return -22;
+    return -22;
+}
+
+static int drm_ioctl_set_property(struct drm_mode_connector_set_property *p) {
+    if (!p)
+        return -22;
+    return 0;
+}
+
+static int drm_ioctl_create_lease(struct drm_mode_create_lease *lease) {
+    if (!lease)
+        return -22;
+    return -38; /* ENOSYS */
+}
+
+static int drm_ioctl_list_lessees(struct drm_mode_list_lessees *list) {
+    if (!list)
+        return -22;
+    list->count_lessees = 0;
+    return 0;
+}
+
+static int drm_ioctl_revoke_lease(struct drm_mode_revoke_lease *lease) {
+    if (!lease)
+        return -22;
+    return -38; /* ENOSYS */
+}
+
 ssize_t drm_read(void *buffer, size_t size) {
     if (!buffer || size < sizeof(struct drm_event_vblank))
         return -22;
@@ -737,7 +988,7 @@ static int drm_mmap_bo_locked(drm_dumb_bo_t *bo, void *addr, size_t length, int 
     (void)flags;
 
     process_t *proc = sched_get_current_process();
-    if (!proc || !out_vaddr || length == 0)
+    if (!proc || !out_vaddr || length == 0 || length > VMM_USER_END - PAGE_SIZE)
         return -22;
 
     if (proc->mmap_current == 0) {
@@ -746,18 +997,37 @@ static int drm_mmap_bo_locked(drm_dumb_bo_t *bo, void *addr, size_t length, int 
 
     size_t pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
     if (pages > bo->num_pages)
-        pages = bo->num_pages;
+        return -22;
 
     uintptr_t vaddr = (uintptr_t)addr;
     if (vaddr == 0) {
         vaddr = proc->mmap_current;
-        proc->mmap_current += pages * PAGE_SIZE;
+    }
+    if ((vaddr & (PAGE_SIZE - 1)) || !vmm_user_range(vaddr, pages * PAGE_SIZE)) {
+        return -22;
+    }
+
+    uint64_t map_flags = VMM_FLAG_PRESENT | VMM_FLAG_WRITABLE | VMM_FLAG_USER | VMM_FLAG_BORROWED;
+    if (bo->is_direct_vram) {
+        map_flags |= VMM_FLAG_WRITE_COMBINING;
     }
 
     for (size_t i = 0; i < pages; i++) {
         uintptr_t phys = bo->phys_pages[i];
-        vmm_map_page(proc->pagemap, vaddr + i * PAGE_SIZE, phys,
-                     VMM_FLAG_PRESENT | VMM_FLAG_WRITABLE | VMM_FLAG_USER);
+        vmm_release_user_page(proc->pagemap, vaddr + i * PAGE_SIZE);
+        if (!vmm_map_page(proc->pagemap, vaddr + i * PAGE_SIZE, phys, map_flags)) {
+            for (size_t j = 0; j < i; j++)
+                vmm_release_user_page(proc->pagemap, vaddr + j * PAGE_SIZE);
+            return -12;
+        }
+    }
+
+    if (vaddr + pages * PAGE_SIZE > proc->mmap_current)
+        proc->mmap_current = vaddr + pages * PAGE_SIZE;
+
+    /* Invalidate TLB if mapping into current address space */
+    if (proc == sched_get_current_process()) {
+        write_cr3(read_cr3());
     }
 
     *out_vaddr = (void *)vaddr;
@@ -1192,6 +1462,57 @@ int drm_ioctl(uint64_t request, void *argp) {
     case DRM_IOCTL_SYNCOBJ_WAIT:
         return drm_ioctl_syncobj_wait((struct drm_syncobj_wait *)argp);
 
+    case DRM_IOCTL_MODE_GETPLANERESOURCES:
+        return drm_ioctl_get_plane_res((struct drm_mode_get_plane_res *)argp);
+
+    case DRM_IOCTL_MODE_GETPLANE:
+        return drm_ioctl_get_plane((struct drm_mode_get_plane *)argp);
+
+    case DRM_IOCTL_MODE_SETPLANE:
+        return drm_ioctl_set_plane((struct drm_mode_set_plane *)argp);
+
+    case DRM_IOCTL_MODE_OBJ_GETPROPERTIES:
+        return drm_ioctl_obj_get_properties((struct drm_mode_obj_get_properties *)argp);
+
+    case DRM_IOCTL_MODE_OBJ_SETPROPERTY:
+        return drm_ioctl_obj_set_property((struct drm_mode_obj_set_property *)argp);
+
+    case DRM_IOCTL_MODE_CURSOR:
+        return drm_ioctl_cursor((struct drm_mode_cursor *)argp);
+
+    case DRM_IOCTL_MODE_CURSOR2:
+        return drm_ioctl_cursor2((struct drm_mode_cursor2 *)argp);
+
+    case DRM_IOCTL_MODE_ATOMIC:
+        return drm_ioctl_atomic((struct drm_mode_atomic *)argp);
+
+    case DRM_IOCTL_MODE_CREATEPROPBLOB:
+        return drm_ioctl_create_blob((struct drm_mode_create_blob *)argp);
+
+    case DRM_IOCTL_MODE_GETPROPBLOB:
+        return drm_ioctl_get_prop_blob((struct drm_mode_get_blob *)argp);
+
+    case DRM_IOCTL_MODE_DESTROYPROPBLOB:
+        return drm_ioctl_destroy_blob((struct drm_mode_destroy_blob *)argp);
+
+    case DRM_IOCTL_MODE_GETPROPERTY:
+        return drm_ioctl_get_property((struct drm_mode_get_property *)argp);
+
+    case DRM_IOCTL_MODE_SETPROPERTY:
+        return drm_ioctl_set_property((struct drm_mode_connector_set_property *)argp);
+
+    case DRM_IOCTL_MODE_SETGAMMA:
+        return drm_ioctl_set_gamma((struct drm_mode_crtc_lut *)argp);
+
+    case DRM_IOCTL_MODE_CREATE_LEASE:
+        return drm_ioctl_create_lease((struct drm_mode_create_lease *)argp);
+
+    case DRM_IOCTL_MODE_LIST_LESSEES:
+        return drm_ioctl_list_lessees((struct drm_mode_list_lessees *)argp);
+
+    case DRM_IOCTL_MODE_REVOKE_LEASE:
+        return drm_ioctl_revoke_lease((struct drm_mode_revoke_lease *)argp);
+
     default:
         klog_warn("DRM: Unsupported ioctl 0x%lx", request);
         return -22; /* EINVAL */
@@ -1273,4 +1594,15 @@ int drm_mmap(void *addr, size_t length, int prot, int flags, off_t offset, void 
     int ret = drm_mmap_bo_locked(bo, addr, length, prot, flags, out_vaddr);
     spinlock_release(&g_drm_lock);
     return ret;
+}
+
+int drm_release(void) {
+    spinlock_acquire(&g_drm_lock);
+    pid_t cur_pid = sched_get_current_process() ? sched_get_current_process()->pid : 0;
+    if (g_drm_master_pid == cur_pid || g_drm_master_pid == 0) {
+        g_drm_master_pid = 0;
+        fb_set_graphics_mode(false);
+    }
+    spinlock_release(&g_drm_lock);
+    return 0;
 }

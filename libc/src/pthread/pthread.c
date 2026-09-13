@@ -319,6 +319,19 @@ int pthread_attr_getdetachstate(const pthread_attr_t *attr, int *detachstate) {
     return 0;
 }
 
+int pthread_attr_setscope(pthread_attr_t *attr, int scope) {
+    if (!attr || (scope != PTHREAD_SCOPE_SYSTEM && scope != PTHREAD_SCOPE_PROCESS))
+        return EINVAL;
+    return 0;
+}
+
+int pthread_attr_getscope(const pthread_attr_t *attr, int *scope) {
+    if (!attr || !scope)
+        return EINVAL;
+    *scope = PTHREAD_SCOPE_SYSTEM;
+    return 0;
+}
+
 /* =========================================================================
  * Thread-Specific Data (TSD / Keys)
  * ========================================================================= */

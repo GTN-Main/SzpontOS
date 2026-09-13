@@ -22,7 +22,10 @@
 #define FUTEX_CLOCK_REALTIME 256
 #define FUTEX_CMD_MASK ~(FUTEX_PRIVATE_FLAG | FUTEX_CLOCK_REALTIME)
 
-struct timespec;
+struct timespec {
+    int64_t tv_sec;
+    int64_t tv_nsec;
+};
 struct thread;
 
 void futex_init(void);

@@ -86,6 +86,7 @@ typedef int errno_t;
 #define EHOSTUNREACH 113 /* No route to host */
 #define EALREADY 114     /* Operation already in progress */
 #define EINPROGRESS 115  /* Operation now in progress */
+#define ERESTART 85      /* Interrupted by system call should restart */
 
 #ifdef __cplusplus
 }

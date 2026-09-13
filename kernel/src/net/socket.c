@@ -13,6 +13,7 @@
 #include <kernel/kprint.h>
 #include <kernel/spinlock.h>
 #include <drivers/drm.h>
+#include <mm/usercopy.h>
 
 extern int tcp_send_segment(uint32_t src_ip, uint16_t src_port, uint32_t dest_ip, uint16_t dest_port, uint32_t seq,
                             uint32_t ack, uint8_t flags, const void *data, size_t len);
@@ -28,6 +29,10 @@ static ssize_t socket_vfs_read(vfs_node_t *node, off_t offset, size_t size, void
     if (!node || !node->device_data || !buffer || size == 0)
         return 0;
     socket_t *sock = (socket_t *)node->device_data;
+
+    if (sock->shutdown_flags & 1) {
+        return 0; /* EOF: Read shut down */
+    }
 
     netif_poll_all();
 
@@ -89,6 +94,10 @@ static ssize_t socket_vfs_write(vfs_node_t *node, off_t offset, size_t size, con
     if (!node || !node->device_data || !buffer || size == 0)
         return 0;
     socket_t *sock = (socket_t *)node->device_data;
+
+    if (sock->shutdown_flags & 2) {
+        return -32; /* -EPIPE: Write shut down */
+    }
 
     if (sock->domain == AF_UNIX) {
         if (!sock->peer || sock->peer->state == SS_CLOSED)
@@ -200,6 +209,17 @@ static socket_t *socket_create_unlocked(int domain, int type, int protocol) {
     sock->tcp_state = TCP_STATE_CLOSED;
     sock->lock = SPINLOCK_INIT;
 
+    /* Initialize default socket options */
+    sock->so_rcvbuf = SOCK_RX_BUF_SIZE;
+    sock->so_sndbuf = SOCK_TX_BUF_SIZE;
+    sock->ip_ttl = 64;
+    sock->ip_multicast_ttl = 1;
+    sock->ip_multicast_loop = 1;
+    sock->tcp_keepidle = 7200;
+    sock->tcp_keepintvl = 75;
+    sock->tcp_keepcnt = 9;
+    sock->tcp_mss = 1460;
+
     sock->next = g_socket_list;
     g_socket_list = sock;
 
@@ -246,7 +266,7 @@ void socket_destroy(socket_t *sock) {
 
     for (size_t i = 0; i < sock->passed_fd_count; i++) {
         if (sock->passed_fds[i]) {
-            kfree(sock->passed_fds[i]);
+            fd_release(sock->passed_fds[i]);
             sock->passed_fds[i] = NULL;
         }
     }
@@ -848,25 +868,47 @@ ssize_t sys_recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr *
 }
 
 int sys_shutdown(int fd, int how) {
-    (void)how;
+    if (how < 0 || how > 2)
+        return -22; /* -EINVAL */
+
     socket_t *sock = get_socket_from_fd(fd);
     if (!sock)
-        return -1;
-    if (sock->domain == AF_INET && sock->type == SOCK_STREAM &&
-        (sock->tcp_state == TCP_STATE_ESTABLISHED || sock->tcp_state == TCP_STATE_SYN_RECEIVED)) {
-        if (sock->local_ip == 0) {
-            netif_t *def = ((sock->remote_ip & 0xFF) == 127) ? netif_get_loopback() : netif_get_default();
-            if (def)
-                sock->local_ip = def->ip;
+        return -9; /* -EBADF */
+
+    if (how == SHUT_RD) {
+        sock->shutdown_flags |= 1;
+    } else if (how == SHUT_WR) {
+        sock->shutdown_flags |= 2;
+        if (sock->domain == AF_INET && sock->type == SOCK_STREAM &&
+            (sock->tcp_state == TCP_STATE_ESTABLISHED || sock->tcp_state == TCP_STATE_SYN_RECEIVED)) {
+            if (sock->local_ip == 0) {
+                netif_t *def = ((sock->remote_ip & 0xFF) == 127) ? netif_get_loopback() : netif_get_default();
+                if (def)
+                    sock->local_ip = def->ip;
+            }
+            tcp_send_segment(sock->local_ip, sock->local_port, sock->remote_ip, sock->remote_port,
+                             sock->snd_nxt, sock->rcv_nxt, TCP_FLAG_FIN | TCP_FLAG_ACK, NULL, 0);
+            sock->snd_nxt++;
+            sock->tcp_state = TCP_STATE_FIN_WAIT_1;
         }
-        tcp_send_segment(sock->local_ip, sock->local_port, sock->remote_ip, sock->remote_port,
-                         sock->snd_nxt, sock->rcv_nxt, TCP_FLAG_FIN | TCP_FLAG_ACK, NULL, 0);
-        sock->snd_nxt++;
-        sock->tcp_state = TCP_STATE_FIN_WAIT_1;
-    }
-    sock->state = SS_CLOSED;
-    if (sock->domain == AF_UNIX && sock->peer) {
-        sock->peer->state = SS_CLOSED;
+    } else if (how == SHUT_RDWR) {
+        sock->shutdown_flags |= 3;
+        if (sock->domain == AF_INET && sock->type == SOCK_STREAM &&
+            (sock->tcp_state == TCP_STATE_ESTABLISHED || sock->tcp_state == TCP_STATE_SYN_RECEIVED)) {
+            if (sock->local_ip == 0) {
+                netif_t *def = ((sock->remote_ip & 0xFF) == 127) ? netif_get_loopback() : netif_get_default();
+                if (def)
+                    sock->local_ip = def->ip;
+            }
+            tcp_send_segment(sock->local_ip, sock->local_port, sock->remote_ip, sock->remote_port,
+                             sock->snd_nxt, sock->rcv_nxt, TCP_FLAG_FIN | TCP_FLAG_ACK, NULL, 0);
+            sock->snd_nxt++;
+            sock->tcp_state = TCP_STATE_FIN_WAIT_1;
+        }
+        sock->state = SS_CLOSED;
+        if (sock->domain == AF_UNIX && sock->peer) {
+            sock->peer->state = SS_CLOSED;
+        }
     }
     return 0;
 }
@@ -904,75 +946,468 @@ int sys_getpeername(int fd, struct sockaddr *addr, uint32_t *addrlen) {
 }
 
 int sys_setsockopt(int fd, int level, int optname, const void *optval, uint32_t optlen) {
-    (void)fd;
-    (void)level;
-    (void)optname;
-    (void)optval;
-    (void)optlen;
+    socket_t *sock = get_socket_from_fd(fd);
+    if (!sock)
+        return -9; /* -EBADF */
+    if (!optval && optlen > 0)
+        return -14; /* -EFAULT */
+
+    uint8_t koptval[256];
+    size_t klen = optlen > sizeof(koptval) ? sizeof(koptval) : (size_t)optlen;
+    if (klen > 0) {
+        if (!copy_from_user(koptval, (uintptr_t)optval, klen))
+            return -14; /* -EFAULT */
+    }
+
+    if (level == SOL_SOCKET) {
+        switch (optname) {
+        case SO_REUSEADDR:
+            if (klen < sizeof(int)) return -22;
+            sock->so_reuseaddr = *(int *)koptval ? 1 : 0;
+            return 0;
+        case SO_REUSEPORT:
+            if (klen < sizeof(int)) return -22;
+            sock->so_reuseport = *(int *)koptval ? 1 : 0;
+            return 0;
+        case SO_BROADCAST:
+            if (klen < sizeof(int)) return -22;
+            sock->so_broadcast = *(int *)koptval ? 1 : 0;
+            return 0;
+        case SO_KEEPALIVE:
+            if (klen < sizeof(int)) return -22;
+            sock->so_keepalive = *(int *)koptval ? 1 : 0;
+            return 0;
+        case SO_PASSCRED:
+            if (klen < sizeof(int)) return -22;
+            sock->so_passcred = *(int *)koptval ? 1 : 0;
+            return 0;
+        case SO_DONTROUTE:
+            if (klen < sizeof(int)) return -22;
+            sock->so_dontroute = *(int *)koptval ? 1 : 0;
+            return 0;
+        case SO_OOBINLINE:
+            if (klen < sizeof(int)) return -22;
+            sock->so_oobinline = *(int *)koptval ? 1 : 0;
+            return 0;
+        case SO_PRIORITY:
+            if (klen < sizeof(int)) return -22;
+            sock->so_priority = *(int *)koptval;
+            return 0;
+        case SO_RCVBUF: {
+            if (klen < sizeof(int)) return -22;
+            int val = *(int *)koptval;
+            if (val < 1024) val = 1024;
+            if (val > 16 * 1024 * 1024) val = 16 * 1024 * 1024;
+            sock->so_rcvbuf = val;
+            return 0;
+        }
+        case SO_SNDBUF: {
+            if (klen < sizeof(int)) return -22;
+            int val = *(int *)koptval;
+            if (val < 1024) val = 1024;
+            if (val > 16 * 1024 * 1024) val = 16 * 1024 * 1024;
+            sock->so_sndbuf = val;
+            return 0;
+        }
+        case SO_RCVTIMEO: {
+            struct { int64_t tv_sec; int64_t tv_usec; } tv;
+            if (klen >= sizeof(tv)) {
+                memcpy(&tv, koptval, sizeof(tv));
+                sock->so_rcvtimeo_ms = tv.tv_sec * 1000 + tv.tv_usec / 1000;
+            }
+            return 0;
+        }
+        case SO_SNDTIMEO: {
+            struct { int64_t tv_sec; int64_t tv_usec; } tv;
+            if (klen >= sizeof(tv)) {
+                memcpy(&tv, koptval, sizeof(tv));
+                sock->so_sndtimeo_ms = tv.tv_sec * 1000 + tv.tv_usec / 1000;
+            }
+            return 0;
+        }
+        case SO_LINGER:
+            if (klen >= sizeof(struct linger_k)) {
+                memcpy(&sock->so_linger, koptval, sizeof(struct linger_k));
+            }
+            return 0;
+        case SO_BINDTODEVICE:
+            if (klen == 0 || koptval[0] == '\0') {
+                sock->bind_device[0] = '\0';
+            } else {
+                strncpy(sock->bind_device, (char *)koptval, sizeof(sock->bind_device) - 1);
+                sock->bind_device[sizeof(sock->bind_device) - 1] = '\0';
+            }
+            return 0;
+        case SO_ATTACH_FILTER:
+        case SO_DETACH_FILTER:
+            return 0;
+        default:
+            return 0;
+        }
+    } else if (level == IPPROTO_TCP) {
+        switch (optname) {
+        case TCP_NODELAY:
+            if (klen < sizeof(int)) return -22;
+            sock->tcp_nodelay = *(int *)koptval ? 1 : 0;
+            return 0;
+        case TCP_MAXSEG:
+            if (klen < sizeof(int)) return -22;
+            sock->tcp_mss = *(int *)koptval;
+            return 0;
+        case TCP_CORK:
+            if (klen < sizeof(int)) return -22;
+            sock->tcp_cork = *(int *)koptval ? 1 : 0;
+            return 0;
+        case TCP_KEEPIDLE:
+            if (klen < sizeof(int)) return -22;
+            sock->tcp_keepidle = *(int *)koptval;
+            return 0;
+        case TCP_KEEPINTVL:
+            if (klen < sizeof(int)) return -22;
+            sock->tcp_keepintvl = *(int *)koptval;
+            return 0;
+        case TCP_KEEPCNT:
+            if (klen < sizeof(int)) return -22;
+            sock->tcp_keepcnt = *(int *)koptval;
+            return 0;
+        case TCP_QUICKACK:
+            if (klen < sizeof(int)) return -22;
+            sock->tcp_quickack = *(int *)koptval ? 1 : 0;
+            return 0;
+        default:
+            return 0;
+        }
+    } else if (level == IPPROTO_IP) {
+        switch (optname) {
+        case IP_TTL:
+            if (klen < sizeof(int)) return -22;
+            sock->ip_ttl = (uint8_t)*(int *)koptval;
+            return 0;
+        case IP_TOS:
+            if (klen < sizeof(int)) return -22;
+            sock->ip_tos = (uint8_t)*(int *)koptval;
+            return 0;
+        case IP_MULTICAST_LOOP:
+            if (klen < sizeof(int)) return -22;
+            sock->ip_multicast_loop = *(int *)koptval ? 1 : 0;
+            return 0;
+        case IP_MULTICAST_TTL:
+            if (klen < sizeof(int)) return -22;
+            sock->ip_multicast_ttl = (uint8_t)*(int *)koptval;
+            return 0;
+        case IP_PKTINFO:
+            if (klen < sizeof(int)) return -22;
+            sock->ip_pktinfo = *(int *)koptval ? 1 : 0;
+            return 0;
+        case IP_ADD_MEMBERSHIP:
+        case IP_DROP_MEMBERSHIP:
+            return 0;
+        default:
+            return 0;
+        }
+    } else if (level == IPPROTO_IPV6) {
+        if (optname == IPV6_V6ONLY) {
+            if (klen < sizeof(int)) return -22;
+            sock->ipv6_v6only = *(int *)koptval ? 1 : 0;
+            return 0;
+        }
+    }
+
     return 0;
 }
 
 int sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *optlen) {
     socket_t *sock = get_socket_from_fd(fd);
-    if (!sock || !optval || !optlen)
-        return -1;
+    if (!sock)
+        return -9; /* -EBADF */
+    if (!optval || !optlen)
+        return -14; /* -EFAULT */
 
-    if (level == 1 /* SOL_SOCKET */) {
-        if (optname == 4 /* SO_ERROR */) {
-            if (*optlen >= sizeof(int)) {
-                if (sock->state == SS_CONNECTED || sock->tcp_state == TCP_STATE_ESTABLISHED) {
-                    *(int *)optval = 0;
-                } else if (sock->tcp_state == TCP_STATE_CLOSED) {
-                    *(int *)optval = 111; /* ECONNREFUSED */
-                } else {
-                    *(int *)optval = 0;
-                }
-                *optlen = sizeof(int);
-                return 0;
+    uint32_t max_len = 0;
+    if (!copy_from_user(&max_len, (uintptr_t)optlen, sizeof(uint32_t)))
+        return -14; /* -EFAULT */
+
+    uint8_t kout[256];
+    memset(kout, 0, sizeof(kout));
+    size_t out_len = 0;
+
+    if (level == SOL_SOCKET) {
+        switch (optname) {
+        case SO_TYPE: {
+            int v = sock->type;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        case SO_ERROR: {
+            int err = sock->so_error;
+            sock->so_error = 0;
+            if (err == 0 && sock->domain == AF_INET && sock->type == SOCK_STREAM && sock->tcp_state == TCP_STATE_CLOSED) {
+                err = 111; /* ECONNREFUSED */
             }
-        } else if (optname == 3 /* SO_TYPE */) {
-            if (*optlen >= sizeof(int)) {
-                *(int *)optval = sock->type;
-                *optlen = sizeof(int);
-                return 0;
-            }
-        } else if (optname == 7 /* SO_SNDBUF */ || optname == 8 /* SO_RCVBUF */) {
-            if (*optlen >= sizeof(int)) {
-                *(int *)optval = 65536;
-                *optlen = sizeof(int);
-                return 0;
-            }
+            memcpy(kout, &err, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        case SO_REUSEADDR: {
+            int v = sock->so_reuseaddr;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        case SO_REUSEPORT: {
+            int v = sock->so_reuseport;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        case SO_KEEPALIVE: {
+            int v = sock->so_keepalive;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        case SO_BROADCAST: {
+            int v = sock->so_broadcast;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        case SO_PASSCRED: {
+            int v = sock->so_passcred;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        case SO_ACCEPTCONN: {
+            int v = (sock->state == SS_LISTENING) ? 1 : 0;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        case SO_RCVBUF: {
+            int v = sock->so_rcvbuf ? sock->so_rcvbuf : SOCK_RX_BUF_SIZE;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        case SO_SNDBUF: {
+            int v = sock->so_sndbuf ? sock->so_sndbuf : SOCK_TX_BUF_SIZE;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        case SO_RCVTIMEO: {
+            struct { int64_t tv_sec; int64_t tv_usec; } tv;
+            tv.tv_sec = sock->so_rcvtimeo_ms / 1000;
+            tv.tv_usec = (sock->so_rcvtimeo_ms % 1000) * 1000;
+            memcpy(kout, &tv, sizeof(tv));
+            out_len = sizeof(tv);
+            break;
+        }
+        case SO_SNDTIMEO: {
+            struct { int64_t tv_sec; int64_t tv_usec; } tv;
+            tv.tv_sec = sock->so_sndtimeo_ms / 1000;
+            tv.tv_usec = (sock->so_sndtimeo_ms % 1000) * 1000;
+            memcpy(kout, &tv, sizeof(tv));
+            out_len = sizeof(tv);
+            break;
+        }
+        case SO_LINGER:
+            memcpy(kout, &sock->so_linger, sizeof(struct linger_k));
+            out_len = sizeof(struct linger_k);
+            break;
+        case SO_PEERCRED: {
+            struct ucred_k ucred;
+            process_t *curr = sched_get_current_process();
+            ucred.pid = curr ? curr->pid : 1;
+            ucred.uid = curr ? curr->uid : 0;
+            ucred.gid = curr ? curr->gid : 0;
+            memcpy(kout, &ucred, sizeof(ucred));
+            out_len = sizeof(ucred);
+            break;
+        }
+        case SO_BINDTODEVICE: {
+            size_t slen = strlen(sock->bind_device) + 1;
+            memcpy(kout, sock->bind_device, slen);
+            out_len = slen;
+            break;
+        }
+        default: {
+            int v = 0;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        }
+    } else if (level == IPPROTO_TCP) {
+        switch (optname) {
+        case TCP_NODELAY: {
+            int v = sock->tcp_nodelay;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        case TCP_MAXSEG: {
+            int v = sock->tcp_mss ? sock->tcp_mss : 1460;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        case TCP_CORK: {
+            int v = sock->tcp_cork;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        case TCP_KEEPIDLE: {
+            int v = sock->tcp_keepidle ? sock->tcp_keepidle : 7200;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        case TCP_KEEPINTVL: {
+            int v = sock->tcp_keepintvl ? sock->tcp_keepintvl : 75;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        case TCP_KEEPCNT: {
+            int v = sock->tcp_keepcnt ? sock->tcp_keepcnt : 9;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        case TCP_QUICKACK: {
+            int v = sock->tcp_quickack;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        default: {
+            int v = 0;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        }
+    } else if (level == IPPROTO_IP) {
+        switch (optname) {
+        case IP_TTL: {
+            int v = sock->ip_ttl ? sock->ip_ttl : 64;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        case IP_TOS: {
+            int v = sock->ip_tos;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        case IP_MULTICAST_LOOP: {
+            int v = sock->ip_multicast_loop;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        case IP_MULTICAST_TTL: {
+            int v = sock->ip_multicast_ttl ? sock->ip_multicast_ttl : 1;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        case IP_PKTINFO: {
+            int v = sock->ip_pktinfo;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        default: {
+            int v = 0;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
+            break;
+        }
+        }
+    } else if (level == IPPROTO_IPV6) {
+        if (optname == IPV6_V6ONLY) {
+            int v = sock->ipv6_v6only;
+            memcpy(kout, &v, sizeof(int));
+            out_len = sizeof(int);
         }
     }
 
-    if (*optlen >= sizeof(int)) {
-        *(int *)optval = 0;
-        *optlen = sizeof(int);
+    if (out_len == 0) {
+        int v = 0;
+        memcpy(kout, &v, sizeof(int));
+        out_len = sizeof(int);
     }
+
+    if (out_len > max_len)
+        out_len = max_len;
+
+    if (!copy_to_user((uintptr_t)optval, kout, out_len))
+        return -14; /* -EFAULT */
+
+    uint32_t copied_len = (uint32_t)out_len;
+    if (!copy_to_user((uintptr_t)optlen, &copied_len, sizeof(uint32_t)))
+        return -14; /* -EFAULT */
+
     return 0;
 }
 
+static void socket_close_fd(int fd) {
+    process_t *proc = sched_get_current_process();
+    if (proc && fd >= 0 && fd < MAX_FD && proc->fds[fd]) {
+        file_descriptor_t *fdesc = proc->fds[fd];
+        proc->fds[fd] = NULL;
+        proc->fd_cloexec[fd] = false;
+        if (fdesc->node) {
+            if (fdesc->node->device_data) {
+                socket_destroy((socket_t *)fdesc->node->device_data);
+            }
+            kfree(fdesc->node);
+        }
+        kfree(fdesc);
+    }
+}
+
 int sys_socketpair(int domain, int type, int protocol, int sv[2]) {
-    (void)domain;
-    (void)type;
-    (void)protocol;
-    int fd1 = sys_socket(AF_UNIX, SOCK_STREAM, 0);
-    int fd2 = sys_socket(AF_UNIX, SOCK_STREAM, 0);
-    if (fd1 < 0 || fd2 < 0)
+    if (domain != AF_UNIX && domain != AF_LOCAL)
+        return -97; /* -EAFNOSUPPORT */
+
+    int base_type = type & 0xF;
+    if (base_type != SOCK_STREAM && base_type != SOCK_DGRAM)
+        return -93; /* -EPROTOTYPE */
+
+    int fd1 = sys_socket(AF_UNIX, base_type, protocol);
+    int fd2 = sys_socket(AF_UNIX, base_type, protocol);
+    if (fd1 < 0 || fd2 < 0) {
+        if (fd1 >= 0) socket_close_fd(fd1);
+        if (fd2 >= 0) socket_close_fd(fd2);
         return -1;
+    }
 
     socket_t *s1 = get_socket_from_fd(fd1);
     socket_t *s2 = get_socket_from_fd(fd2);
-    if (!s1 || !s2)
+    if (!s1 || !s2) {
+        socket_close_fd(fd1);
+        socket_close_fd(fd2);
         return -1;
+    }
 
     s1->peer = s2;
     s2->peer = s1;
     s1->state = SS_CONNECTED;
     s2->state = SS_CONNECTED;
 
-    sv[0] = fd1;
-    sv[1] = fd2;
+    int ksv[2] = { fd1, fd2 };
+    if (!copy_to_user((uintptr_t)sv, ksv, sizeof(ksv))) {
+        socket_close_fd(fd1);
+        socket_close_fd(fd2);
+        return -14; /* -EFAULT */
+    }
     return 0;
 }
 

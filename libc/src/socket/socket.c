@@ -4,9 +4,13 @@
  */
 
 #include <sys/socket.h>
+#include <netinet/in.h>
 #include <sys/syscall.h>
 #include <errno.h>
 #include <unistd.h>
+
+const struct in6_addr in6addr_any = { { 0 } };
+const struct in6_addr in6addr_loopback = { { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1 } };
 
 int socket(int domain, int type, int protocol) {
     int64_t ret = __syscall3(SYS_socket, domain, type, protocol);

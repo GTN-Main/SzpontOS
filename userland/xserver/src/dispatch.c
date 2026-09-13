@@ -499,6 +499,24 @@ static uint32_t *get_drawable_buffer(uint32_t id, int *w, int *h, int *pitch) {
     return NULL;
 }
 
+static void mark_drawable_damage(uint32_t did, int x, int y, int w, int h) {
+    window_t *win = window_find(did);
+    if (win) {
+        if (win->mapped) {
+            int abs_x = 0, abs_y = 0;
+            window_get_absolute_coords(win, &abs_x, &abs_y);
+            damage_add_rect(abs_x + x, abs_y + y, w, h);
+            g_server.needs_redraw = true;
+        }
+    } else {
+        pixmap_t *pm = pixmap_find(did);
+        if (!pm) {
+            damage_add_fullscreen();
+            g_server.needs_redraw = true;
+        }
+    }
+}
+
 static void handle_poly_fill_rectangle(client_t *c, const uint8_t *req, size_t len) {
     if (len < 12) return;
     uint32_t did = *(const uint32_t *)(req + 4);
@@ -520,6 +538,7 @@ static void handle_poly_fill_rectangle(client_t *c, const uint8_t *req, size_t l
     for (int i = 0; i < count; i++) {
         draw_fill_rect(buf, dpitch, dw, dh, rects[i].x, rects[i].y, rects[i].width, rects[i].height,
                        gc->foreground, gc->function);
+        mark_drawable_damage(did, rects[i].x, rects[i].y, rects[i].width, rects[i].height);
     }
 }
 
@@ -544,6 +563,7 @@ static void handle_poly_rectangle(client_t *c, const uint8_t *req, size_t len) {
     for (int i = 0; i < count; i++) {
         draw_rect(buf, dpitch, dw, dh, rects[i].x, rects[i].y, rects[i].width, rects[i].height,
                   gc->foreground, gc->line_width);
+        mark_drawable_damage(did, rects[i].x, rects[i].y, rects[i].width, rects[i].height);
     }
 }
 
@@ -579,6 +599,11 @@ static void handle_poly_line(client_t *c, const uint8_t *req, size_t len) {
             x2 = cur_x; y2 = cur_y;
         }
         draw_line(buf, dpitch, dw, dh, x1, y1, x2, y2, gc->foreground, gc->line_width);
+        int lx = x1 < x2 ? x1 : x2;
+        int ly = y1 < y2 ? y1 : y2;
+        int lw = (x1 > x2 ? x1 - x2 : x2 - x1) + 1;
+        int lh = (y1 > y2 ? y1 - y2 : y2 - y1) + 1;
+        mark_drawable_damage(did, lx, ly, lw, lh);
     }
 }
 
@@ -604,6 +629,7 @@ static void handle_poly_arc(client_t *c, const uint8_t *req, size_t len, bool fi
     for (int i = 0; i < count; i++) {
         draw_arc(buf, dpitch, dw, dh, arcs[i].x, arcs[i].y, arcs[i].width, arcs[i].height,
                  arcs[i].angle1, arcs[i].angle2, gc->foreground, fill);
+        mark_drawable_damage(did, arcs[i].x, arcs[i].y, arcs[i].width, arcs[i].height);
     }
 }
 
@@ -624,6 +650,7 @@ static void handle_image_text8(client_t *c, const uint8_t *req, size_t len) {
 
     const char *text = (const char *)(req + 16);
     draw_text(buf, dpitch, dw, dh, x, y - FONT_ASCENT, text, str_len, gc->foreground, gc->background, false);
+    mark_drawable_damage(did, x, y - FONT_ASCENT, str_len * FONT_WIDTH, FONT_HEIGHT);
 }
 
 static void handle_poly_text8(client_t *c, const uint8_t *req, size_t len) {
@@ -642,6 +669,7 @@ static void handle_poly_text8(client_t *c, const uint8_t *req, size_t len) {
 
     const uint8_t *p = req + 16;
     const uint8_t *end = req + len;
+    int start_x = x;
 
     while (p < end) {
         uint8_t item_len = *p++;
@@ -656,6 +684,9 @@ static void handle_poly_text8(client_t *c, const uint8_t *req, size_t len) {
         draw_text(buf, dpitch, dw, dh, x, y - FONT_ASCENT, (const char *)p, item_len, gc->foreground, gc->background, true);
         x += item_len * FONT_WIDTH;
         p += item_len;
+    }
+    if (x > start_x) {
+        mark_drawable_damage(did, start_x, y - FONT_ASCENT, x - start_x, FONT_HEIGHT);
     }
 }
 
@@ -922,6 +953,7 @@ static void handle_put_image(client_t *c, const uint8_t *req, size_t len) {
                   dst_x, dst_y, src_pixels, src_pitch, width, height,
                   0, 0, width, height);
         if (win) {
+            mark_drawable_damage(drawable_id, dst_x, dst_y, width, height);
             g_server.needs_redraw = true;
         }
     }
@@ -1085,6 +1117,7 @@ static void handle_shm_put_image(client_t *c, const uint8_t *req, size_t len) {
                   src_x, src_y, src_w, src_h);
 
         if (win) {
+            mark_drawable_damage(drawable_id, dst_x, dst_y, src_w, src_h);
             g_server.needs_redraw = true;
         }
     }
@@ -1169,6 +1202,10 @@ static void handle_copy_area(client_t *c, const uint8_t *req, size_t len) {
     draw_blit(dst_pix->data, dst_pix->pitch, dst_pix->width, dst_pix->height, dst_x, dst_y,
               src_pix->data, src_pix->pitch, src_pix->width, src_pix->height,
               src_x, src_y, width, height);
+    if (dst_win) {
+        mark_drawable_damage(dst_id, dst_x, dst_y, width, height);
+        g_server.needs_redraw = true;
+    }
 }
 
 static void handle_configure_window(client_t *c, const uint8_t *req, size_t len) {
@@ -1476,10 +1513,12 @@ static void handle_clear_area(client_t *c, const uint8_t *req, size_t len) {
 void dispatch_request(client_t *c, const uint8_t *req, size_t len) {
     if (!c || !req || len < 4) return;
     uint8_t opcode = req[0];
+#ifdef DEBUG_OPCODES
     if (opcode != X_PolyFillRectangle && opcode != X_PolyText8 && opcode != X_PutImage && opcode != X_AllocColor) {
         printf("[SzpontX11] FD %d Opcode %d (len %zu)\n", c->fd, opcode, len);
         fflush(stdout);
     }
+#endif
 
     switch (opcode) {
     case X_CreateWindow:            handle_create_window(c, req, len); break;

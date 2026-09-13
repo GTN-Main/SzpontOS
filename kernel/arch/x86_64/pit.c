@@ -16,19 +16,18 @@ static uint32_t g_pit_freq = 100;
 #include <drivers/keyboard.h>
 #include <drivers/xhci.h>
 #include <drivers/ehci.h>
+#include <kernel/smp.h>
 
 static void pit_irq_handler(interrupt_frame_t *frame) {
     UNUSED(frame);
-    g_pit_ticks++;
-    /* NOTE: do NOT poll the i8042 here — on laptop ECs each port read costs
-     * ~5-10 µs and a streaming touchpad keeps OBF set, so this handler would
-     * consume most of the CPU in interrupt context and starve every thread.
-     * The console read path polls port 0x60 itself; IRQ1 delivers when it
-     * works. */
-    xhci_poll();
-    ehci_poll();
+    if (smp_is_bsp()) {
+        g_pit_ticks++;
+        xhci_poll();
+        ehci_poll();
+    }
     sched_tick();
 }
+
 
 
 void pit_init(uint32_t frequency_hz) {

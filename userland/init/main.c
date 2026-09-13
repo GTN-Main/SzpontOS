@@ -39,8 +39,10 @@
 #define PATH_CONSOLE  "/dev/console"
 #define PATH_TTYS     "/etc/ttys"
 #define PATH_RC       "/etc/rc"
+#define PATH_RCCONF   "/etc/rc.conf"
 #define PATH_SHUTDOWN "/etc/rc.shutdown"
 #define PATH_BSHELL   "/bin/sh"
+#define PATH_STARTX   "/bin/startx"
 
 /* Anti-thrashing timing constants (from FreeBSD init) */
 #define GETTY_SPACING 5  /* Minimum seconds a session must run before exit */
@@ -60,6 +62,7 @@ typedef struct session {
     pid_t pid;
     time_t started;
     int respawn_count;
+    bool is_desktop;
     struct session *next;
 } session_t;
 
@@ -77,6 +80,31 @@ static session_t *g_sessions = NULL;
 static volatile sig_atomic_t g_requested_signal = 0;
 static unsigned int g_reboot_cmd = RB_AUTOBOOT;
 static bool g_fastboot = false;
+static bool g_boot_desktop = true;
+
+static bool is_desktop_configured(void) {
+    if (access(PATH_STARTX, X_OK) != 0) {
+        return false;
+    }
+    FILE *f = fopen(PATH_RCCONF, "r");
+    if (f) {
+        char line[256];
+        while (fgets(line, sizeof(line), f)) {
+            char *p = line;
+            while (*p == ' ' || *p == '\t') p++;
+            if (*p == '#' || *p == '\n' || *p == '\0') continue;
+            if (strncmp(p, "x11_enable", 10) == 0 || strncmp(p, "desktop_enable", 14) == 0) {
+                if (strstr(p, "\"NO\"") || strstr(p, "'NO'") || strstr(p, "=NO") ||
+                    strstr(p, "=no") || strstr(p, "\"no\"")) {
+                    fclose(f);
+                    return false;
+                }
+            }
+        }
+        fclose(f);
+    }
+    return true;
+}
 
 static void sig_handler(int sig) {
     g_requested_signal = sig;
@@ -149,18 +177,22 @@ static pid_t start_session(session_t *sp) {
         snprintf(term_env, sizeof(term_env), "TERM=%s", sp->type[0] ? sp->type : "xterm-256color");
 
         char *envp[] = {
-            "PATH=/bin:/usr/bin",
+            "PATH=/bin:/usr/bin:/usr/local/bin:/usr/sbin:/sbin",
             "USER=root",
+            "LOGNAME=root",
             "HOME=/root",
             "SHELL=/bin/sh",
             "ENV=/etc/shrc",
+            "COLORTERM=truecolor",
             term_env,
             NULL
         };
 
+        const char *cmd_to_run = sp->is_desktop ? PATH_STARTX : sp->command;
+
         /* Parse command into argv array */
         char cmd_copy[128];
-        strncpy(cmd_copy, sp->command, sizeof(cmd_copy) - 1);
+        strncpy(cmd_copy, cmd_to_run, sizeof(cmd_copy) - 1);
         cmd_copy[sizeof(cmd_copy) - 1] = '\0';
 
         char *argv[16];
@@ -179,7 +211,7 @@ static pid_t start_session(session_t *sp) {
             argv[1] = NULL;
         } else {
             strncpy(exec_bin, argv[0], sizeof(exec_bin) - 1);
-            if (strcmp(argv[0], PATH_BSHELL) == 0 || strcmp(argv[0], "/bin/sh") == 0) {
+            if (!sp->is_desktop && (strcmp(argv[0], PATH_BSHELL) == 0 || strcmp(argv[0], "/bin/sh") == 0)) {
                 argv[0] = "-sh";
             }
         }
@@ -196,7 +228,10 @@ static pid_t start_session(session_t *sp) {
 
     sp->pid = pid;
     sp->started = time(NULL);
-    printf(COLOR_GREEN "[INIT] Started session '%s' on %s (PID %d)" COLOR_RESET "\n", sp->command, sp->device, pid);
+    printf(COLOR_GREEN "[INIT] Started %s session '%s' on %s (PID %d)" COLOR_RESET "\n",
+           sp->is_desktop ? "graphical desktop" : "terminal",
+           sp->is_desktop ? PATH_STARTX : sp->command,
+           sp->device, pid);
     return pid;
 }
 
@@ -326,11 +361,13 @@ static init_state_t state_single_user(void) {
         }
         char *argv[] = {PATH_BSHELL, NULL};
         char *envp[] = {
-            "PATH=/bin:/usr/bin",
+            "PATH=/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin",
             "USER=root",
+            "LOGNAME=root",
             "HOME=/root",
             "SHELL=/bin/sh",
             "TERM=xterm-256color",
+            "COLORTERM=truecolor",
             NULL
         };
         execve(argv[0], argv, envp);
@@ -367,11 +404,13 @@ static init_state_t state_runcom(void) {
         }
         char *argv[] = {PATH_BSHELL, PATH_RC, g_fastboot ? "fastboot" : "autoboot", NULL};
         char *envp[] = {
-            "PATH=/bin:/usr/bin",
+            "PATH=/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin",
             "USER=root",
+            "LOGNAME=root",
             "HOME=/root",
             "SHELL=/bin/sh",
             "TERM=xterm-256color",
+            "COLORTERM=truecolor",
             NULL
         };
         execve(argv[0], argv, envp);
@@ -408,6 +447,10 @@ static init_state_t state_read_ttys(void) {
 
     for (session_t *s = g_sessions; s != NULL; s = s->next) {
         if ((s->flags & SE_ON) && s->pid == 0) {
+            if (g_boot_desktop && strcmp(s->device, "console") == 0 && access(PATH_STARTX, X_OK) == 0) {
+                s->is_desktop = true;
+                g_boot_desktop = false;
+            }
             start_session(s);
         }
     }
@@ -448,6 +491,42 @@ static init_state_t state_multi_user(void) {
             } else if (pending & (1U << SIGTSTP)) {
                 printf(COLOR_YELLOW "[INIT] Received SIGTSTP: Entering catatonic mode (sessions paused)..." COLOR_RESET "\n");
                 return STATE_CATATONIA;
+            } else if (pending & (1U << SIGWINCH)) {
+                /* Switch console session to graphical desktop (Runlevel 5) */
+                session_t *con = NULL;
+                for (session_t *s = g_sessions; s != NULL; s = s->next) {
+                    if (strcmp(s->device, "console") == 0) {
+                        con = s;
+                        break;
+                    }
+                }
+                if (con && !con->is_desktop && access(PATH_STARTX, X_OK) == 0) {
+                    printf(COLOR_CYAN "[INIT] Switching session on console to graphical desktop (Runlevel 5)..." COLOR_RESET "\n");
+                    con->is_desktop = true;
+                    if (con->pid > 0) {
+                        kill(con->pid, SIGTERM);
+                    } else {
+                        start_session(con);
+                    }
+                }
+            } else if (pending & (1U << SIGURG)) {
+                /* Switch console session to TTY shell (Runlevel 3) */
+                session_t *con = NULL;
+                for (session_t *s = g_sessions; s != NULL; s = s->next) {
+                    if (strcmp(s->device, "console") == 0) {
+                        con = s;
+                        break;
+                    }
+                }
+                if (con && con->is_desktop) {
+                    printf(COLOR_CYAN "[INIT] Switching session on console to TTY shell (Runlevel 3)..." COLOR_RESET "\n");
+                    con->is_desktop = false;
+                    if (con->pid > 0) {
+                        kill(con->pid, SIGTERM);
+                    } else {
+                        start_session(con);
+                    }
+                }
             }
         }
 
@@ -466,17 +545,26 @@ static init_state_t state_multi_user(void) {
                     sp->respawn_count = 0;
                 }
 
-                if (sp->respawn_count >= GETTY_NSPACE) {
-                    printf(COLOR_RED "[INIT] Alert: Session on %s respawning too rapidly! Throttling for %d seconds." COLOR_RESET "\n",
-                           sp->device, GETTY_SLEEP);
-                    sleep(GETTY_SLEEP);
+                if (sp->is_desktop) {
+                    /* Desktop session terminated -> clean transition to console TTY shell */
+                    sp->is_desktop = false;
                     sp->respawn_count = 0;
-                }
-
-                if (sp->flags & SE_ON) {
-                    printf(COLOR_YELLOW "[INIT] Session on %s (PID %d) terminated. Respawning..." COLOR_RESET "\n",
-                           sp->device, pid);
+                    printf(COLOR_CYAN "[INIT] Graphical desktop session terminated. Dropping to console TTY shell (%s)..." COLOR_RESET "\n",
+                           sp->command);
                     start_session(sp);
+                } else {
+                    if (sp->respawn_count >= GETTY_NSPACE) {
+                        printf(COLOR_RED "[INIT] Alert: Session on %s respawning too rapidly! Throttling for %d seconds." COLOR_RESET "\n",
+                               sp->device, GETTY_SLEEP);
+                        sleep(GETTY_SLEEP);
+                        sp->respawn_count = 0;
+                    }
+
+                    if (sp->flags & SE_ON) {
+                        printf(COLOR_YELLOW "[INIT] Session on %s (PID %d) terminated. Respawning..." COLOR_RESET "\n",
+                               sp->device, pid);
+                        start_session(sp);
+                    }
                 }
             }
             /* Orphaned child reaped successfully! */
@@ -487,7 +575,13 @@ static init_state_t state_multi_user(void) {
             session_t *s = find_session_by_pid(pid);
             if (s) {
                 s->pid = 0;
-                if (s->flags & SE_ON) {
+                if (s->is_desktop) {
+                    s->is_desktop = false;
+                    s->respawn_count = 0;
+                    printf(COLOR_CYAN "[INIT] Graphical desktop session terminated. Dropping to console TTY shell (%s)..." COLOR_RESET "\n",
+                           s->command);
+                    start_session(s);
+                } else if (s->flags & SE_ON) {
                     start_session(s);
                 }
             }
@@ -618,7 +712,7 @@ static int run_client(int argc, char *argv[]) {
     }
 
     if (argc < 2) {
-        fprintf(stderr, "Usage: init {0|1|6|q|c|poweroff|reboot|single|reload}\n");
+        fprintf(stderr, "Usage: init {0|1|3|5|6|q|c|poweroff|reboot|single|reload|desktop|tty}\n");
         return 1;
     }
 
@@ -631,6 +725,10 @@ static int run_client(int argc, char *argv[]) {
         sig = SIGINT;
     } else if (strcmp(arg, "1") == 0 || strcmp(arg, "s") == 0 || strcmp(arg, "single") == 0) {
         sig = SIGTERM;
+    } else if (strcmp(arg, "5") == 0 || strcmp(arg, "desktop") == 0 || strcmp(arg, "gui") == 0) {
+        sig = SIGWINCH;
+    } else if (strcmp(arg, "3") == 0 || strcmp(arg, "tty") == 0 || strcmp(arg, "text") == 0) {
+        sig = SIGURG;
     } else if (strcmp(arg, "q") == 0 || strcmp(arg, "reload") == 0) {
         sig = SIGHUP;
     } else if (strcmp(arg, "c") == 0 || strcmp(arg, "pause") == 0) {
@@ -680,18 +778,31 @@ int main(int argc, char *argv[]) {
     sigaction(SIGUSR2, &sa, NULL);
     sigaction(SIGTSTP, &sa, NULL);
     sigaction(SIGCHLD, &sa, NULL);
+    sigaction(SIGWINCH, &sa, NULL);
+    sigaction(SIGURG, &sa, NULL);
 
     /* Ignore job control signals in PID 1 */
     signal(SIGTTIN, SIG_IGN);
     signal(SIGTTOU, SIG_IGN);
 
-    /* Determine initial state */
+    /* Determine initial state & configuration */
     init_state_t state = STATE_RUNCOM;
+    g_boot_desktop = is_desktop_configured();
+
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-s") == 0) {
+        if (strcmp(argv[i], "-s") == 0 || strcmp(argv[i], "single") == 0) {
             state = STATE_SINGLE_USER;
+            g_boot_desktop = false;
         } else if (strcmp(argv[i], "-f") == 0) {
             g_fastboot = true;
+        } else if (strcmp(argv[i], "-t") == 0 || strcmp(argv[i], "-text") == 0 ||
+                   strcmp(argv[i], "text") == 0 || strcmp(argv[i], "tty") == 0 ||
+                   strcmp(argv[i], "3") == 0) {
+            g_boot_desktop = false;
+        } else if (strcmp(argv[i], "-g") == 0 || strcmp(argv[i], "-gui") == 0 ||
+                   strcmp(argv[i], "gui") == 0 || strcmp(argv[i], "desktop") == 0 ||
+                   strcmp(argv[i], "5") == 0) {
+            g_boot_desktop = true;
         }
     }
 

@@ -20,6 +20,9 @@ extern "C" {
 #define PTHREAD_PROCESS_PRIVATE 0
 #define PTHREAD_PROCESS_SHARED 1
 
+#define PTHREAD_SCOPE_SYSTEM 0
+#define PTHREAD_SCOPE_PROCESS 1
+
 #define PTHREAD_BARRIER_SERIAL_THREAD -1
 
 typedef unsigned long pthread_t;
@@ -99,6 +102,8 @@ int pthread_attr_setstacksize(pthread_attr_t *attr, size_t stacksize);
 int pthread_attr_getstacksize(const pthread_attr_t *attr, size_t *stacksize);
 int pthread_attr_setdetachstate(pthread_attr_t *attr, int detachstate);
 int pthread_attr_getdetachstate(const pthread_attr_t *attr, int *detachstate);
+int pthread_attr_setscope(pthread_attr_t *attr, int scope);
+int pthread_attr_getscope(const pthread_attr_t *attr, int *scope);
 
 /* Mutexes */
 int pthread_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *attr);

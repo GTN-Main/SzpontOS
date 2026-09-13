@@ -42,17 +42,8 @@ static inline void outl(uint32_t val, uint16_t port) {
     __asm__ volatile("outl %0, %1" : : "a"(val), "Nd"(port));
 }
 
-static inline int iopl(int level) {
-    (void)level;
-    return 0;
-}
-
-static inline int ioperm(unsigned long from, unsigned long num, int turn_on) {
-    (void)from;
-    (void)num;
-    (void)turn_on;
-    return 0;
-}
+int iopl(int level);
+int ioperm(unsigned long from, unsigned long num, int turn_on);
 
 #ifdef __cplusplus
 }

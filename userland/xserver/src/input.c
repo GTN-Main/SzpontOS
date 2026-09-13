@@ -145,6 +145,7 @@ static void send_button_event(window_t *win, uint8_t button, bool pressed, int r
                         win->height = win->restore_h;
                         win->is_maximized = false;
                     }
+                    damage_add_fullscreen();
                     g_server.needs_redraw = true;
                     return;
                 }
@@ -339,6 +340,7 @@ void input_process_events(void) {
             if (new_y < 36 + TITLEBAR_HEIGHT) new_y = 36 + TITLEBAR_HEIGHT;
             dwin->x = (int16_t)new_x;
             dwin->y = (int16_t)new_y;
+            damage_add_fullscreen();
             g_server.needs_redraw = true;
         }
 
@@ -348,7 +350,9 @@ void input_process_events(void) {
         }
         g_server.pointer_window = target_win;
         send_motion_event(target_win, g_server.mouse_x, g_server.mouse_y);
-        draw_update_cursor();
+        if (!g_server.needs_redraw) {
+            draw_update_cursor();
+        }
     }
 
     /* 3. Process evdev keyboard events */

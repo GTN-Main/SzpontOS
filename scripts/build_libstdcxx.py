@@ -316,17 +316,20 @@ def main():
     install_script = os.path.join(script_dir, "install_libstdcxx_headers.py")
     include_cxx = os.path.join(sysroot_dir, "usr", "include", "c++")
     
-    print("  [CXX-HEADERS] Installing libstdc++ headers into sysroot...")
-    subprocess.check_call([sys.executable, install_script, src_dir, include_cxx])
+    if not os.path.exists(os.path.join(include_cxx, "bits", "c++config.h")):
+        print("  [CXX-HEADERS] Installing libstdc++ headers into sysroot...")
+        subprocess.check_call([sys.executable, install_script, src_dir, include_cxx])
 
     # 2. Out-of-tree generated helpers
     unwind_pe = os.path.join(build_dir, "unwind-pe.h")
-    with open(unwind_pe, "w") as f:
-        f.write(UNWIND_PE_H)
+    if not os.path.exists(unwind_pe):
+        with open(unwind_pe, "w") as f:
+            f.write(UNWIND_PE_H)
 
     cxx_stubs = os.path.join(build_dir, "cxx_stubs.cc")
-    with open(cxx_stubs, "w") as f:
-        f.write(CXX_STUBS_CC)
+    if not os.path.exists(cxx_stubs):
+        with open(cxx_stubs, "w") as f:
+            f.write(CXX_STUBS_CC)
 
     # 3. Source lists
     sources_gnu17 = [
@@ -522,14 +525,16 @@ def main():
 
     # Dso handle for shared library
     dso_src = os.path.join(build_dir, "dso_handle.c")
-    with open(dso_src, "w") as f:
-        f.write('__attribute__((visibility("hidden"))) void *__dso_handle = &__dso_handle;\n')
+    if not os.path.exists(dso_src):
+        with open(dso_src, "w") as f:
+            f.write('__attribute__((visibility("hidden"))) void *__dso_handle = &__dso_handle;\n')
 
     dso_obj = os.path.join(build_dir, "dso_handle.o")
-    subprocess.check_call([
-        "x86_64-elf-gcc", "-c", "-fPIC", "-O2", "-ffreestanding",
-        f"-isystem{sysroot_dir}/usr/include", dso_src, "-o", dso_obj
-    ])
+    if not os.path.exists(dso_obj) or os.path.getmtime(dso_obj) < os.path.getmtime(dso_src):
+        subprocess.check_call([
+            "x86_64-elf-gcc", "-c", "-fPIC", "-O2", "-ffreestanding",
+            f"-isystem{sysroot_dir}/usr/include", dso_src, "-o", dso_obj
+        ])
 
     tasks = []
     all_objs = [dso_obj]
@@ -537,59 +542,63 @@ def main():
     # Out-of-tree cxx_stubs
     stubs_obj = os.path.join(build_dir, "cxx_stubs.o")
     all_objs.append(stubs_obj)
-    tasks.append((["x86_64-elf-g++", "-std=gnu++17"] + base_cxx_flags + [cxx_stubs, "-o", stubs_obj], "cxx_stubs.cc"))
+    if not os.path.exists(stubs_obj) or os.path.getmtime(stubs_obj) < os.path.getmtime(cxx_stubs):
+        tasks.append((["x86_64-elf-g++", "-std=gnu++17"] + base_cxx_flags + [cxx_stubs, "-o", stubs_obj], "cxx_stubs.cc"))
+
+    def check_task(full, out_obj, cmd, rel):
+        all_objs.append(out_obj)
+        if not os.path.exists(out_obj) or os.path.getmtime(out_obj) < os.path.getmtime(full):
+            tasks.append((cmd, rel))
 
     for rel in sources_gnu17:
         full = os.path.join(src_dir, rel)
         obj_name = rel.replace("/", "_").replace(".cc", ".o")
         out_obj = os.path.join(build_dir, obj_name)
-        all_objs.append(out_obj)
         cmd = ["x86_64-elf-g++", "-std=gnu++17"] + base_cxx_flags + [full, "-o", out_obj]
-        tasks.append((cmd, rel))
+        check_task(full, out_obj, cmd, rel)
 
     for rel in sources_gnu17_abi0:
         full = os.path.join(src_dir, rel)
         obj_name = rel.replace("/", "_").replace(".cc", "_abi0.o")
         out_obj = os.path.join(build_dir, obj_name)
-        all_objs.append(out_obj)
         cmd = ["x86_64-elf-g++", "-std=gnu++17", "-D_GLIBCXX_USE_CXX11_ABI=0"] + base_cxx_flags + [full, "-o", out_obj]
-        tasks.append((cmd, rel))
+        check_task(full, out_obj, cmd, rel)
 
     for rel in sources_gnu17_abi1:
         full = os.path.join(src_dir, rel)
         obj_name = rel.replace("/", "_").replace(".cc", "_abi1.o")
         out_obj = os.path.join(build_dir, obj_name)
-        all_objs.append(out_obj)
         cmd = ["x86_64-elf-g++", "-std=gnu++17", "-D_GLIBCXX_USE_CXX11_ABI=1"] + base_cxx_flags + [full, "-o", out_obj]
-        tasks.append((cmd, rel))
+        check_task(full, out_obj, cmd, rel)
 
     for rel in sources_gnu11:
         full = os.path.join(src_dir, rel)
         obj_name = rel.replace("/", "_").replace(".cc", ".o")
         out_obj = os.path.join(build_dir, obj_name)
-        all_objs.append(out_obj)
         cmd = ["x86_64-elf-g++", "-std=gnu++11"] + base_cxx_flags + [full, "-o", out_obj]
-        tasks.append((cmd, rel))
+        check_task(full, out_obj, cmd, rel)
 
     for rel in sources_gnu98:
         full = os.path.join(src_dir, rel)
         obj_name = rel.replace("/", "_").replace(".cc", ".o")
         out_obj = os.path.join(build_dir, obj_name)
-        all_objs.append(out_obj)
         cmd = ["x86_64-elf-g++", "-std=gnu++98"] + base_cxx_flags + [full, "-o", out_obj]
-        tasks.append((cmd, rel))
+        check_task(full, out_obj, cmd, rel)
 
-    print(f"  [MAKE-LIBSTDCXX] Compiling {len(tasks)} libstdc++ translation units...")
-    num_cpus = os.cpu_count() or 4
-    with multiprocessing.Pool(processes=num_cpus) as pool:
-        results = pool.map(compile_worker, tasks)
+    if tasks:
+        print(f"  [MAKE-LIBSTDCXX] Compiling {len(tasks)} libstdc++ translation units...")
+        num_cpus = os.cpu_count() or 4
+        with multiprocessing.Pool(processes=num_cpus) as pool:
+            results = pool.map(compile_worker, tasks)
 
-    failed = [r for r in results if not r[0]]
-    if failed:
-        for _, rel, err in failed[:5]:
-            print(f"ERROR in {rel}:\n{err}")
-        print(f"Compilation failed for {len(failed)} files.")
-        sys.exit(1)
+        failed = [r for r in results if not r[0]]
+        if failed:
+            for _, rel, err in failed[:5]:
+                print(f"ERROR in {rel}:\n{err}")
+            print(f"Compilation failed for {len(failed)} files.")
+            sys.exit(1)
+    else:
+        print("  [MAKE-LIBSTDCXX] All libstdc++ translation units are up to date.")
 
     # 4. Extract and unhide symbols from libgcc.a unwind routines
     libgcc = subprocess.check_output(["x86_64-elf-gcc", "-print-file-name=libgcc.a"]).decode().strip()
@@ -598,41 +607,46 @@ def main():
     unhide_objs = []
     for member in ["unwind-dw2.o", "unwind-dw2-fde.o", "unwind-c.o", "emutls.o"]:
         out_obj = os.path.join(unhide_dir, member)
-        subprocess.check_call(["x86_64-elf-ar", "p", libgcc, member], stdout=open(out_obj, "wb"))
-        with open(out_obj, "rb") as f:
-            data = bytearray(f.read())
-        import struct
-        shoff = struct.unpack("<Q", data[40:48])[0]
-        shentsize = struct.unpack("<H", data[58:60])[0]
-        shnum = struct.unpack("<H", data[60:62])[0]
-        for i in range(shnum):
-            sec = shoff + i * shentsize
-            sh_type = struct.unpack("<I", data[sec+4:sec+8])[0]
-            if sh_type == 2:  # SHT_SYMTAB
-                sh_offset = struct.unpack("<Q", data[sec+24:sec+32])[0]
-                sh_size = struct.unpack("<Q", data[sec+32:sec+40])[0]
-                sh_entsize = struct.unpack("<Q", data[sec+56:sec+64])[0]
-                for s in range(sh_size // sh_entsize):
-                    sym_off = sh_offset + s * sh_entsize
-                    st_other = data[sym_off + 5]
-                    if (st_other & 3) == 2:  # STV_HIDDEN
-                        data[sym_off + 5] = st_other & ~3
-        with open(out_obj, "wb") as f:
-            f.write(data)
+        if not os.path.exists(out_obj) or os.path.getmtime(out_obj) < os.path.getmtime(libgcc):
+            subprocess.check_call(["x86_64-elf-ar", "p", libgcc, member], stdout=open(out_obj, "wb"))
+            with open(out_obj, "rb") as f:
+                data = bytearray(f.read())
+            import struct
+            shoff = struct.unpack("<Q", data[40:48])[0]
+            shentsize = struct.unpack("<H", data[58:60])[0]
+            shnum = struct.unpack("<H", data[60:62])[0]
+            for i in range(shnum):
+                sec = shoff + i * shentsize
+                sh_type = struct.unpack("<I", data[sec+4:sec+8])[0]
+                if sh_type == 2:  # SHT_SYMTAB
+                    sh_offset = struct.unpack("<Q", data[sec+24:sec+32])[0]
+                    sh_size = struct.unpack("<Q", data[sec+32:sec+40])[0]
+                    sh_entsize = struct.unpack("<Q", data[sec+56:sec+64])[0]
+                    for s in range(sh_size // sh_entsize):
+                        sym_off = sh_offset + s * sh_entsize
+                        st_other = data[sym_off + 5]
+                        if (st_other & 3) == 2:  # STV_HIDDEN
+                            data[sym_off + 5] = st_other & ~3
+            with open(out_obj, "wb") as f:
+                f.write(data)
         unhide_objs.append(out_obj)
 
     # Generate .eh_frame begin and end boundary markers
     eh_begin_asm = os.path.join(build_dir, "eh_begin.asm")
-    with open(eh_begin_asm, "w") as f:
-        f.write("[bits 64]\nsection .eh_frame\nglobal __libstdcxx_eh_frame_begin:data hidden\n__libstdcxx_eh_frame_begin:\n")
+    if not os.path.exists(eh_begin_asm):
+        with open(eh_begin_asm, "w") as f:
+            f.write("[bits 64]\nsection .eh_frame\nglobal __libstdcxx_eh_frame_begin:data hidden\n__libstdcxx_eh_frame_begin:\n")
     eh_begin_obj = os.path.join(build_dir, "eh_begin.o")
-    subprocess.check_call(["nasm", "-f", "elf64", eh_begin_asm, "-o", eh_begin_obj])
+    if not os.path.exists(eh_begin_obj) or os.path.getmtime(eh_begin_obj) < os.path.getmtime(eh_begin_asm):
+        subprocess.check_call(["nasm", "-f", "elf64", eh_begin_asm, "-o", eh_begin_obj])
 
     eh_end_asm = os.path.join(build_dir, "eh_end.asm")
-    with open(eh_end_asm, "w") as f:
-        f.write("[bits 64]\nsection .eh_frame\nglobal __libstdcxx_eh_frame_end:data hidden\n__libstdcxx_eh_frame_end:\n    dd 0\n")
+    if not os.path.exists(eh_end_asm):
+        with open(eh_end_asm, "w") as f:
+            f.write("[bits 64]\nsection .eh_frame\nglobal __libstdcxx_eh_frame_end:data hidden\n__libstdcxx_eh_frame_end:\n    dd 0\n")
     eh_end_obj = os.path.join(build_dir, "eh_end.o")
-    subprocess.check_call(["nasm", "-f", "elf64", eh_end_asm, "-o", eh_end_obj])
+    if not os.path.exists(eh_end_obj) or os.path.getmtime(eh_end_obj) < os.path.getmtime(eh_end_asm):
+        subprocess.check_call(["nasm", "-f", "elf64", eh_end_asm, "-o", eh_end_obj])
 
     link_objs = [eh_begin_obj] + all_objs + unhide_objs + [eh_end_obj]
 
@@ -640,37 +654,44 @@ def main():
     so_target = os.path.join(sysroot_dir, "usr", "lib", "libstdc++.so.6")
     so_link = os.path.join(sysroot_dir, "usr", "lib", "libstdc++.so")
     a_target = os.path.join(sysroot_dir, "usr", "lib", "libstdc++.a")
-
-    print("  [LD-LIBSTDCXX] Linking libstdc++.so.6...")
-    ld_cmd = [
-        "x86_64-elf-ld",
-        "-shared",
-        "-soname", "libstdc++.so.6",
-        "-o", so_target,
-    ] + link_objs + [
-        f"-L{sysroot_dir}/usr/lib",
-        "-lc", "-lm", libgcc,
-        "--allow-shlib-undefined"
-    ]
-    subprocess.check_call(ld_cmd)
-
-    if os.path.islink(so_link) or os.path.exists(so_link):
-        os.remove(so_link)
-    os.symlink("libstdc++.so.6", so_link)
-
-    # 6. Create static archive libstdc++.a
-    print("  [AR-LIBSTDCXX] Creating libstdc++.a...")
-    if os.path.exists(a_target):
-        os.remove(a_target)
-    subprocess.check_call(["x86_64-elf-ar", "rcs", a_target] + link_objs)
-
-    # 7. Copy to rootfs
-    shutil.copy2(so_target, os.path.join(rootfs_dir, "lib", "libstdc++.so.6"))
+    rootfs_so_target = os.path.join(rootfs_dir, "lib", "libstdc++.so.6")
     rootfs_so_link = os.path.join(rootfs_dir, "lib", "libstdc++.so")
-    if os.path.islink(rootfs_so_link) or os.path.exists(rootfs_so_link):
-        os.remove(rootfs_so_link)
-    os.symlink("libstdc++.so.6", rootfs_so_link)
-    shutil.copy2(a_target, os.path.join(rootfs_dir, "lib", "libstdc++.a"))
+
+    need_relink = bool(tasks) or not os.path.exists(so_target) or not os.path.exists(rootfs_so_target) or not os.path.exists(a_target)
+    if not need_relink:
+        so_mtime = os.path.getmtime(so_target)
+        if any(os.path.getmtime(o) > so_mtime for o in link_objs):
+            need_relink = True
+
+    if need_relink:
+        print("  [LD-LIBSTDCXX] Linking libstdc++.so.6...")
+        ld_cmd = [
+            "x86_64-elf-ld",
+            "-shared",
+            "-soname", "libstdc++.so.6",
+            "-o", so_target,
+        ] + link_objs + [
+            f"-L{sysroot_dir}/usr/lib",
+            "-lc", "-lm", libgcc,
+            "--allow-shlib-undefined"
+        ]
+        subprocess.check_call(ld_cmd)
+
+        if os.path.islink(so_link) or os.path.exists(so_link):
+            os.remove(so_link)
+        os.symlink("libstdc++.so.6", so_link)
+
+        # 6. Create static archive libstdc++.a
+        print("  [AR-LIBSTDCXX] Creating libstdc++.a...")
+        if os.path.exists(a_target):
+            os.remove(a_target)
+        subprocess.check_call(["x86_64-elf-ar", "rcs", a_target] + link_objs)
+
+        # 7. Copy to rootfs
+        shutil.copy2(so_target, rootfs_so_target)
+        if os.path.islink(rootfs_so_link) or os.path.exists(rootfs_so_link):
+            os.remove(rootfs_so_link)
+        os.symlink("libstdc++.so.6", rootfs_so_link)
 
     print("  [DONE] GNU libstdc++-v3 successfully built and installed.")
 

@@ -17,6 +17,7 @@
 #include <drivers/xhci.h>
 #include <drivers/ehci.h>
 #include <arch/x86_64/pit.h>
+#include <kernel/smp.h>
 
 #define PROCFS_TYPE_ROOT 0
 #define PROCFS_TYPE_PID_DIR 1
@@ -122,22 +123,35 @@ static size_t procfs_gen_cpuinfo(char *buf, size_t max_len) {
         family = (eax >> 8) & 0xF;
     }
 
-    return ksnprintf(buf, max_len,
-                     "processor\t: 0\n"
-                     "vendor_id\t: %s\n"
-                     "cpu family\t: %u\n"
-                     "model\t\t: %u\n"
-                     "model name\t: %s\n"
-                     "stepping\t: %u\n"
-                     "cpu MHz\t\t: 2400.000\n"
-                     "cache size\t: 4096 KB\n"
-                     "fpu\t\t: yes\n"
-                     "flags\t\t: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx "
-                     "fxsr sse sse2 sse3 ssse3 sse4_1 sse4_2 avx\n"
-                     "bogomips\t: 4800.00\n"
-                     "clflush size\t: 64\n"
-                     "address sizes\t: 48 bits physical, 48 bits virtual\n\n",
-                     vendor, family, model, brand, stepping);
+    uint32_t ncpus = smp_get_cpu_count();
+    if (ncpus == 0)
+        ncpus = 1;
+
+    size_t off = 0;
+    for (uint32_t i = 0; i < ncpus && off < max_len; i++) {
+        int written = ksnprintf(buf + off, max_len - off,
+                                "processor\t: %u\n"
+                                "vendor_id\t: %s\n"
+                                "cpu family\t: %u\n"
+                                "model\t\t: %u\n"
+                                "model name\t: %s\n"
+                                "stepping\t: %u\n"
+                                "cpu MHz\t\t: 2400.000\n"
+                                "cache size\t: 4096 KB\n"
+                                "fpu\t\t: yes\n"
+                                "flags\t\t: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx "
+                                "fxsr sse sse2 sse3 ssse3 sse4_1 sse4_2 avx\n"
+                                "bogomips\t: 4800.00\n"
+                                "clflush size\t: 64\n"
+                                "address sizes\t: 48 bits physical, 48 bits virtual\n\n",
+                                i, vendor, family, model, brand, stepping);
+        if (written > 0) {
+            off += (size_t)written;
+        } else {
+            break;
+        }
+    }
+    return off;
 }
 
 static size_t procfs_gen_version(char *buf, size_t max_len) {

@@ -22,7 +22,13 @@ char *crypt(const char *key, const char *salt) {
         return NULL;
 
     if (!salt || salt[0] == '\0') {
-        g_crypt_result[0] = '\0';
+        if (key[0] == '\0') {
+            g_crypt_result[0] = '\0';
+            return g_crypt_result;
+        }
+        /* Non-empty key with empty salt must never match */
+        strncpy(g_crypt_result, "*!nomatch!*", sizeof(g_crypt_result) - 1);
+        g_crypt_result[sizeof(g_crypt_result) - 1] = '\0';
         return g_crypt_result;
     }
 

@@ -296,6 +296,122 @@ static void emit_hid_key(uint8_t key, uint8_t modifiers) {
     keyboard_push_char(ch);
 }
 
+/* HID Usage Page 0x07 to PS/2 Set 1 scancode translation */
+static void hid_push_scancode_event(uint8_t usage, bool pressed) {
+    uint8_t sc = 0;
+    bool ext = false;
+
+    if (usage >= 0x04 && usage <= 0x1D) {
+        /* a-z: Set 1 scancodes */
+        static const uint8_t az_set1[26] = {
+            0x1E, /* a */ 0x30, /* b */ 0x2E, /* c */ 0x20, /* d */ 0x12, /* e */
+            0x21, /* f */ 0x22, /* g */ 0x23, /* h */ 0x17, /* i */ 0x24, /* j */
+            0x25, /* k */ 0x26, /* l */ 0x32, /* m */ 0x31, /* n */ 0x18, /* o */
+            0x19, /* p */ 0x10, /* q */ 0x13, /* r */ 0x1F, /* s */ 0x14, /* t */
+            0x16, /* u */ 0x2F, /* v */ 0x11, /* w */ 0x2D, /* x */ 0x15, /* y */
+            0x2C  /* z */
+        };
+        sc = az_set1[usage - 0x04];
+    } else if (usage >= 0x1E && usage <= 0x27) {
+        /* 1-0: 0x02 .. 0x0B */
+        static const uint8_t num_set1[10] = {
+            0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B
+        };
+        sc = num_set1[usage - 0x1E];
+    } else {
+        switch (usage) {
+        case 0x28: sc = 0x1C; break; /* Enter */
+        case 0x29: sc = 0x01; break; /* Escape */
+        case 0x2A: sc = 0x0E; break; /* Backspace */
+        case 0x2B: sc = 0x0F; break; /* Tab */
+        case 0x2C: sc = 0x39; break; /* Space */
+        case 0x2D: sc = 0x0C; break; /* - / _ */
+        case 0x2E: sc = 0x0D; break; /* = / + */
+        case 0x2F: sc = 0x1A; break; /* [ / { */
+        case 0x30: sc = 0x1B; break; /* ] / } */
+        case 0x31: sc = 0x2B; break; /* \ / | */
+        case 0x33: sc = 0x27; break; /* ; / : */
+        case 0x34: sc = 0x28; break; /* ' / " */
+        case 0x35: sc = 0x29; break; /* ` / ~ */
+        case 0x36: sc = 0x33; break; /* , / < */
+        case 0x37: sc = 0x34; break; /* . / > */
+        case 0x38: sc = 0x35; break; /* / / ? */
+        case 0x39: sc = 0x3A; break; /* Caps Lock */
+        case 0x3A: sc = 0x3B; break; /* F1 */
+        case 0x3B: sc = 0x3C; break; /* F2 */
+        case 0x3C: sc = 0x3D; break; /* F3 */
+        case 0x3D: sc = 0x3E; break; /* F4 */
+        case 0x3E: sc = 0x3F; break; /* F5 */
+        case 0x3F: sc = 0x40; break; /* F6 */
+        case 0x40: sc = 0x41; break; /* F7 */
+        case 0x41: sc = 0x42; break; /* F8 */
+        case 0x42: sc = 0x43; break; /* F9 */
+        case 0x43: sc = 0x44; break; /* F10 */
+        case 0x44: sc = 0x57; break; /* F11 */
+        case 0x45: sc = 0x58; break; /* F12 */
+
+        /* Extended navigation keys */
+        case 0x49: sc = 0x52; ext = true; break; /* Insert */
+        case 0x4A: sc = 0x47; ext = true; break; /* Home */
+        case 0x4B: sc = 0x49; ext = true; break; /* Page Up */
+        case 0x4C: sc = 0x53; ext = true; break; /* Delete */
+        case 0x4D: sc = 0x4F; ext = true; break; /* End */
+        case 0x4E: sc = 0x51; ext = true; break; /* Page Down */
+        case 0x4F: sc = 0x4D; ext = true; break; /* Right Arrow */
+        case 0x50: sc = 0x4B; ext = true; break; /* Left Arrow */
+        case 0x51: sc = 0x50; ext = true; break; /* Down Arrow */
+        case 0x52: sc = 0x48; ext = true; break; /* Up Arrow */
+
+        /* Keypad */
+        case 0x53: sc = 0x45; break; /* NumLock */
+        case 0x54: sc = 0x35; ext = true; break; /* Keypad / */
+        case 0x55: sc = 0x37; break; /* Keypad * */
+        case 0x56: sc = 0x4A; break; /* Keypad - */
+        case 0x57: sc = 0x4E; break; /* Keypad + */
+        case 0x58: sc = 0x1C; ext = true; break; /* Keypad Enter */
+        case 0x59: sc = 0x4F; break; /* Keypad 1 */
+        case 0x5A: sc = 0x50; break; /* Keypad 2 */
+        case 0x5B: sc = 0x51; break; /* Keypad 3 */
+        case 0x5C: sc = 0x4B; break; /* Keypad 4 */
+        case 0x5D: sc = 0x4C; break; /* Keypad 5 */
+        case 0x5E: sc = 0x4D; break; /* Keypad 6 */
+        case 0x5F: sc = 0x47; break; /* Keypad 7 */
+        case 0x60: sc = 0x48; break; /* Keypad 8 */
+        case 0x61: sc = 0x49; break; /* Keypad 9 */
+        case 0x62: sc = 0x52; break; /* Keypad 0 */
+        case 0x63: sc = 0x53; break; /* Keypad . */
+        default: break;
+        }
+    }
+
+    if (sc) {
+        if (ext) {
+            keyboard_push_raw_scancode(0xE0);
+        }
+        keyboard_push_raw_scancode(pressed ? sc : (sc | 0x80));
+    }
+}
+
+static void hid_push_modifier_scancode(uint8_t mod_bit, bool pressed) {
+    uint8_t sc = 0;
+    bool ext = false;
+    switch (mod_bit) {
+    case 0: sc = 0x1D; break;             /* Left Ctrl */
+    case 1: sc = 0x2A; break;             /* Left Shift */
+    case 2: sc = 0x38; break;             /* Left Alt */
+    case 3: sc = 0x5B; ext = true; break; /* Left GUI */
+    case 4: sc = 0x1D; ext = true; break; /* Right Ctrl */
+    case 5: sc = 0x36; break;             /* Right Shift */
+    case 6: sc = 0x38; ext = true; break; /* Right Alt */
+    case 7: sc = 0x5C; ext = true; break; /* Right GUI */
+    default: return;
+    }
+    if (ext) {
+        keyboard_push_raw_scancode(0xE0);
+    }
+    keyboard_push_raw_scancode(pressed ? sc : (sc | 0x80));
+}
+
 void hid_process_keyboard_report(const uint8_t report[8]) {
     uint8_t modifiers = report[0];
     uint8_t active_key = 0;
@@ -317,6 +433,7 @@ void hid_process_keyboard_report(const uint8_t report[8]) {
             if (mod_diff & (1 << b)) {
                 bool pressed = (modifiers & (1 << b)) != 0;
                 evdev_push_key(mod_evdev[b], pressed);
+                hid_push_modifier_scancode(b, pressed);
             }
         }
         g_prev_modifiers = modifiers;
@@ -338,6 +455,7 @@ void hid_process_keyboard_report(const uint8_t report[8]) {
             if (evcode) {
                 evdev_push_key(evcode, false);
             }
+            hid_push_scancode_event(old_k, false);
         }
     }
 
@@ -355,6 +473,7 @@ void hid_process_keyboard_report(const uint8_t report[8]) {
             if (evcode) {
                 evdev_push_key(evcode, true);
             }
+            hid_push_scancode_event(key, true);
             emit_hid_key(key, modifiers);
             g_repeat_key = key;
             g_repeat_modifiers = modifiers;

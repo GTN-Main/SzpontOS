@@ -12,6 +12,7 @@
 
 #include <drivers/ehci.h>
 #include <drivers/hid.h>
+#include <drivers/mouse.h>
 #include <drivers/pci.h>
 #include <drivers/usb.h>
 #include <mm/pmm.h>
@@ -19,6 +20,7 @@
 #include <mm/heap.h>
 #include <kernel/kprint.h>
 #include <kernel/string.h>
+#include <kernel/spinlock.h>
 #include <arch/x86_64/io.h>
 
 #define MAX_EHCI_CONTROLLERS      4
@@ -450,8 +452,9 @@ static void ehci_enumerate_device(ehci_controller_t *hc, uint8_t port_num, uint8
         return;
     }
 
-    /* Parse Configuration Descriptors for HID Keyboard */
+    /* Parse Configuration Descriptors for HID Keyboard or Mouse */
     bool is_keyboard = false;
+    bool is_mouse = false;
     uint8_t ep_in_num = 0;
     uint16_t ep_in_max_packet = 8;
     uint8_t ep_in_interval = 10;
@@ -471,10 +474,12 @@ static void ehci_enumerate_device(ehci_controller_t *hc, uint8_t port_num, uint8
             usb_if_desc_t *if_desc = (usb_if_desc_t *)&cfg_buf[offset];
             if (if_desc->bInterfaceClass == USB_CLASS_HID && if_desc->bInterfaceProtocol == 1) {
                 is_keyboard = true;
+            } else if (if_desc->bInterfaceClass == USB_CLASS_HID && if_desc->bInterfaceProtocol == 2) {
+                is_mouse = true;
             }
         } else if (type == USB_DESC_ENDPOINT) {
             usb_ep_desc_t *ep = (usb_ep_desc_t *)&cfg_buf[offset];
-            if ((ep->bEndpointAddress & 0x80) && is_keyboard && ep_in_num == 0) {
+            if ((ep->bEndpointAddress & 0x80) && (is_keyboard || is_mouse) && ep_in_num == 0) {
                 ep_in_num = ep->bEndpointAddress & 0x0F;
                 ep_in_max_packet = ep->wMaxPacketSize & 0x7FF;
                 ep_in_interval = ep->bInterval;
@@ -491,7 +496,7 @@ static void ehci_enumerate_device(ehci_controller_t *hc, uint8_t port_num, uint8
     req.wLength = 0;
     ehci_exec_control_transfer(hc, dev_addr, speed, ep0_max_packet, hub_addr, hub_port, &req, NULL, 0, false);
 
-    if (is_keyboard) {
+    if (is_keyboard || is_mouse) {
         /* 6. HID Class: SET_IDLE (0, 0) */
         req.bmRequestType = 0x21;
         req.bRequest = USB_HID_REQ_SET_IDLE;
@@ -509,54 +514,72 @@ static void ehci_enumerate_device(ehci_controller_t *hc, uint8_t port_num, uint8
         ehci_exec_control_transfer(hc, dev_addr, speed, ep0_max_packet, hub_addr, hub_port, &req, NULL, 0, false);
 
         /* Allocate device slot */
-        ehci_device_t *dev = &hc->devices[hc->device_count++];
-        dev->active = true;
-        dev->address = dev_addr;
-        dev->port_num = port_num;
-        dev->speed = speed;
-        dev->vendor_id = dev_desc.idVendor;
-        dev->product_id = dev_desc.idProduct;
-        dev->device_class = dev_desc.bDeviceClass;
-        dev->is_keyboard = true;
-        dev->parent_hub_addr = hub_addr;
-        dev->parent_hub_port = hub_port;
-        dev->ep_in_num = ep_in_num ? ep_in_num : 1;
-        dev->ep_in_max_packet = ep_in_max_packet ? ep_in_max_packet : 8;
-        dev->ep_in_interval = ep_in_interval;
-        dev->ep_in_toggle = 0;
+        if (hc->device_count < EHCI_MAX_DEVICES) {
+            ehci_device_t *dev = &hc->devices[hc->device_count++];
+            dev->active = true;
+            dev->address = dev_addr;
+            dev->port_num = port_num;
+            dev->speed = speed;
+            dev->vendor_id = dev_desc.idVendor;
+            dev->product_id = dev_desc.idProduct;
+            dev->device_class = dev_desc.bDeviceClass;
+            dev->is_keyboard = is_keyboard;
+            dev->is_mouse = is_mouse;
+            dev->parent_hub_addr = hub_addr;
+            dev->parent_hub_port = hub_port;
+            dev->ep_in_num = ep_in_num ? ep_in_num : 1;
+            dev->ep_in_max_packet = ep_in_max_packet ? ep_in_max_packet : 8;
+            dev->ep_in_interval = ep_in_interval;
+            dev->ep_in_toggle = 0;
 
-        /* Allocate Interrupt DMA Buffer and Descriptors */
-        uintptr_t intr_dma_phys = pmm_alloc_page();
-        if (intr_dma_phys) {
-            memset((void *)PHYS_TO_VIRT(intr_dma_phys), 0, PAGE_SIZE);
-            dev->report_buf_phys = intr_dma_phys;
-            dev->report_buf_virt = (uint8_t *)PHYS_TO_VIRT(intr_dma_phys);
-            dev->report_len = 8;
+            /* Allocate Interrupt DMA Buffer and Descriptors */
+            uintptr_t intr_dma_phys = pmm_alloc_page();
+            if (intr_dma_phys) {
+                memset((void *)PHYS_TO_VIRT(intr_dma_phys), 0, PAGE_SIZE);
+                dev->report_buf_phys = intr_dma_phys;
+                dev->report_buf_virt = (uint8_t *)PHYS_TO_VIRT(intr_dma_phys);
+                dev->report_len = 8;
 
-            dev->intr_qh = (ehci_qh_t *)(dev->report_buf_virt + 64);
-            dev->intr_qh_phys = (uint32_t)(intr_dma_phys + 64);
+                dev->intr_qh = (ehci_qh_t *)(dev->report_buf_virt + 64);
+                dev->intr_qh_phys = (uint32_t)(intr_dma_phys + 64);
 
-            dev->intr_qtd = (ehci_qtd_t *)(dev->report_buf_virt + 192);
-            dev->intr_qtd_phys = (uint32_t)(intr_dma_phys + 192);
+                dev->intr_qtd = (ehci_qtd_t *)(dev->report_buf_virt + 192);
+                dev->intr_qtd_phys = (uint32_t)(intr_dma_phys + 192);
 
-            ehci_init_qh(dev->intr_qh, dev->intr_qh_phys, dev_addr, dev->ep_in_num, speed, dev->ep_in_max_packet, hub_addr, hub_port);
-            ehci_init_qtd(dev->intr_qtd, dev->intr_qtd_phys, EHCI_QTD_PID_IN, dev->report_buf_virt, dev->report_buf_phys, 8, false, true);
+                ehci_init_qh(dev->intr_qh, dev->intr_qh_phys, dev_addr, dev->ep_in_num, speed, dev->ep_in_max_packet, hub_addr, hub_port);
+                ehci_init_qtd(dev->intr_qtd, dev->intr_qtd_phys, EHCI_QTD_PID_IN, dev->report_buf_virt, dev->report_buf_phys, 8, false, true);
 
-            dev->intr_qh->qtd_next = dev->intr_qtd_phys;
-            dev->intr_qh->qh_curqtd = 0;
-            dev->intr_qh->qh_link = EHCI_LINK_TERMINATE;
+                dev->intr_qh->qtd_next = dev->intr_qtd_phys;
+                dev->intr_qh->qh_curqtd = 0;
+                dev->intr_qh->qh_link = EHCI_LINK_TERMINATE;
 
-            /* Link Interrupt QH into the 1024-entry Periodic Frame List (1ms schedule) */
-            if (hc->periodic_frame_list) {
-                for (int i = 0; i < EHCI_FRAMELIST_COUNT; i++) {
-                    hc->periodic_frame_list[i] = dev->intr_qh_phys | EHCI_LINK_TYPE_QH;
+                /* Link Interrupt QH into the 1024-entry Periodic Frame List (1ms schedule) */
+                if (hc->periodic_frame_list) {
+                    for (int i = 0; i < EHCI_FRAMELIST_COUNT; i++) {
+                        hc->periodic_frame_list[i] = dev->intr_qh_phys | EHCI_LINK_TYPE_QH;
+                    }
                 }
-            }
 
-            klog_info("EHCI: USB Keyboard attached on Port %u, Addr %u (VID: %04x, PID: %04x)",
-                      port_num, dev_addr, dev->vendor_id, dev->product_id);
+                klog_info("EHCI: USB %s attached on Port %u, Addr %u (VID: %04x, PID: %04x)",
+                          is_keyboard ? "Keyboard" : "Mouse", port_num, dev_addr, dev->vendor_id, dev->product_id);
+            }
         }
     } else {
+        /* Track non-HID device (e.g. webcam, bluetooth, fingerprint reader) so it won't be re-reset! */
+        if (hc->device_count < EHCI_MAX_DEVICES) {
+            ehci_device_t *dev = &hc->devices[hc->device_count++];
+            dev->active = true;
+            dev->address = dev_addr;
+            dev->port_num = port_num;
+            dev->speed = speed;
+            dev->vendor_id = dev_desc.idVendor;
+            dev->product_id = dev_desc.idProduct;
+            dev->device_class = dev_desc.bDeviceClass;
+            dev->is_keyboard = false;
+            dev->is_mouse = false;
+            dev->parent_hub_addr = hub_addr;
+            dev->parent_hub_port = hub_port;
+        }
         klog_info("EHCI: USB Device attached on Port %u, Addr %u (VID: %04x, PID: %04x, Class: %02x)",
                   port_num, dev_addr, dev_desc.idVendor, dev_desc.idProduct, dev_desc.bDeviceClass);
     }
@@ -762,6 +785,7 @@ static void ehci_check_hotplug(ehci_controller_t *hc) {
         uint32_t port_status = 0;
         if (ehci_exec_control_transfer(hc, hc->rmh_hub_addr, hc->rmh_hub_speed, 64, 0, 0, &req, &port_status, 4, true)) {
             bool connected = (port_status & 1) != 0;
+            bool connect_change = (port_status & (1 << 16)) != 0; /* C_PORT_CONNECTION */
             bool tracked = false;
             for (size_t d = 0; d < hc->device_count; d++) {
                 if (hc->devices[d].port_num == p && hc->devices[d].active) {
@@ -770,8 +794,19 @@ static void ehci_check_hotplug(ehci_controller_t *hc) {
                 }
             }
 
-            /* Case 1: Newly plugged in device */
-            if (connected && !tracked) {
+            /* Clear Connect Status Change if set */
+            if (connect_change) {
+                usb_setup_pkt_t c_req;
+                c_req.bmRequestType = 0x23;
+                c_req.bRequest = USB_REQ_CLEAR_FEATURE;
+                c_req.wValue = 16; /* C_PORT_CONNECTION */
+                c_req.wIndex = p;
+                c_req.wLength = 0;
+                ehci_exec_control_transfer(hc, hc->rmh_hub_addr, hc->rmh_hub_speed, 64, 0, 0, &c_req, NULL, 0, false);
+            }
+
+            /* Case 1: Newly plugged in device (only on actual change or initial untracked connect) */
+            if (connected && !tracked && connect_change) {
                 klog_info("EHCI: Dynamic Hotplug: Device connected on Hub Port %u", p);
 
                 /* Reset Hub Port */
@@ -821,21 +856,27 @@ static void ehci_check_hotplug(ehci_controller_t *hc) {
 /* ==============================================================================
  * Section 9: Public API & Periodic Polling Engine
  * ============================================================================== */
+static spinlock_t g_ehci_poll_lock = SPINLOCK_INIT;
+
 void ehci_poll(void) {
+    if (!spinlock_try_acquire(&g_ehci_poll_lock)) {
+        return;
+    }
+
     for (size_t c = 0; c < g_ehci_count; c++) {
         ehci_controller_t *hc = &g_ehci_controllers[c];
         if (!hc->initialized)
             continue;
 
-        /* Check dynamic PnP hotplug events periodically */
-        if (++hc->pnp_poll_counter >= 100) {
+        /* Check dynamic PnP hotplug events once every 1000 ticks (~1 Hz) */
+        if (++hc->pnp_poll_counter >= 1000) {
             hc->pnp_poll_counter = 0;
             ehci_check_hotplug(hc);
         }
 
         for (size_t d = 0; d < hc->device_count; d++) {
             ehci_device_t *dev = &hc->devices[d];
-            if (!dev->active || !dev->is_keyboard || !dev->intr_qtd)
+            if (!dev->active || (!dev->is_keyboard && !dev->is_mouse) || !dev->intr_qtd)
                 continue;
 
             uint32_t token = dev->intr_qtd->qtd_status;
@@ -845,8 +886,21 @@ void ehci_poll(void) {
                 if (!(token & (EHCI_QTD_HALTED | EHCI_QTD_BABBLE))) {
                     size_t rem = EHCI_QTD_GET_BYTES(token);
                     if (rem < dev->report_len) {
-                        /* Process USB Keyboard 8-byte HID report */
-                        hid_process_keyboard_report(dev->report_buf_virt);
+                        if (dev->is_keyboard) {
+                            /* Process USB Keyboard 8-byte HID report */
+                            hid_process_keyboard_report(dev->report_buf_virt);
+                        } else if (dev->is_mouse) {
+                            /* Process USB Mouse report */
+                            mouse_event_t ev;
+                            ev.buttons = dev->report_buf_virt[0] & 0x07;
+                            ev.dx = (int8_t)dev->report_buf_virt[1];
+                            ev.dy = (int8_t)dev->report_buf_virt[2];
+                            ev.dz = (dev->report_len >= 4) ? (int8_t)dev->report_buf_virt[3] : 0;
+                            ev.abs_x = 0;
+                            ev.abs_y = 0;
+                            ev.is_absolute = false;
+                            mouse_push_event(&ev);
+                        }
                     }
                 }
 
@@ -868,6 +922,8 @@ void ehci_poll(void) {
             }
         }
     }
+
+    spinlock_release(&g_ehci_poll_lock);
 }
 
 bool ehci_is_active(void) {

@@ -19,6 +19,7 @@ typedef struct thread {
     tid_t tid;
     struct process *process;
     thread_state_t state;
+    volatile int32_t running_cpu;  /* CPU ID currently executing this thread, or -1 */
 
     uintptr_t kernel_stack_bottom; /* 16 KiB allocated stack base */
     uintptr_t kernel_stack_top;    /* Top of kernel stack (TSS.rsp0) */

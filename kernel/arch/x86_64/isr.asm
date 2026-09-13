@@ -30,11 +30,28 @@ isr_common_stub:
     push r14
     push r15
 
-    ; Pass pointer to interrupt_frame_t (current RSP) in RDI (1st argument in System V AMD64 ABI)
+    ; 15 registers = 120 bytes
+    ; [rsp + 120]: int_no
+    ; [rsp + 128]: err_code
+    ; [rsp + 136]: RIP
+    ; [rsp + 144]: CS
+    ; If interrupted in Ring 3 (CS & 3 != 0), swap to kernel GS base
+    test qword [rsp + 144], 3
+    jz .from_kernel
+    swapgs
+.from_kernel:
+
+    ; Pass pointer to interrupt_frame_t (current RSP) in RDI
     mov rdi, rsp
 
     ; Call C handler
     call isr_handler
+
+    ; If returning to Ring 3, restore user GS base
+    test qword [rsp + 144], 3
+    jz .to_kernel
+    swapgs
+.to_kernel:
 
     ; Restore general purpose registers
     pop r15

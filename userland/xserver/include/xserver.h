@@ -212,6 +212,13 @@ typedef struct {
     uint8_t  active_cursor_type;
     bool     needs_redraw;
     bool     running;
+
+    /* Dirty rectangle damage tracking */
+    int      damage_x0;
+    int      damage_y0;
+    int      damage_x1;
+    int      damage_y1;
+    bool     damage_fullscreen;
 } server_t;
 
 enum cursor_type {
@@ -292,6 +299,9 @@ void draw_blit(uint32_t *dst, int dst_pitch, int dst_w, int dst_h, int dst_x, in
 void draw_composite_scene(void);
 void draw_cursor(uint32_t *dst, int pitch, int dst_w, int dst_h, int cx, int cy);
 void draw_update_cursor(void);
+void damage_add_rect(int x, int y, int w, int h);
+void damage_add_fullscreen(void);
+void damage_reset(void);
 
 /* Dispatch & Client Handling */
 void client_init_system(void);

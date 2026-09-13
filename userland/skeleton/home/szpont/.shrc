@@ -1,0 +1,13 @@
+# ~/.shrc - Interactive shell configuration for szpont
+export PS1='\e[1;36m\u\e[0m@\e[1;32m\h\e[0m:\e[1;34m\w\e[0m$ '
+export EDITOR=nano
+export PAGER=cat
+
+alias ll='ls -la'
+alias l='ls -l'
+alias la='ls -A'
+alias cls='clear'
+alias md='mkdir -p'
+alias rd='rm -rf'
+alias ..='cd ..'
+alias ...='cd ../..'

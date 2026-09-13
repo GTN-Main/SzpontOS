@@ -14,6 +14,7 @@
 #include <arch/x86_64/io.h>
 #include <kernel/kprint.h>
 #include <kernel/string.h>
+#include <kernel/spinlock.h>
 
 #define XHCI_MAX_CONTROLLERS 4
 static xhci_controller_t g_xhci_controllers[XHCI_MAX_CONTROLLERS];
@@ -711,7 +712,13 @@ static void xhci_check_ports(xhci_controller_t *hc) {
 /* ==============================================================================
  * Universal xHCI Polling & Event Loop
  * ============================================================================== */
+static spinlock_t g_xhci_poll_lock = SPINLOCK_INIT;
+
 void xhci_poll(void) {
+    if (!spinlock_try_acquire(&g_xhci_poll_lock)) {
+        return;
+    }
+
     for (size_t c = 0; c < g_xhci_count; c++) {
         xhci_controller_t *hc = &g_xhci_controllers[c];
         if (!hc->initialized)
@@ -748,6 +755,7 @@ void xhci_poll(void) {
                                 memcpy(report, (void *)PHYS_TO_VIRT(dev->report_buffer_phys), 8);
                                 hid_process_keyboard_report(report);
                             } else if (dev->is_mouse) {
+                                /* Copy and process USB mouse report */
                                 uint8_t report[8];
                                 memcpy(report, (void *)PHYS_TO_VIRT(dev->report_buffer_phys), 8);
                                 mouse_event_t ev;
@@ -773,6 +781,8 @@ void xhci_poll(void) {
             }
         }
     }
+
+    spinlock_release(&g_xhci_poll_lock);
 }
 
 bool xhci_is_active(void) {

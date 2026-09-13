@@ -209,9 +209,12 @@ struct drm_mode_crtc_page_flip {
 #define DRM_IOCTL_MODE_GETRESOURCES DRM_IOWR(0xA0, struct drm_mode_card_res)
 #define DRM_IOCTL_MODE_GETCRTC      DRM_IOWR(0xA1, struct drm_mode_crtc)
 #define DRM_IOCTL_MODE_SETCRTC      DRM_IOWR(0xA2, struct drm_mode_crtc)
+#define DRM_IOCTL_MODE_CURSOR       DRM_IOWR(0xA3, struct drm_mode_cursor)
+#define DRM_IOCTL_MODE_SETGAMMA     DRM_IOWR(0xA5, struct drm_mode_crtc_lut)
 #define DRM_IOCTL_MODE_GETENCODER   DRM_IOWR(0xA6, struct drm_mode_get_encoder)
 #define DRM_IOCTL_MODE_GETCONNECTOR DRM_IOWR(0xA7, struct drm_mode_get_connector)
 #define DRM_IOCTL_MODE_GETPROPERTY  DRM_IOWR(0xAA, struct drm_mode_get_property)
+#define DRM_IOCTL_MODE_SETPROPERTY  DRM_IOWR(0xAB, struct drm_mode_connector_set_property)
 #define DRM_IOCTL_MODE_GETPROPBLOB  DRM_IOWR(0xAC, struct drm_mode_get_blob)
 #define DRM_IOCTL_MODE_GETFB        DRM_IOWR(0xAD, struct drm_mode_fb_cmd)
 #define DRM_IOCTL_MODE_ADDFB        DRM_IOWR(0xAE, struct drm_mode_fb_cmd)
@@ -221,7 +224,146 @@ struct drm_mode_crtc_page_flip {
 #define DRM_IOCTL_MODE_CREATE_DUMB  DRM_IOWR(0xB2, struct drm_mode_create_dumb)
 #define DRM_IOCTL_MODE_MAP_DUMB     DRM_IOWR(0xB3, struct drm_mode_map_dumb)
 #define DRM_IOCTL_MODE_DESTROY_DUMB DRM_IOWR(0xB4, struct drm_mode_destroy_dumb)
+#define DRM_IOCTL_MODE_GETPLANERESOURCES DRM_IOWR(0xB5, struct drm_mode_get_plane_res)
+#define DRM_IOCTL_MODE_GETPLANE      DRM_IOWR(0xB6, struct drm_mode_get_plane)
+#define DRM_IOCTL_MODE_SETPLANE      DRM_IOWR(0xB7, struct drm_mode_set_plane)
 #define DRM_IOCTL_MODE_ADDFB2       DRM_IOWR(0xB8, struct drm_mode_fb_cmd2)
+#define DRM_IOCTL_MODE_OBJ_GETPROPERTIES DRM_IOWR(0xB9, struct drm_mode_obj_get_properties)
+#define DRM_IOCTL_MODE_OBJ_SETPROPERTY   DRM_IOWR(0xBA, struct drm_mode_obj_set_property)
+#define DRM_IOCTL_MODE_CURSOR2       DRM_IOWR(0xBB, struct drm_mode_cursor2)
+#define DRM_IOCTL_MODE_ATOMIC        DRM_IOWR(0xBC, struct drm_mode_atomic)
+#define DRM_IOCTL_MODE_CREATEPROPBLOB DRM_IOWR(0xBD, struct drm_mode_create_blob)
+#define DRM_IOCTL_MODE_DESTROYPROPBLOB DRM_IOWR(0xBE, struct drm_mode_destroy_blob)
+#define DRM_IOCTL_MODE_CREATE_LEASE  DRM_IOWR(0xC6, struct drm_mode_create_lease)
+#define DRM_IOCTL_MODE_LIST_LESSEES  DRM_IOWR(0xC7, struct drm_mode_list_lessees)
+#define DRM_IOCTL_MODE_GET_LEASE     DRM_IOWR(0xC8, struct drm_mode_get_lease)
+#define DRM_IOCTL_MODE_REVOKE_LEASE  DRM_IOWR(0xC9, struct drm_mode_revoke_lease)
+
+struct drm_mode_crtc_lut {
+    uint32_t crtc_id;
+    uint32_t gamma_size;
+    uint64_t red;
+    uint64_t green;
+    uint64_t blue;
+};
+
+struct drm_mode_connector_set_property {
+    uint64_t value;
+    uint32_t prop_id;
+    uint32_t connector_id;
+};
+
+struct drm_mode_cursor {
+    uint32_t flags;
+    uint32_t crtc_id;
+    int32_t x;
+    int32_t y;
+    uint32_t width;
+    uint32_t height;
+    uint32_t handle;
+};
+
+struct drm_mode_cursor2 {
+    uint32_t flags;
+    uint32_t crtc_id;
+    int32_t x;
+    int32_t y;
+    uint32_t width;
+    uint32_t height;
+    uint32_t handle;
+    int32_t hot_x;
+    int32_t hot_y;
+};
+
+struct drm_mode_get_plane_res {
+    uint64_t plane_id_ptr;
+    uint32_t count_planes;
+};
+
+struct drm_mode_get_plane {
+    uint32_t plane_id;
+    uint32_t crtc_id;
+    uint32_t fb_id;
+    uint32_t possible_crtcs;
+    uint32_t gamma_size;
+    uint32_t count_format_types;
+    uint64_t format_type_ptr;
+};
+
+struct drm_mode_set_plane {
+    uint32_t plane_id;
+    uint32_t crtc_id;
+    uint32_t fb_id;
+    uint32_t flags;
+    int32_t crtc_x;
+    int32_t crtc_y;
+    uint32_t crtc_w;
+    uint32_t crtc_h;
+    uint32_t src_x;
+    uint32_t src_y;
+    uint32_t src_h;
+    uint32_t src_w;
+};
+
+struct drm_mode_obj_get_properties {
+    uint64_t props_ptr;
+    uint64_t prop_values_ptr;
+    uint32_t count_props;
+    uint32_t obj_id;
+    uint32_t obj_type;
+};
+
+struct drm_mode_obj_set_property {
+    uint64_t value;
+    uint32_t prop_id;
+    uint32_t obj_id;
+    uint32_t obj_type;
+};
+
+struct drm_mode_atomic {
+    uint32_t flags;
+    uint32_t count_objs;
+    uint64_t objs_ptr;
+    uint64_t count_props_ptr;
+    uint64_t props_ptr;
+    uint64_t prop_values_ptr;
+    uint64_t reserved;
+    uint64_t user_data;
+};
+
+struct drm_mode_create_blob {
+    uint64_t data;
+    uint32_t length;
+    uint32_t blob_id;
+};
+
+struct drm_mode_destroy_blob {
+    uint32_t blob_id;
+};
+
+struct drm_mode_create_lease {
+    uint64_t object_ids;
+    uint32_t object_count;
+    uint32_t flags;
+    uint32_t lessee_id;
+    uint32_t fd;
+};
+
+struct drm_mode_list_lessees {
+    uint32_t count_lessees;
+    uint32_t pad;
+    uint64_t lessees_ptr;
+};
+
+struct drm_mode_get_lease {
+    uint32_t count_objects;
+    uint32_t pad;
+    uint64_t objects_ptr;
+};
+
+struct drm_mode_revoke_lease {
+    uint32_t lessee_id;
+};
 
 struct drm_color_ctm {
     uint64_t matrix[9];

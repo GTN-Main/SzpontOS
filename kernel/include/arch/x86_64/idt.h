@@ -56,6 +56,7 @@ typedef struct interrupt_frame interrupt_frame_t;
 typedef void (*isr_handler_t)(interrupt_frame_t *frame);
 
 void idt_init(void);
+void idt_load_cpu(void);
 void idt_set_gate(uint8_t vector, void *handler, uint8_t flags);
 void isr_register_handler(uint8_t vector, isr_handler_t handler);
 

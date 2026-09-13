@@ -169,6 +169,8 @@ int getgroups(int size, gid_t list[]);
 int setgroups(size_t size, const gid_t *list);
 int setresuid(uid_t ruid, uid_t euid, uid_t suid);
 int setresgid(gid_t rgid, gid_t egid, gid_t sgid);
+int setreuid(uid_t ruid, uid_t euid);
+int setregid(gid_t rgid, gid_t egid);
 int getresuid(uid_t *ruid, uid_t *euid, uid_t *suid);
 int getresgid(gid_t *rgid, gid_t *egid, gid_t *sgid);
 

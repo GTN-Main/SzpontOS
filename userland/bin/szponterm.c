@@ -223,7 +223,7 @@ static void term_resize(int new_w, int new_h) {
         ws.ws_ypixel = (unsigned short)g_win_h;
         ioctl(g_master_fd, TIOCSWINSZ, &ws);
     }
-    if (g_child_pid > 0) {
+    if (g_child_pid > 1) {
         kill(g_child_pid, SIGWINCH);
     }
 
@@ -665,7 +665,7 @@ static void handle_x_events(void) {
 
         case ButtonPress:
             g_has_focus = true;
-            XSetInputFocus(g_dpy, g_win, RevertToPointerRoot, CurrentTime);
+            XSetInputFocus(g_dpy, g_win, RevertToParent, CurrentTime);
             /* Check if clicked in bottom-right resize grip or near right/bottom edges */
             if ((ev.xbutton.x >= g_win_w - 24 && ev.xbutton.y >= g_win_h - 24) ||
                 (ev.xbutton.x >= g_win_w - 8) || (ev.xbutton.y >= g_win_h - 8)) {
@@ -674,6 +674,10 @@ static void handle_x_events(void) {
                 g_resize_start_my = ev.xbutton.y_root;
                 g_orig_w = g_win_w;
                 g_orig_h = g_win_h;
+                XGrabPointer(g_dpy, g_win, False,
+                             ButtonReleaseMask | PointerMotionMask,
+                             GrabModeAsync, GrabModeAsync,
+                             None, None, CurrentTime);
             }
             g_needs_redraw = true;
             break;
@@ -681,6 +685,7 @@ static void handle_x_events(void) {
         case ButtonRelease:
             if (g_is_resizing) {
                 g_is_resizing = false;
+                XUngrabPointer(g_dpy, CurrentTime);
                 g_needs_redraw = true;
             }
             break;
@@ -707,6 +712,7 @@ static void handle_x_events(void) {
             if (sym == NoSymbol) {
                 sym = keycode_to_fallback_sym(ev.xkey.keycode, ev.xkey.state);
             }
+
 
             /* Resizing Shortcuts */
             if ((ev.xkey.state & ControlMask) && (sym == XK_plus || sym == XK_equal || sym == XK_KP_Add)) {
@@ -796,7 +802,12 @@ static void handle_x_events(void) {
     }
 }
 
-int main(int argc, char **argv) {
+static int xerror_handler(Display *d, XErrorEvent *e) {
+    (void)d; (void)e;
+    return 0;
+}
+
+int main(int argc, char *argv[]) {
     const char *disp_name = NULL;
     const char *custom_title = NULL;
     char **exec_cmd = NULL;
@@ -953,6 +964,9 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    /* Install safe X error handler to prevent unexpected protocol crashes */
+    XSetErrorHandler(xerror_handler);
+
     int screen = DefaultScreen(g_dpy);
     Window root = RootWindow(g_dpy, screen);
 
@@ -968,7 +982,7 @@ int main(int argc, char **argv) {
         win_y = 80 + ((int)(my_pid * 17) % 250);
     }
 
-    g_win = XCreateSimpleWindow(g_dpy, root, win_x, win_y, (unsigned int)g_win_w, (unsigned int)g_win_h, 2, 0xFF38BDF8, COLOR_BG);
+    g_win = XCreateSimpleWindow(g_dpy, root, win_x, win_y, (unsigned int)g_win_w, (unsigned int)g_win_h, 0, 0xFF38BDF8, COLOR_BG);
 
     char title_str[64];
     if (custom_title && *custom_title) {
@@ -988,7 +1002,6 @@ int main(int argc, char **argv) {
 
     XSelectInput(g_dpy, g_win, ExposureMask | KeyPressMask | KeyReleaseMask | FocusChangeMask | StructureNotifyMask | ButtonPressMask | ButtonReleaseMask | PointerMotionMask);
     XMapWindow(g_dpy, g_win);
-    XSetInputFocus(g_dpy, g_win, RevertToPointerRoot, CurrentTime);
     XFlush(g_dpy);
 
     struct pollfd pfds[2];
@@ -1032,8 +1045,9 @@ int main(int argc, char **argv) {
         }
 
         /* Check if child process died */
-        int status;
-        if (waitpid(g_child_pid, &status, WNOHANG) == g_child_pid) {
+        int status = 0;
+        pid_t wp = waitpid(g_child_pid, &status, WNOHANG);
+        if (wp == g_child_pid) {
             g_running = false;
         }
 
@@ -1044,16 +1058,41 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (g_child_pid > 0) {
+    /* Close master PTY first: triggers kernel hangup and sends SIGHUP to slave ctty */
+    if (g_master_fd >= 0) {
+        close(g_master_fd);
+        g_master_fd = -1;
+    }
+
+    if (g_child_pid > 1) {
+        /* Send SIGHUP and SIGTERM to both the process group/session and the shell itself */
+        kill(-g_child_pid, SIGHUP);
+        kill(-g_child_pid, SIGTERM);
+        kill(g_child_pid, SIGHUP);
         kill(g_child_pid, SIGTERM);
-        waitpid(g_child_pid, NULL, WNOHANG);
+
+        /* Grace period: wait up to 50ms for clean exit */
+        for (int i = 0; i < 5; i++) {
+            int status = 0;
+            if (waitpid(g_child_pid, &status, WNOHANG) == g_child_pid) {
+                g_child_pid = -1;
+                break;
+            }
+            usleep(10000);
+        }
+
+        /* Escalate to SIGKILL if still alive */
+        if (g_child_pid > 1) {
+            kill(-g_child_pid, SIGKILL);
+            kill(g_child_pid, SIGKILL);
+            waitpid(g_child_pid, NULL, WNOHANG);
+        }
     }
 
     if (g_backbuffer) XFreePixmap(g_dpy, g_backbuffer);
     if (g_gc) XFreeGC(g_dpy, g_gc);
     if (g_win) XDestroyWindow(g_dpy, g_win);
     if (g_dpy) XCloseDisplay(g_dpy);
-    if (g_master_fd >= 0) close(g_master_fd);
 
     return 0;
 }

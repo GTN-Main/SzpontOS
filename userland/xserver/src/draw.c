@@ -12,7 +12,7 @@
 #include <math.h>
 
 void draw_init_system(void) {
-    /* Ready */
+    damage_add_fullscreen();
 }
 
 static inline uint32_t apply_rop(uint32_t src, uint32_t dst, uint8_t rop) {
@@ -1030,6 +1030,45 @@ void draw_update_cursor(void) {
     drm_flush_rect(new_ox, new_oy, 32, 32);
 }
 
+void damage_add_rect(int x, int y, int w, int h) {
+    if (w <= 0 || h <= 0) return;
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x + w > g_server.width) w = g_server.width - x;
+    if (y + h > g_server.height) h = g_server.height - y;
+    if (w <= 0 || h <= 0) return;
+
+    if (g_server.damage_fullscreen) return;
+
+    if (g_server.damage_x0 >= g_server.damage_x1 || g_server.damage_y0 >= g_server.damage_y1) {
+        g_server.damage_x0 = x;
+        g_server.damage_y0 = y;
+        g_server.damage_x1 = x + w;
+        g_server.damage_y1 = y + h;
+    } else {
+        if (x < g_server.damage_x0) g_server.damage_x0 = x;
+        if (y < g_server.damage_y0) g_server.damage_y0 = y;
+        if (x + w > g_server.damage_x1) g_server.damage_x1 = x + w;
+        if (y + h > g_server.damage_y1) g_server.damage_y1 = y + h;
+    }
+}
+
+void damage_add_fullscreen(void) {
+    g_server.damage_fullscreen = true;
+    g_server.damage_x0 = 0;
+    g_server.damage_y0 = 0;
+    g_server.damage_x1 = g_server.width;
+    g_server.damage_y1 = g_server.height;
+}
+
+void damage_reset(void) {
+    g_server.damage_fullscreen = false;
+    g_server.damage_x0 = 0;
+    g_server.damage_y0 = 0;
+    g_server.damage_x1 = 0;
+    g_server.damage_y1 = 0;
+}
+
 void draw_composite_scene(void) {
     if (!g_server.shadow_fb) return;
 
@@ -1067,6 +1106,23 @@ void draw_composite_scene(void) {
     draw_cursor(g_server.shadow_fb, g_server.pitch, g_server.width, g_server.height,
                 g_server.mouse_x, g_server.mouse_y);
 
-    /* 4. Flush Shadow Buffer to DRM Framebuffer */
-    drm_flush_screen();
+    /* 4. Flush to DRM Framebuffer (Dirty rect or fullscreen) */
+    if (g_server.damage_fullscreen || g_server.damage_x1 <= g_server.damage_x0 || g_server.damage_y1 <= g_server.damage_y0) {
+        drm_flush_screen();
+    } else {
+        /* Always include cursor area in flush to avoid tearing */
+        damage_add_rect(ox, oy, 32, 32);
+        if (s_prev_ox != -1 && s_prev_oy != -1) {
+            damage_add_rect(s_prev_ox, s_prev_oy, 32, 32);
+        }
+
+        int flush_w = g_server.damage_x1 - g_server.damage_x0;
+        int flush_h = g_server.damage_y1 - g_server.damage_y0;
+        if (flush_w >= g_server.width * 3 / 4 && flush_h >= g_server.height * 3 / 4) {
+            drm_flush_screen();
+        } else {
+            drm_flush_rect(g_server.damage_x0, g_server.damage_y0, flush_w, flush_h);
+        }
+    }
+    damage_reset();
 }

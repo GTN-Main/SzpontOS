@@ -11,6 +11,25 @@
 
 #define MAX_FD 256
 #define NGROUPS_MAX 32
+#define RLIM_NLIMITS 16
+#define RLIM_INFINITY ((uint64_t)-1)
+
+#define RLIMIT_CPU 0
+#define RLIMIT_FSIZE 1
+#define RLIMIT_DATA 2
+#define RLIMIT_STACK 3
+#define RLIMIT_CORE 4
+#define RLIMIT_RSS 5
+#define RLIMIT_NPROC 6
+#define RLIMIT_NOFILE 7
+#define RLIMIT_MEMLOCK 8
+#define RLIMIT_AS 9
+
+struct rlimit_k {
+    uint64_t rlim_cur;
+    uint64_t rlim_max;
+};
+typedef struct rlimit_k rlimit_k_t;
 
 typedef enum { PROCESS_ACTIVE = 0, PROCESS_ZOMBIE = 1, PROCESS_DEAD = 2 } process_status_t;
 
@@ -58,6 +77,15 @@ typedef struct process {
     int exit_code;
     uint64_t cpu_time_ns;
     wait_queue_t wait_child;
+
+    /* Resource Limits */
+    rlimit_k_t rlimits[RLIM_NLIMITS];
+
+    /* Resource Accounting */
+    uint64_t minflt;
+    uint64_t majflt;
+    uint64_t nvcsw;
+    uint64_t nivcsw;
 
     uint32_t pending_signals;
     uint32_t blocked_signals;

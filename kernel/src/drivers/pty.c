@@ -38,6 +38,7 @@ typedef struct pty_pair {
     size_t s2m_count;
 
     spinlock_t lock;
+    pid_t fg_pgrp;
     vfs_node_t *master_node;
     vfs_node_t *slave_node;
 } pty_pair_t;
@@ -187,9 +188,12 @@ static int pty_master_ioctl(vfs_node_t *node, uint64_t request, uintptr_t arg) {
 
 static ssize_t pty_slave_read(vfs_node_t *node, off_t offset, size_t size, void *buffer) {
     (void)offset;
-    pty_pair_t *pty = (pty_pair_t *)node->device_data;
-    if (!pty || !buffer || size == 0)
+    if (!node || !buffer || size == 0)
         return 0;
+
+    pty_pair_t *pty = (pty_pair_t *)node->device_data;
+    if (!pty || !pty->allocated)
+        return 0; /* EOF: master closed/disconnected */
 
     char *dst = (char *)buffer;
     size_t read_bytes = 0;
@@ -224,9 +228,17 @@ static ssize_t pty_slave_read(vfs_node_t *node, off_t offset, size_t size, void 
 
 static ssize_t pty_slave_write(vfs_node_t *node, off_t offset, size_t size, const void *buffer) {
     (void)offset;
-    pty_pair_t *pty = (pty_pair_t *)node->device_data;
-    if (!pty || !buffer || size == 0)
+    if (!node || !buffer || size == 0)
         return 0;
+
+    pty_pair_t *pty = (pty_pair_t *)node->device_data;
+    if (!pty || !pty->allocated) {
+        process_t *curr = sched_get_current_process();
+        if (curr) {
+            process_send_signal(curr, SIGHUP);
+        }
+        return -5; /* -EIO: disconnected terminal */
+    }
 
     const char *src = (const char *)buffer;
     size_t written = 0;
@@ -235,6 +247,10 @@ static ssize_t pty_slave_write(vfs_node_t *node, off_t offset, size_t size, cons
         spinlock_acquire(&pty->lock);
         if (!pty->allocated) {
             spinlock_release(&pty->lock);
+            process_t *curr = sched_get_current_process();
+            if (curr) {
+                process_send_signal(curr, SIGHUP);
+            }
             return written > 0 ? (ssize_t)written : -5; /* -EIO */
         }
 
@@ -285,9 +301,11 @@ static ssize_t pty_slave_write(vfs_node_t *node, off_t offset, size_t size, cons
 }
 
 static int pty_slave_ioctl(vfs_node_t *node, uint64_t request, uintptr_t arg) {
-    pty_pair_t *pty = (pty_pair_t *)node->device_data;
-    if (!pty)
+    if (!node)
         return -22;
+    pty_pair_t *pty = (pty_pair_t *)node->device_data;
+    if (!pty || !pty->allocated)
+        return -5; /* -EIO */
 
     switch (request) {
     case TIOCGPTN:
@@ -341,11 +359,24 @@ static int pty_slave_ioctl(vfs_node_t *node, uint64_t request, uintptr_t arg) {
     }
     case 0x540F: /* TIOCGPGRP */
         if (arg) {
-            *(int *)arg = 1;
+            pid_t pgrp = pty->fg_pgrp;
+            if (pgrp <= 1) {
+                process_t *curr = sched_get_current_process();
+                pgrp = (curr && curr->pgid > 1) ? curr->pgid : 0;
+            }
+            *(pid_t *)arg = pgrp;
             return 0;
         }
         return -22;
     case 0x5410: /* TIOCSPGRP */
+        if (arg) {
+            pid_t pgrp = *(pid_t *)arg;
+            if (pgrp > 1) {
+                pty->fg_pgrp = pgrp;
+            }
+            return 0;
+        }
+        return -22;
     case 0x5421: /* FIONBIO */
         return 0;
     default:
@@ -425,11 +456,30 @@ static int ptmx_open(vfs_node_t *node, uint32_t flags) {
 }
 
 static int pty_master_close(vfs_node_t *node) {
-    pty_pair_t *pty = (pty_pair_t *)node->device_data;
+    pty_pair_t *pty = node ? (pty_pair_t *)node->device_data : NULL;
     if (pty) {
         spinlock_acquire(&pty->lock);
         pty->allocated = false;
+        vfs_node_t *slave = pty->slave_node;
+        pid_t fg_pgrp = pty->fg_pgrp;
+        if (slave) {
+            slave->device_data = NULL;
+        }
+        pty->slave_node = NULL;
+        pty->master_node = NULL;
+        pty->fg_pgrp = 0;
         spinlock_release(&pty->lock);
+
+        /* Send SIGHUP and SIGCONT to foreground process group */
+        if (fg_pgrp > 1) {
+            process_kill(-fg_pgrp, SIGHUP);
+            process_kill(-fg_pgrp, SIGCONT);
+        }
+
+        /* Send SIGHUP to all processes attached to this controlling terminal */
+        if (slave) {
+            process_signal_ctty(slave, SIGHUP);
+        }
     }
     return 0;
 }

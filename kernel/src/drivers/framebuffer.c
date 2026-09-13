@@ -11,7 +11,9 @@
 #include <mm/pmm.h>
 #include <mm/vmm.h>
 #include <arch/x86_64/io.h>
+#include <arch/x86_64/mtrr.h>
 #include <drivers/keyboard.h>
+#include <drivers/tty.h>
 
 static struct limine_framebuffer *g_fb = NULL;
 static uint32_t *g_fb_ptr = NULL;
@@ -388,7 +390,14 @@ struct limine_framebuffer *fb_get_limine(void) {
 static bool g_graphics_mode = false;
 
 void fb_set_graphics_mode(bool enabled) {
+    bool was_graphics = g_graphics_mode;
     g_graphics_mode = enabled;
+    if (was_graphics && !enabled) {
+        fb_console_clear();
+        fb_flush();
+        keyboard_flush();
+        tty_flush();
+    }
 }
 
 bool fb_is_graphics_mode(void) {
@@ -411,6 +420,7 @@ void fb_blit_from_buffer(const uint32_t *src, size_t src_pitch_pixels, size_t ds
         uint32_t *dst_row = g_fb_ptr + (dst_y + row) * g_fb_pitch_pixels + dst_x;
         memcpy(dst_row, src_row, copy_bytes);
     }
+    __asm__ volatile("sfence" ::: "memory");
 }
 
 static bool g_fb_dirty = false;
@@ -453,6 +463,7 @@ static inline void fb_flush_rect(size_t x, size_t y, size_t w, size_t h) {
         size_t offset = (y + row) * g_fb_pitch_pixels + x;
         memcpy(&g_fb_ptr[offset], &g_backbuffer[offset], bytes);
     }
+    __asm__ volatile("sfence" ::: "memory");
 }
 
 void fb_flush(void) {
@@ -597,7 +608,6 @@ static void fb_draw_char_raw(size_t col, size_t row, uint8_t uc, uint32_t fg, ui
 
     if (g_backbuffer) {
         fb_mark_dirty(px, py, g_char_w, g_char_h);
-        fb_flush_rect(px, py, g_char_w, g_char_h);
     }
 }
 
@@ -1428,27 +1438,35 @@ void framebuffer_init_backbuffer(void) {
      * with WB caching, the data stays in CPU L1/L2 cache and NEVER reaches
      * the display controller — resulting in a frozen/blank screen.
      *
-     * We remap every page of the VRAM region with PWT+PCD flags (bits 3+4),
-     * which gives us Uncacheable (UC) behavior. This guarantees that every
-     * store to g_fb_ptr immediately reaches VRAM through the PCIe bus.
+     * We remap every page of the VRAM region with PWT flag (bit 3),
+     * which corresponds to IA32_PAT entry PA1 (Write-Combining).
+     * This enables the CPU's internal 64-byte Write-Combining Buffers,
+     * allowing burst PCIe writes at full bus speed (up to 16 GB/s) instead of
+     * serialized single-byte unbuffered stalls in Uncacheable mode (10 MB/s).
      * ========================================================================= */
     uintptr_t fb_virt = (uintptr_t)g_fb->address;
-    uintptr_t fb_phys = VIRT_TO_PHYS(fb_virt);
+    uintptr_t fb_phys = vmm_virt_to_phys(&g_kernel_pagemap, fb_virt);
+    if (!fb_phys) {
+        fb_phys = VIRT_TO_PHYS(fb_virt);
+    }
     size_t fb_total_bytes = g_fb_height * g_fb->pitch;
     size_t fb_pages = (fb_total_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
+
+    /* Hardware MTRR Write-Combining for Legacy BIOS boot and discrete GPUs */
+    mtrr_set_write_combining(fb_phys, fb_total_bytes);
 
     for (size_t i = 0; i < fb_pages; i++) {
         uintptr_t vaddr = fb_virt + i * PAGE_SIZE;
         uintptr_t paddr = fb_phys + i * PAGE_SIZE;
-        /* Remap with PWT (bit 3) + PCD (bit 4) = Uncacheable, bypasses CPU cache entirely */
+        /* Remap with PWT (bit 3) = Write-Combining (PA1 in configured PAT MSR) */
         vmm_map_page(&g_kernel_pagemap, vaddr, paddr,
-                     VMM_FLAG_PRESENT | VMM_FLAG_WRITABLE | VMM_FLAG_WRITE_THROUGH | VMM_FLAG_CACHE_DISABLE);
+                     VMM_FLAG_PRESENT | VMM_FLAG_WRITABLE | VMM_FLAG_WRITE_COMBINING);
     }
 
     /* Flush TLB to activate new cache attributes */
     write_cr3(read_cr3());
 
-    klog_info("FB: VRAM remapped as Uncacheable (%zu pages, phys 0x%lx, virt 0x%lx)", fb_pages, (unsigned long)fb_phys,
+    klog_info("FB: VRAM remapped as Write-Combining (%zu pages, phys 0x%lx, virt 0x%lx)", fb_pages, (unsigned long)fb_phys,
               (unsigned long)fb_virt);
 
     /* Allocate in-RAM shadow backbuffer (this one stays Write-Back for fast rendering) */

@@ -93,5 +93,6 @@ int drm_mmap(void *addr, size_t length, int prot, int flags, off_t offset, void 
 ssize_t drm_read(void *buffer, size_t size);
 bool drm_has_events(void);
 bool drm_is_dmabuf_node(vfs_node_t *node);
+int drm_release(void);
 
 #endif /* SZPONTOS_DRIVERS_DRM_H */

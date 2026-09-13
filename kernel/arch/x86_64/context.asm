@@ -32,6 +32,12 @@ arch_switch_context:
     ; Save current RSP into *old_rsp_ptr
     mov [rdi], rsp
 
+    ; If running_cpu_ptr (R8) is non-NULL, mark previous thread as no longer running (-1)
+    test r8, r8
+    jz .no_clear_flag
+    mov dword [r8], -1
+.no_clear_flag:
+
     ; Load new RSP
     mov rsp, rsi
 
@@ -70,6 +76,16 @@ arch_thread_trampoline:
 ; RSI: User RSP
 arch_enter_user_mode:
     cli
+
+    ; Save user RIP and RSP across smp_prepare_user_mode call
+    push rdi
+    push rsi
+
+    extern smp_prepare_user_mode
+    call smp_prepare_user_mode
+
+    pop rsi
+    pop rdi
 
     ; Setup Segment Selectors for Ring 3
     ; 0x18 = User Data Selector (DPL = 3) -> 0x18 | 3 = 0x1B

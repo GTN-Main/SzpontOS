@@ -70,6 +70,7 @@ typedef struct winsize {
 #endif
 
 void tty_init(void);
+void tty_flush(void);
 ssize_t tty_read(void *buffer, size_t count);
 ssize_t tty_write(const void *buffer, size_t count);
 int tty_ioctl(uint64_t request, void *arg);

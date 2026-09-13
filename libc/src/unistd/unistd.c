@@ -312,7 +312,14 @@ int execlp(const char *file, const char *arg0, ...) {
 }
 
 long fpathconf(int fd, int name) {
-    (void)fd;
+    if (fd < 0) {
+        errno = EBADF;
+        return -1;
+    }
+    struct stat st;
+    if (fstat(fd, &st) < 0) {
+        return -1;
+    }
     switch (name) {
     case _PC_PIPE_BUF:
         return 4096;
@@ -326,8 +333,24 @@ long fpathconf(int fd, int name) {
 }
 
 long pathconf(const char *path, int name) {
-    (void)path;
-    return fpathconf(-1, name);
+    if (!path) {
+        errno = ENOENT;
+        return -1;
+    }
+    struct stat st;
+    if (stat(path, &st) < 0) {
+        return -1;
+    }
+    switch (name) {
+    case _PC_PIPE_BUF:
+        return 4096;
+    case _PC_PATH_MAX:
+        return 4096;
+    case _PC_NAME_MAX:
+        return 255;
+    default:
+        return 4096;
+    }
 }
 
 int usleep(unsigned long usec) {
@@ -551,14 +574,31 @@ int statvfs(const char *path, struct statvfs *buf) {
     return 0;
 }
 
-int fstatvfs(int fd, struct statvfs *buf) {
-    (void)fd;
-    return statvfs("/", buf);
+int fstatfs(int fd, struct statfs *buf) {
+    return (int)__check_syscall(__syscall2(SYS_fstatfs, (int64_t)fd, (int64_t)buf));
 }
 
-int fstatfs(int fd, struct statfs *buf) {
-    (void)fd;
-    return statfs("/", buf);
+int fstatvfs(int fd, struct statvfs *buf) {
+    struct statfs s;
+    if (fstatfs(fd, &s) < 0)
+        return -1;
+    if (!buf) {
+        errno = EFAULT;
+        return -1;
+    }
+    memset(buf, 0, sizeof(struct statvfs));
+    buf->f_bsize = s.f_bsize;
+    buf->f_frsize = s.f_frsize;
+    buf->f_blocks = s.f_blocks;
+    buf->f_bfree = s.f_bfree;
+    buf->f_bavail = s.f_bavail;
+    buf->f_files = s.f_files;
+    buf->f_ffree = s.f_ffree;
+    buf->f_favail = s.f_ffree;
+    buf->f_fsid = s.f_fsid[0];
+    buf->f_flag = s.f_flags;
+    buf->f_namemax = s.f_namelen;
+    return 0;
 }
 
 int rmdir(const char *pathname) {
@@ -818,18 +858,18 @@ pid_t setsid(void) {
 }
 
 pid_t getsid(pid_t pid) {
-    (void)pid;
-    return getpid();
+    return (pid_t)__check_syscall(__syscall1(SYS_getsid, (int64_t)pid));
 }
 
 pid_t tcgetpgrp(int fd) {
-    (void)fd;
-    return getpgrp();
+    pid_t pgrp = -1;
+    if (ioctl(fd, TIOCGPGRP, &pgrp) < 0)
+        return -1;
+    return pgrp;
 }
 
 int tcsetpgrp(int fd, pid_t pgrp) {
-    (void)fd;
-    return setpgid(0, pgrp);
+    return ioctl(fd, TIOCSPGRP, &pgrp);
 }
 
 int revoke(const char *path) {
@@ -1025,6 +1065,14 @@ int setresgid(gid_t rgid, gid_t egid, gid_t sgid) {
     return 0;
 }
 
+int setreuid(uid_t ruid, uid_t euid) {
+    return setresuid(ruid, euid, (uid_t)-1);
+}
+
+int setregid(gid_t rgid, gid_t egid) {
+    return setresgid(rgid, egid, (gid_t)-1);
+}
+
 int getresuid(uid_t *ruid, uid_t *euid, uid_t *suid) {
     int64_t ret = __syscall3(SYS_getresuid, (int64_t)ruid, (int64_t)euid, (int64_t)suid);
     if (ret < 0) {
@@ -1042,3 +1090,15 @@ int getresgid(gid_t *rgid, gid_t *egid, gid_t *sgid) {
     }
     return 0;
 }
+
+int iopl(int level) {
+    return (int)__check_syscall(__syscall1(SYS_iopl, (int64_t)level));
+}
+
+int ioperm(unsigned long from, unsigned long num, int turn_on) {
+    (void)from;
+    (void)num;
+    (void)turn_on;
+    return 0;
+}
+

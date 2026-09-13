@@ -151,6 +151,7 @@ void window_destroy(window_t *win) {
 
     win->is_active = false;
     win->id = 0;
+    damage_add_fullscreen();
     g_server.needs_redraw = true;
 }
 
@@ -199,6 +200,7 @@ void window_map(window_t *win) {
     }
     window_raise(win);
     g_server.focus_window = win;
+    damage_add_fullscreen();
     g_server.needs_redraw = true;
 }
 
@@ -219,6 +221,7 @@ void window_unmap(window_t *win) {
     if (g_server.focus_window == win) {
         g_server.focus_window = &g_server.root_window;
     }
+    damage_add_fullscreen();
     g_server.needs_redraw = true;
 }
 
@@ -254,6 +257,7 @@ void window_configure(window_t *win, int16_t x, int16_t y, uint16_t w, uint16_t 
     ev.border_width = bw;
     window_send_event(win, &ev, StructureNotifyMask);
 
+    damage_add_fullscreen();
     g_server.needs_redraw = true;
 }
 
@@ -300,6 +304,7 @@ void window_set_focus(window_t *win) {
         window_send_event(win, &ev_in, FocusChangeMask);
     }
 
+    damage_add_fullscreen();
     g_server.needs_redraw = true;
 }
 

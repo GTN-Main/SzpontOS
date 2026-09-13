@@ -1,9 +1,17 @@
 # /etc/profile - System-wide profile for SzpontOS login shells
 # (C) Copyright by Szpont Industries. All rights reserved.
 
-export PATH=/bin:/usr/bin
+export PATH=/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin
 export TERM=xterm-256color
+export COLORTERM=truecolor
 export ENV=/etc/shrc
+export USER=${USER:-root}
+export LOGNAME=${LOGNAME:-$USER}
+export HOME=${HOME:-/root}
+export SHELL=${SHELL:-/bin/sh}
+export MAGIC=/etc/magic:/usr/share/misc/magic
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
 
 # Source interactive shell configuration
 if [ -f /etc/shrc ]; then

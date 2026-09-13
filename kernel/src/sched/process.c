@@ -12,6 +12,7 @@
 #include <kernel/kprint.h>
 #include <kernel/spinlock.h>
 #include <arch/x86_64/gdt.h>
+#include <mm/usercopy.h>
 
 #define KERNEL_STACK_SIZE (16 * 1024)
 
@@ -64,7 +65,7 @@ void process_signal_ctty(vfs_node_t *ctty_node, int sig) {
     if (!ctty_node || sig < 0 || sig >= 32)
         return;
 
-    process_t *targets[32];
+    process_t *targets[128];
     size_t count = 0;
 
     spinlock_acquire(&g_process_lock);
@@ -72,7 +73,7 @@ void process_signal_ctty(vfs_node_t *ctty_node, int sig) {
     list_for_each(pos, &g_process_list) {
         process_t *item = container_of(pos, process_t, proc_list_node);
         if (item->status == PROCESS_ACTIVE && item->has_ctty && item->ctty == ctty_node) {
-            if (count < 32) {
+            if (count < 128) {
                 targets[count++] = item;
             }
         }
@@ -88,6 +89,10 @@ process_t *process_create(const char *name) {
     spinlock_acquire(&g_process_lock);
 
     process_t *proc = (process_t *)kzalloc(sizeof(process_t));
+    if (!proc) {
+        spinlock_release(&g_process_lock);
+        return NULL;
+    }
     proc->pid = g_next_pid++;
     proc->ppid = 0;
     proc->pgid = proc->pid;
@@ -102,6 +107,11 @@ process_t *process_create(const char *name) {
     strncpy(proc->name, name ? name : "process", sizeof(proc->name) - 1);
     proc->status = PROCESS_ACTIVE;
     proc->pagemap = vmm_create_address_space();
+    if (!proc->pagemap) {
+        kfree(proc);
+        spinlock_release(&g_process_lock);
+        return NULL;
+    }
     proc->brk_start = 0x0000000000800000;
     proc->brk_current = proc->brk_start;
     proc->mmap_current = 0x0000600000000000ULL;
@@ -117,6 +127,22 @@ process_t *process_create(const char *name) {
         proc->signal_handlers[i] = SIG_DFL;
         memset(&proc->sigactions[i], 0, sizeof(struct sigaction));
     }
+
+    /* Initialize standard default resource limits */
+    for (int i = 0; i < RLIM_NLIMITS; i++) {
+        proc->rlimits[i].rlim_cur = RLIM_INFINITY;
+        proc->rlimits[i].rlim_max = RLIM_INFINITY;
+    }
+    proc->rlimits[RLIMIT_STACK].rlim_cur = 8 * 1024 * 1024;
+    proc->rlimits[RLIMIT_STACK].rlim_max = 8 * 1024 * 1024;
+    proc->rlimits[RLIMIT_NOFILE].rlim_cur = MAX_FD;
+    proc->rlimits[RLIMIT_NOFILE].rlim_max = MAX_FD;
+    proc->rlimits[RLIMIT_CORE].rlim_cur = 0;
+    proc->rlimits[RLIMIT_CORE].rlim_max = 0;
+    proc->rlimits[RLIMIT_NPROC].rlim_cur = 1024;
+    proc->rlimits[RLIMIT_NPROC].rlim_max = 1024;
+    proc->rlimits[RLIMIT_MEMLOCK].rlim_cur = 64 * 1024;
+    proc->rlimits[RLIMIT_MEMLOCK].rlim_max = 64 * 1024;
 
     list_init(&proc->threads);
     list_add_tail(&g_process_list, &proc->proc_list_node);
@@ -177,6 +203,7 @@ thread_t *thread_create(process_t *proc, void (*entry_point)(void), bool is_user
     t->tid = g_next_tid++;
     t->process = proc;
     t->state = THREAD_READY;
+    t->running_cpu = -1;
     memcpy(t->fpu_state, g_default_fpu_state, 512);
 
     /* Allocate 16 KiB kernel stack */
@@ -261,7 +288,9 @@ void process_close_all_fds(process_t *proc) {
             file_descriptor_t *f = proc->fds[i];
             proc->fds[i] = NULL;
             proc->fd_cloexec[i] = false;
-            fd_release(f);
+            if ((uintptr_t)f >= 0xffff800000000000ULL) {
+                fd_release(f);
+            }
         }
     }
 }
@@ -340,16 +369,23 @@ int process_send_signal(process_t *proc, int sig) {
     proc->pending_signals |= (1U << sig);
     uintptr_t handler = proc->signal_handlers[sig];
 
-    if (handler == SIG_IGN || (sig == SIGCHLD && handler == SIG_DFL)) {
+    if (handler == SIG_IGN ||
+        ((sig == SIGCHLD || sig == SIGWINCH || sig == SIGURG) && handler == SIG_DFL)) {
         proc->pending_signals &= ~(1U << sig);
         spinlock_release(&g_process_lock);
         return 0;
     }
 
-    if (handler == SIG_DFL) {
+    if (handler == SIG_DFL || (handler > 3 && (sig == SIGHUP || sig == SIGINT || sig == SIGQUIT || sig == SIGKILL || sig == SIGTERM || sig == SIGSEGV || sig == SIGILL))) {
         /* Terminating signals */
         if (sig == SIGHUP || sig == SIGINT || sig == SIGQUIT || sig == SIGKILL || sig == SIGTERM || sig == SIGSEGV ||
             sig == SIGILL) {
+            if (proc == sched_get_current_process()) {
+                spinlock_release(&g_process_lock);
+                process_exit(128 + sig);
+                return 0;
+            }
+
             proc->status = PROCESS_ZOMBIE;
             proc->exit_code = (128 + sig);
 
@@ -377,9 +413,15 @@ int process_send_signal(process_t *proc, int sig) {
                 thread_t *t = container_of(pos, thread_t, proc_node);
                 futex_remove_thread(t);
                 t->state = THREAD_ZOMBIE;
+                sched_remove_thread(t);
             }
 
             spinlock_release(&g_process_lock);
+
+            /* Immediately detach shared memory and close all open FDs so pipes/sockets/PTYs disconnect.
+             * Done after releasing g_process_lock to avoid recursive deadlock when closing PTY master / pipes */
+            shm_process_exit(proc);
+            process_close_all_fds(proc);
 
             if (ppid > 0) {
                 process_t *parent = process_get_by_pid(ppid);
@@ -396,9 +438,6 @@ int process_send_signal(process_t *proc, int sig) {
                 }
             }
 
-            if (proc == sched_get_current_process()) {
-                sched_yield();
-            }
             return 0;
         }
     }
@@ -479,10 +518,20 @@ int process_setgroups(size_t size, const gid_t *list) {
     if (size > NGROUPS_MAX)
         return -1; /* EINVAL */
 
+    gid_t kgroups[NGROUPS_MAX];
+    if (size > 0 && list) {
+        if ((uintptr_t)list <= USER_ADDR_MAX) {
+            if (!copy_from_user(kgroups, (uintptr_t)list, size * sizeof(gid_t)))
+                return -14; /* -EFAULT */
+        } else {
+            memcpy(kgroups, list, size * sizeof(gid_t));
+        }
+    }
+
     spinlock_acquire(&g_process_lock);
     curr->ngroups = (int)size;
     if (size > 0 && list) {
-        memcpy(curr->groups, list, size * sizeof(gid_t));
+        memcpy(curr->groups, kgroups, size * sizeof(gid_t));
     }
     spinlock_release(&g_process_lock);
     return 0;
@@ -503,10 +552,18 @@ int process_getgroups(size_t size, gid_t *list) {
         spinlock_release(&g_process_lock);
         return -1; /* EINVAL */
     }
-    if (list) {
-        memcpy(list, curr->groups, count * sizeof(gid_t));
-    }
+    gid_t kgroups[NGROUPS_MAX];
+    memcpy(kgroups, curr->groups, count * sizeof(gid_t));
     spinlock_release(&g_process_lock);
+
+    if (list) {
+        if ((uintptr_t)list <= USER_ADDR_MAX) {
+            if (!copy_to_user((uintptr_t)list, kgroups, count * sizeof(gid_t)))
+                return -14; /* -EFAULT */
+        } else {
+            memcpy(list, kgroups, count * sizeof(gid_t));
+        }
+    }
     return count;
 }
 
@@ -517,22 +574,51 @@ int process_sigaction(int sig, const struct sigaction *act, struct sigaction *ol
     if (!curr)
         return -1;
 
-    spinlock_acquire(&g_process_lock);
-    if (oldact && (uintptr_t)oldact > 0x1000) {
-        memcpy(oldact, &curr->sigactions[sig], sizeof(struct sigaction));
-        oldact->sa_handler = curr->signal_handlers[sig];
-    }
+    struct sigaction kact;
+    bool has_kact = false;
     if (act) {
         if ((uintptr_t)act <= 3) {
-            /* Raw sighandler_t value passed (SIG_DFL, SIG_IGN) */
-            curr->signal_handlers[sig] = (uintptr_t)act;
-            curr->sigactions[sig].sa_handler = (uintptr_t)act;
+            memset(&kact, 0, sizeof(kact));
+            kact.sa_handler = (uintptr_t)act;
+            has_kact = true;
+        } else if ((uintptr_t)act <= USER_ADDR_MAX) {
+            if (!copy_from_user(&kact, (uintptr_t)act, sizeof(struct sigaction)))
+                return -14; /* -EFAULT */
+            has_kact = true;
         } else {
-            memcpy(&curr->sigactions[sig], act, sizeof(struct sigaction));
-            curr->signal_handlers[sig] = act->sa_handler;
+            memcpy(&kact, act, sizeof(struct sigaction));
+            has_kact = true;
+        }
+    }
+
+    struct sigaction koldact;
+    bool has_oldact = false;
+
+    spinlock_acquire(&g_process_lock);
+    if (oldact && (uintptr_t)oldact > 0x1000) {
+        memcpy(&koldact, &curr->sigactions[sig], sizeof(struct sigaction));
+        koldact.sa_handler = curr->signal_handlers[sig];
+        has_oldact = true;
+    }
+    if (has_kact) {
+        if ((uintptr_t)kact.sa_handler <= 3) {
+            curr->signal_handlers[sig] = (uintptr_t)kact.sa_handler;
+            curr->sigactions[sig].sa_handler = (uintptr_t)kact.sa_handler;
+        } else {
+            memcpy(&curr->sigactions[sig], &kact, sizeof(struct sigaction));
+            curr->signal_handlers[sig] = kact.sa_handler;
         }
     }
     spinlock_release(&g_process_lock);
+
+    if (has_oldact) {
+        if ((uintptr_t)oldact <= USER_ADDR_MAX) {
+            if (!copy_to_user((uintptr_t)oldact, &koldact, sizeof(struct sigaction)))
+                return -14; /* -EFAULT */
+        } else {
+            memcpy(oldact, &koldact, sizeof(struct sigaction));
+        }
+    }
     return 0;
 }
 
@@ -541,12 +627,23 @@ int process_sigprocmask(int how, const sigset_t *set, sigset_t *oldset) {
     if (!curr)
         return -1;
 
-    spinlock_acquire(&g_process_lock);
-    if (oldset) {
-        *oldset = curr->blocked_signals;
-    }
+    sigset_t kset = 0;
+    bool has_set = false;
     if (set) {
-        sigset_t mask = *set & ~((1ULL << SIGKILL) | (1ULL << SIGSTOP));
+        if ((uintptr_t)set <= USER_ADDR_MAX) {
+            if (!copy_from_user(&kset, (uintptr_t)set, sizeof(sigset_t)))
+                return -14; /* -EFAULT */
+        } else {
+            kset = *set;
+        }
+        has_set = true;
+    }
+
+    sigset_t koldset = 0;
+    spinlock_acquire(&g_process_lock);
+    koldset = curr->blocked_signals;
+    if (has_set) {
+        sigset_t mask = kset & ~((1ULL << SIGKILL) | (1ULL << SIGSTOP));
         if (how == SIG_BLOCK) {
             curr->blocked_signals |= (uint32_t)mask;
         } else if (how == SIG_UNBLOCK) {
@@ -556,6 +653,15 @@ int process_sigprocmask(int how, const sigset_t *set, sigset_t *oldset) {
         }
     }
     spinlock_release(&g_process_lock);
+
+    if (oldset) {
+        if ((uintptr_t)oldset <= USER_ADDR_MAX) {
+            if (!copy_to_user((uintptr_t)oldset, &koldset, sizeof(sigset_t)))
+                return -14; /* -EFAULT */
+        } else {
+            *oldset = koldset;
+        }
+    }
     return 0;
 }
 
@@ -566,10 +672,18 @@ int process_sigpending(sigset_t *set) {
     if (!curr)
         return -1;
 
+    sigset_t kpending = 0;
     spinlock_acquire(&g_process_lock);
-    *set = curr->pending_signals;
+    kpending = curr->pending_signals;
     curr->pending_signals = 0;
     spinlock_release(&g_process_lock);
+
+    if ((uintptr_t)set <= USER_ADDR_MAX) {
+        if (!copy_to_user((uintptr_t)set, &kpending, sizeof(sigset_t)))
+            return -14; /* -EFAULT */
+    } else {
+        *set = kpending;
+    }
     return 0;
 }
 
@@ -603,7 +717,7 @@ int process_kill(pid_t pid, int sig) {
             target = true;
         } else if (pid == -1 && p->pid > 1 && p != curr) {
             target = true;
-        } else if (pid < -1 && p->pgid == -pid) {
+        } else if (pid < -1 && (p->pgid == -pid || p->sid == -pid)) {
             target = true;
         }
 
@@ -677,23 +791,8 @@ pid_t process_waitpid(pid_t pid, int *status, int options) {
                             g_foreground_proc = NULL;
                         }
 
-                        /* Free child resources */
-                        process_close_all_fds(p);
-
-                        /* Free child threads and their kernel stacks */
-                        list_node_t *tpos, *tnext;
-                        list_for_each_safe(tpos, tnext, &p->threads) {
-                            thread_t *t = container_of(tpos, thread_t, proc_node);
-                            list_remove(&t->proc_node);
-                            if (t->kernel_stack_bottom) {
-                                pmm_free_pages(VIRT_TO_PHYS(t->kernel_stack_bottom), KERNEL_STACK_SIZE / PAGE_SIZE);
-                            }
-                            kfree(t);
-                        }
-
-                        vmm_destroy_address_space(p->pagemap);
+                        /* Remove child from process list */
                         list_remove(&p->proc_list_node);
-                        kfree(p);
 
                         /* Check if any other zombie children remain; if not, clear SIGCHLD */
                         bool other_zombies = false;
@@ -710,6 +809,25 @@ pid_t process_waitpid(pid_t pid, int *status, int options) {
                         }
 
                         spinlock_release(&g_process_lock);
+
+                        /* Free child resources outside g_process_lock to prevent lock recursion */
+                        process_close_all_fds(p);
+
+                        /* Free child threads and their kernel stacks */
+                        list_node_t *tpos, *tnext;
+                        list_for_each_safe(tpos, tnext, &p->threads) {
+                            thread_t *t = container_of(tpos, thread_t, proc_node);
+                            list_remove(&t->proc_node);
+                            sched_remove_thread(t);
+                            if (t->kernel_stack_bottom) {
+                                pmm_free_pages(VIRT_TO_PHYS(t->kernel_stack_bottom), KERNEL_STACK_SIZE / PAGE_SIZE);
+                            }
+                            kfree(t);
+                        }
+
+                        vmm_destroy_address_space(p->pagemap);
+                        kfree(p);
+
                         return found_pid;
                     }
                 }

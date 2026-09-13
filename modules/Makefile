@@ -11,6 +11,7 @@ MODULES := \
 all: modules
 
 modules: $(MODULES)
+	@mkdir -p $(dir $(MODULES_STAMP)) && touch $(MODULES_STAMP)
 
 $(MODULE_DIR)/hello.sko: $(ROOT_DIR)/modules/hello/hello.c | $(ROOTFS_DIR)
 	@mkdir -p $(MODULE_DIR)

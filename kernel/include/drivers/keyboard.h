@@ -19,12 +19,21 @@
 #define KBD_MOD_CAPSLOCK (1 << 6)
 #define KBD_MOD_NUMLOCK (1 << 7)
 
+/* AUX setup holds the same lock as IRQ and keyboard command processing. */
+uint64_t keyboard_controller_acquire(void);
+void keyboard_controller_release(uint64_t flags);
+bool keyboard_aux_command(uint8_t cmd);
+int keyboard_aux_read(uint32_t timeout_us);
+bool keyboard_configure_aux(bool irq_enabled);
+
 void keyboard_init(void);
 void keyboard_poll_hardware(void);
+void keyboard_handle_irq(void);
 void keyboard_relax(void);
 void keyboard_drain_buffers(void);
 bool keyboard_has_char(void);
 char keyboard_getc(void);
+void keyboard_flush(void);
 
 void keyboard_push_char(char ch);
 void keyboard_push_str(const char *str);
@@ -34,6 +43,9 @@ void keyboard_set_leds(bool numlock, bool capslock, bool scrolllock);
 uint8_t keyboard_get_modifiers(void);
 bool keyboard_is_caps_lock(void);
 bool keyboard_is_num_lock(void);
+bool keyboard_has_raw_scancode(void);
+uint8_t keyboard_get_raw_scancode(void);
+void keyboard_push_raw_scancode(uint8_t scancode);
 void keyboard_force_set2_mode(void);
 
 #endif /* SZPONTOS_DRIVERS_KEYBOARD_H */

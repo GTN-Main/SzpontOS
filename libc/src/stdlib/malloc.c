@@ -23,6 +23,10 @@ static block_header_t *g_head = NULL;
 void *malloc(size_t size) {
     if (size == 0)
         size = ALIGNMENT;
+    if (size > (size_t)INTPTR_MAX - HEADER_SIZE - (ALIGNMENT - 1)) {
+        errno = ENOMEM;
+        return NULL;
+    }
     size = ALIGN_UP(size, ALIGNMENT);
 
     /* Search free list with best-fit / first-fit with splitting */
@@ -102,6 +106,10 @@ void *realloc(void *ptr, size_t size) {
     if (size == 0)
         size = ALIGNMENT;
 
+    if (size > (size_t)INTPTR_MAX - HEADER_SIZE - (ALIGNMENT - 1)) {
+        errno = ENOMEM;
+        return NULL;
+    }
     size = ALIGN_UP(size, ALIGNMENT);
     block_header_t *block = (block_header_t *)((uintptr_t)ptr - HEADER_SIZE);
     if (block->size >= size) {
@@ -331,6 +339,25 @@ double strtod(const char *nptr, char **endptr) {
         }
     }
 
+    if (*s == 'e' || *s == 'E') {
+        s++;
+        int exp_neg = 0;
+        if (*s == '-') {
+            exp_neg = 1;
+            s++;
+        } else if (*s == '+') {
+            s++;
+        }
+        int exp_val = 0;
+        while (isdigit((unsigned char)*s)) {
+            exp_val = exp_val * 10 + (*s - '0');
+            s++;
+        }
+        double p = 1.0;
+        while (exp_val-- > 0) p *= 10.0;
+        if (exp_neg) val /= p; else val *= p;
+    }
+
     if (endptr)
         *endptr = (char *)s;
     return neg ? -val : val;
@@ -346,98 +373,6 @@ float strtof(const char *nptr, char **endptr) {
 
 long double strtold(const char *nptr, char **endptr) {
     return (long double)strtod(nptr, endptr);
-}
-
-#define MAX_ENV 64
-static char *g_env_keys[MAX_ENV];
-static char *g_env_vals[MAX_ENV];
-static size_t g_env_count = 0;
-
-char *getenv(const char *name) {
-    if (!name)
-        return NULL;
-    size_t len = strlen(name);
-
-    /* 1. Check dynamically set variables via setenv */
-    for (size_t i = 0; i < g_env_count; i++) {
-        if (strcmp(g_env_keys[i], name) == 0) {
-            return g_env_vals[i];
-        }
-    }
-
-    /* 2. Check environ array passed from execve */
-    if (environ) {
-        for (char **ep = environ; *ep; ep++) {
-            if (strncmp(*ep, name, len) == 0 && (*ep)[len] == '=') {
-                return *ep + len + 1;
-            }
-        }
-    }
-
-    /* 3. Fallback defaults */
-    if (strcmp(name, "PATH") == 0)
-        return "/bin:/usr/bin";
-    if (strcmp(name, "HOME") == 0)
-        return "/root";
-    if (strcmp(name, "USER") == 0)
-        return "root";
-    if (strcmp(name, "SHELL") == 0)
-        return "/bin/sh";
-    if (strcmp(name, "TERM") == 0)
-        return "xterm-256color";
-    if (strcmp(name, "MAGIC") == 0)
-        return "/etc/magic:/usr/share/misc/magic";
-
-    return NULL;
-}
-
-int setenv(const char *name, const char *value, int overwrite) {
-    if (!name || !value)
-        return -1;
-    for (size_t i = 0; i < g_env_count; i++) {
-        if (strcmp(g_env_keys[i], name) == 0) {
-            if (!overwrite)
-                return 0;
-            free(g_env_vals[i]);
-            g_env_vals[i] = strdup(value);
-            return 0;
-        }
-    }
-    if (g_env_count < MAX_ENV) {
-        g_env_keys[g_env_count] = strdup(name);
-        g_env_vals[g_env_count] = strdup(value);
-        g_env_count++;
-        return 0;
-    }
-    return -1;
-}
-
-int unsetenv(const char *name) {
-    if (!name)
-        return -1;
-    for (size_t i = 0; i < g_env_count; i++) {
-        if (strcmp(g_env_keys[i], name) == 0) {
-            free(g_env_keys[i]);
-            free(g_env_vals[i]);
-            g_env_keys[i] = g_env_keys[g_env_count - 1];
-            g_env_vals[i] = g_env_vals[g_env_count - 1];
-            g_env_count--;
-            return 0;
-        }
-    }
-    return 0;
-}
-
-int putenv(char *string) {
-    if (!string)
-        return -1;
-    char *eq = strchr(string, '=');
-    if (!eq)
-        return -1;
-    *eq = '\0';
-    int ret = setenv(string, eq + 1, 1);
-    *eq = '=';
-    return ret;
 }
 
 static const char *g_progname = "szpontos";

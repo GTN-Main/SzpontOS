@@ -41,13 +41,25 @@ static void cleanup_and_exit(int sig) {
     if (g_server_pid > 0) {
         printf(COLOR_CYAN "[startx] Terminating SzpontX11 server (PID %d)..." COLOR_RESET "\n", g_server_pid);
         kill(g_server_pid, SIGTERM);
-        usleep(50000);
-        kill(g_server_pid, SIGKILL);
-        waitpid(g_server_pid, NULL, 0);
+        bool exited = false;
+        int status = 0;
+        for (int i = 0; i < 20; i++) {
+            if (waitpid(g_server_pid, &status, WNOHANG) == g_server_pid) {
+                exited = true;
+                break;
+            }
+            usleep(25000);
+        }
+        if (!exited) {
+            kill(g_server_pid, SIGKILL);
+            waitpid(g_server_pid, NULL, 0);
+        }
         g_server_pid = -1;
     }
     unlink(g_sock_path);
-    printf(COLOR_GREEN "[startx] X11 session ended cleanly." COLOR_RESET "\n");
+    printf("\033[2J\033[H\033[?25h");
+    fflush(stdout);
+    printf(COLOR_GREEN "[startx] X11 session ended cleanly. Returning to TTY." COLOR_RESET "\n");
     exit(0);
 }
 
@@ -77,10 +89,21 @@ int main(int argc, char *argv[]) {
     print_banner();
 
     const char *display = ":0";
-    const char *server_bin = "/bin/SzpontX11";
+    const char *server_bin = "/usr/bin/Xorg";
+    struct stat st;
+    if (stat("/usr/bin/Xorg", &st) == 0) {
+        server_bin = "/usr/bin/Xorg";
+    } else if (stat("/bin/Xorg", &st) == 0) {
+        server_bin = "/bin/Xorg";
+    } else {
+        server_bin = "/bin/SzpontX11";
+    }
 
-    /* Determine default client */
-    const char *client_bin = "/bin/szpontdesktop";
+    /* Determine default client: Prefer Display/Login Manager if available */
+    const char *client_bin = "/bin/szpontlogin";
+    if (access("/bin/szpontlogin", X_OK) != 0) {
+        client_bin = "/bin/szpontdesktop";
+    }
     char *client_args[16];
     int client_argc = 0;
 
@@ -96,9 +119,11 @@ int main(int argc, char *argv[]) {
     }
     client_args[client_argc] = NULL;
 
-    /* Ensure socket directory exists */
+    /* Ensure socket directory and log directory exist */
     mkdir("/tmp", 0777);
     mkdir("/tmp/.X11-unix", 0777);
+    mkdir("/var", 0755);
+    mkdir("/var/log", 0755);
 
     /* Clean up stale socket if server not alive */
     if (!is_socket_ready(g_sock_path)) {
@@ -119,19 +144,28 @@ int main(int argc, char *argv[]) {
 
     if (g_server_pid == 0) {
         /* Child: Exec X Server */
-        char *server_argv[] = { (char *)server_bin, (char *)display, NULL };
-        execve(server_bin, server_argv, NULL);
-        /* Fallback if /bin/SzpontX11 fails */
-        char *fallback_argv[] = { (char *)"/bin/Xorg", (char *)display, NULL };
-        execve("/bin/Xorg", fallback_argv, NULL);
+        char *server_envp[] = { (char *)"DISPLAY=:0", (char *)"PATH=/bin:/usr/bin", NULL };
+        if (strstr(server_bin, "Xorg")) {
+            char *server_argv[] = {
+                (char *)server_bin,
+                (char *)display,
+                (char *)"-config", (char *)"/etc/X11/xorg.conf",
+                (char *)"-nolisten", (char *)"tcp",
+                NULL
+            };
+            execve(server_bin, server_argv, server_envp);
+        } else {
+            char *server_argv[] = { (char *)server_bin, (char *)display, NULL };
+            execve(server_bin, server_argv, server_envp);
+        }
         perror("[startx] Failed to execute X server");
         _exit(1);
     }
 
-    /* 2. Wait for X Server to initialize socket */
+    /* 2. Wait for X Server to initialize socket (up to 15 seconds) */
     printf("[startx] Waiting for X server on display %s...\n", display);
     bool ready = false;
-    for (int i = 0; i < 40; i++) {
+    for (int i = 0; i < 300; i++) {
         usleep(50000); /* 50 ms */
         if (is_socket_ready(g_sock_path)) {
             ready = true;
@@ -149,7 +183,14 @@ int main(int argc, char *argv[]) {
     setenv("DISPLAY", display, 1);
     setenv("TERM", "xterm-256color", 0);
     setenv("COLORTERM", "truecolor", 0);
-    setenv("PATH", "/bin:/usr/bin:/usr/local/bin", 0);
+    setenv("PATH", "/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin", 0);
+    setenv("XDG_SESSION_TYPE", "x11", 0);
+    setenv("XDG_CURRENT_DESKTOP", "SzpontOS", 0);
+    setenv("XDG_RUNTIME_DIR", "/tmp", 0);
+    setenv("USER", "root", 0);
+    setenv("HOME", "/root", 0);
+    setenv("SHELL", "/bin/sh", 0);
+    setenv("WINDOWPATH", "1", 0);
 
     /* 3. Launch Graphical Client */
     printf(COLOR_YELLOW "[startx] Starting graphical session: Szpont Experience (%s)" COLOR_RESET "\n", client_bin);

@@ -26,8 +26,8 @@ $(TARGET): $(OBJS) $(CRT0_O) $(LIBC_SO) $(LIBM_SO) | $(ROOTFS_DIR)
 	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $(OBJS) \
 	    -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -ldrm -lpixman-1 -lm -lc -o $@
 	@chmod +x $@
-	@ln -sf SzpontX11 $(ROOTFS_DIR)/bin/Xorg
-	@ln -sf SzpontX11 $(ROOTFS_DIR)/bin/X
+	@if [ ! -f $(ROOTFS_DIR)/usr/bin/Xorg ]; then ln -sf SzpontX11 $(ROOTFS_DIR)/bin/Xorg; fi
+	@if [ ! -f $(ROOTFS_DIR)/usr/bin/Xorg ]; then ln -sf SzpontX11 $(ROOTFS_DIR)/bin/X; fi
 
 $(ROOTFS_DIR)/bin/Xorg: $(TARGET)
 $(ROOTFS_DIR)/bin/X: $(TARGET)

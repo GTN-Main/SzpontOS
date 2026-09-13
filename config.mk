@@ -17,7 +17,13 @@ ARCH    := x86_64
 # ==============================================================================
 NPROC := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 JOBS  ?= $(NPROC)
-export MAKEFLAGS += -j$(JOBS)
+
+# Set default parallel jobs for top-level make if not explicitly provided
+ifeq ($(filter -j%,$(MAKEFLAGS)),)
+ifeq ($(filter --jobs%,$(MAKEFLAGS)),)
+    MAKEFLAGS += -j$(JOBS)
+endif
+endif
 
 # ==============================================================================
 # Toolchain Auto-detection (Prefer GCC, fallback to Clang)
@@ -85,22 +91,38 @@ else
     RANLIB := ranlib
 endif
 
+# Compiler Caching Support (ccache)
+CC_RAW  := $(CC)
+CXX_RAW := $(CXX)
+CCACHE  ?= $(shell which ccache 2>/dev/null)
+ifneq ($(CCACHE),)
+    CC  := $(CCACHE) $(CC_RAW)
+    CXX := $(CCACHE) $(CXX_RAW)
+endif
+
+# Autotools M4 Include Flags (portable macOS / Linux)
+ACLOCAL_EXTRA_DIRS := $(shell for d in /opt/homebrew/share/aclocal /usr/share/aclocal /usr/local/share/aclocal; do test -d $$d && echo "-I $$d"; done)
+ACLOCAL_FLAGS      := -I $(abspath $(ROOT_DIR)/third_party/util-macros) -I $(abspath $(ROOT_DIR)/third_party/xorgproto) $(ACLOCAL_EXTRA_DIRS)
+
 NASM    := nasm
 XORRISO := xorriso
 QEMU    := qemu-system-x86_64
 
 # ==============================================================================
-# Global Directories
+# Global Directories & Subsystem Caching Stamps
 # ==============================================================================
 BUILD_DIR           := $(ROOT_DIR)/build
 ISO_DIR             := $(BUILD_DIR)/iso_root
 ROOTFS_DIR          := $(BUILD_DIR)/rootfs
 SYSROOT_DIR         := $(BUILD_DIR)/sysroot
 SYSROOT_STAMP       := $(SYSROOT_DIR)/.sysroot_installed
+USERLAND_STAMP      := $(BUILD_DIR)/userland/.built
+THIRDPARTY_STAMP    := $(BUILD_DIR)/third_party/.built
+MODULES_STAMP       := $(BUILD_DIR)/modules/.built
 ROOTFS_SKELETON_DIR := $(ROOT_DIR)/userland/skeleton
 MODULE_DIR          := $(ROOTFS_DIR)/lib/modules
 
-$(BUILD_DIR) $(ROOTFS_DIR) $(SYSROOT_DIR) $(ISO_DIR) $(MODULE_DIR):
+$(BUILD_DIR) $(ROOTFS_DIR) $(SYSROOT_DIR) $(ISO_DIR) $(MODULE_DIR) $(BUILD_DIR)/userland $(BUILD_DIR)/third_party $(BUILD_DIR)/modules:
 	@mkdir -p $@
 
 # ==============================================================================
@@ -138,6 +160,7 @@ OPENSSL_BUILD_DIR   := $(BUILD_DIR)/third_party/openssl
 CURL_BUILD_DIR      := $(BUILD_DIR)/third_party/curl
 OPENSSH_BUILD_DIR   := $(BUILD_DIR)/third_party/openssh
 OPENSSH_SRC_DIR     := $(abspath third_party/openssh)
+XTERM_BUILD_DIR     := $(BUILD_DIR)/third_party/xterm
 
 # Dynamic Kernel Modules
 MODULES := \

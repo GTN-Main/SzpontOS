@@ -10,6 +10,8 @@
 #include <mm/heap.h>
 #include <kernel/spinlock.h>
 #include <kernel/kprint.h>
+#include <mm/usercopy.h>
+#include <arch/x86_64/pit.h>
 
 #define FUTEX_HASH_SIZE 64
 #define FUTEX_HASH(addr) (((uintptr_t)(addr) >> 2) % FUTEX_HASH_SIZE)
@@ -30,7 +32,6 @@ void futex_init(void) {
 }
 
 int futex_wait(uintptr_t uaddr, int val, const struct timespec *timeout) {
-    (void)timeout;
     process_t *proc = sched_get_current_process();
     thread_t *curr = sched_get_current_thread();
     if (!proc || !curr || uaddr == 0)
@@ -38,7 +39,7 @@ int futex_wait(uintptr_t uaddr, int val, const struct timespec *timeout) {
 
     /* Verify that uaddr is mapped and accessible in user space */
     if (!vmm_virt_to_phys(proc->pagemap, uaddr)) {
-        return -1;
+        return -14; /* -EFAULT */
     }
 
     uint32_t bucket_idx = FUTEX_HASH(uaddr);
@@ -46,8 +47,13 @@ int futex_wait(uintptr_t uaddr, int val, const struct timespec *timeout) {
 
     spinlock_acquire(&bucket->lock);
 
-    /* Atomic check: read current value at uaddr */
-    int current_val = *(volatile int *)uaddr;
+    /* Atomic check: read current value at uaddr using usercopy */
+    int current_val = 0;
+    if (!copy_from_user(&current_val, uaddr, sizeof(int))) {
+        spinlock_release(&bucket->lock);
+        return -14; /* -EFAULT */
+    }
+
     if (current_val != val) {
         spinlock_release(&bucket->lock);
         return -11; /* -EAGAIN */
@@ -61,8 +67,52 @@ int futex_wait(uintptr_t uaddr, int val, const struct timespec *timeout) {
 
     spinlock_release(&bucket->lock);
 
-    /* Yield CPU until awakened by futex_wake */
-    sched_yield();
+    if (timeout) {
+        struct timespec ktimeout;
+        if (!copy_from_user(&ktimeout, (uintptr_t)timeout, sizeof(struct timespec))) {
+            spinlock_acquire(&bucket->lock);
+            if (curr->futex_uaddr != 0) {
+                list_remove(&curr->futex_node);
+                curr->futex_uaddr = 0;
+                curr->futex_proc = NULL;
+                curr->state = THREAD_READY;
+            }
+            spinlock_release(&bucket->lock);
+            return -14; /* -EFAULT */
+        }
+
+        uint64_t wait_ms = (uint64_t)ktimeout.tv_sec * 1000 + (uint64_t)(ktimeout.tv_nsec / 1000000);
+        if (wait_ms == 0 && ktimeout.tv_nsec > 0)
+            wait_ms = 1;
+
+        uint64_t start_ticks = pit_get_ticks();
+        uint32_t freq = pit_get_frequency();
+        if (freq == 0) freq = 1000;
+        uint64_t duration_ticks = (wait_ms * freq) / 1000;
+        if (duration_ticks == 0 && wait_ms > 0) duration_ticks = 1;
+        uint64_t expire_ticks = start_ticks + duration_ticks;
+
+        while (curr->futex_uaddr != 0) {
+            if (pit_get_ticks() >= expire_ticks) {
+                /* Expiration check */
+                spinlock_acquire(&bucket->lock);
+                if (curr->futex_uaddr != 0) {
+                    list_remove(&curr->futex_node);
+                    curr->futex_uaddr = 0;
+                    curr->futex_proc = NULL;
+                    curr->state = THREAD_READY;
+                    spinlock_release(&bucket->lock);
+                    return -110; /* -ETIMEDOUT */
+                }
+                spinlock_release(&bucket->lock);
+                break;
+            }
+            thread_sleep(1);
+        }
+    } else {
+        /* Yield CPU until awakened by futex_wake */
+        sched_yield();
+    }
 
     return 0;
 }

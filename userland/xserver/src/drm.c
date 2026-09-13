@@ -117,7 +117,7 @@ bool drm_init_display(void) {
            g_server.width, g_server.height, mode.vrefresh ? mode.vrefresh : 60,
            g_server.conn_id, g_server.crtc_id);
 
-    /* 1. Allocate Front Buffer */
+    /* 1. Allocate Scanout VRAM Framebuffer */
     if (!allocate_dumb_buffer(g_server.drm_fd, g_server.width, g_server.height, 32,
                              &g_server.front_dumb_handle, (uint32_t *)&g_server.pitch,
                              &g_server.front_fb_id, &g_server.front_fb_mapped)) {
@@ -127,22 +127,16 @@ bool drm_init_display(void) {
         return false;
     }
 
-    /* 2. Allocate Back Buffer */
-    if (!allocate_dumb_buffer(g_server.drm_fd, g_server.width, g_server.height, 32,
-                             &g_server.back_dumb_handle, (uint32_t *)&g_server.pitch,
-                             &g_server.back_fb_id, &g_server.back_fb_mapped)) {
-        drmModeFreeConnector(conn);
-        drmModeFreeResources(res);
-        close(g_server.drm_fd);
-        return false;
-    }
+    g_server.back_dumb_handle = g_server.front_dumb_handle;
+    g_server.back_fb_id = g_server.front_fb_id;
+    g_server.back_fb_mapped = g_server.front_fb_mapped;
 
-    /* Set active render pointers to back buffer */
-    g_server.fb_id = g_server.back_fb_id;
-    g_server.dumb_handle = g_server.back_dumb_handle;
-    g_server.fb_mapped = g_server.back_fb_mapped;
+    /* Set active render pointers to direct VRAM */
+    g_server.fb_id = g_server.front_fb_id;
+    g_server.dumb_handle = g_server.front_dumb_handle;
+    g_server.fb_mapped = g_server.front_fb_mapped;
 
-    /* Allocate Shadow Buffer */
+    /* Allocate Shadow Buffer in RAM for flicker-free compositing */
     g_server.shadow_fb = (uint32_t *)calloc((size_t)(g_server.width * g_server.height), sizeof(uint32_t));
     if (!g_server.shadow_fb) {
         fprintf(stderr, "[SzpontX11] Failed to allocate shadow framebuffer\n");
@@ -152,7 +146,7 @@ bool drm_init_display(void) {
         return false;
     }
 
-    /* Set CRTC mode scanning out from front buffer */
+    /* Set CRTC mode scanning out from direct VRAM buffer */
     if (drmModeSetCrtc(g_server.drm_fd, g_server.crtc_id, g_server.front_fb_id, 0, 0,
                        &g_server.conn_id, 1, &mode) < 0) {
         perror("[SzpontX11] drmModeSetCrtc failed");
@@ -161,8 +155,8 @@ bool drm_init_display(void) {
     drmModeFreeConnector(conn);
     drmModeFreeResources(res);
 
-    printf("[SzpontX11] DRM/KMS Hardware Double Buffering ready (Front FB: %u, Back FB: %u)\n",
-           g_server.front_fb_id, g_server.back_fb_id);
+    printf("[SzpontX11] DRM/KMS Direct Scanout Framebuffer ready (FB ID: %u, VRAM %dx%d)\n",
+           g_server.front_fb_id, g_server.width, g_server.height);
     return true;
 }
 
@@ -176,28 +170,21 @@ void drm_cleanup_display(void) {
         if (g_server.front_fb_mapped) {
             munmap(g_server.front_fb_mapped, (size_t)g_server.pitch * g_server.height);
             g_server.front_fb_mapped = NULL;
-        }
-        if (g_server.back_fb_mapped) {
-            munmap(g_server.back_fb_mapped, (size_t)g_server.pitch * g_server.height);
             g_server.back_fb_mapped = NULL;
+            g_server.fb_mapped = NULL;
         }
         if (g_server.front_fb_id) {
             drmModeRmFB(g_server.drm_fd, g_server.front_fb_id);
             g_server.front_fb_id = 0;
-        }
-        if (g_server.back_fb_id) {
-            drmModeRmFB(g_server.drm_fd, g_server.back_fb_id);
             g_server.back_fb_id = 0;
+            g_server.fb_id = 0;
         }
         if (g_server.front_dumb_handle) {
             struct drm_mode_destroy_dumb req = {.handle = g_server.front_dumb_handle};
             drmIoctl(g_server.drm_fd, DRM_IOCTL_MODE_DESTROY_DUMB, &req);
             g_server.front_dumb_handle = 0;
-        }
-        if (g_server.back_dumb_handle) {
-            struct drm_mode_destroy_dumb req = {.handle = g_server.back_dumb_handle};
-            drmIoctl(g_server.drm_fd, DRM_IOCTL_MODE_DESTROY_DUMB, &req);
             g_server.back_dumb_handle = 0;
+            g_server.dumb_handle = 0;
         }
         close(g_server.drm_fd);
         g_server.drm_fd = -1;
@@ -205,28 +192,7 @@ void drm_cleanup_display(void) {
 }
 
 void drm_swap_buffers(void) {
-    if (g_server.drm_fd < 0 || !g_server.front_fb_mapped || !g_server.back_fb_mapped)
-        return;
-
-    /* Hardware Page Flip: Switch scanout to back buffer */
-    drmModePageFlip(g_server.drm_fd, g_server.crtc_id, g_server.back_fb_id, 0, NULL);
-
-    /* Swap Front and Back buffer pointers */
-    uint32_t tmp_fb = g_server.front_fb_id;
-    uint32_t tmp_handle = g_server.front_dumb_handle;
-    uint32_t *tmp_map = g_server.front_fb_mapped;
-
-    g_server.front_fb_id = g_server.back_fb_id;
-    g_server.front_dumb_handle = g_server.back_dumb_handle;
-    g_server.front_fb_mapped = g_server.back_fb_mapped;
-
-    g_server.back_fb_id = tmp_fb;
-    g_server.back_dumb_handle = tmp_handle;
-    g_server.back_fb_mapped = tmp_map;
-
-    g_server.fb_id = g_server.back_fb_id;
-    g_server.dumb_handle = g_server.back_dumb_handle;
-    g_server.fb_mapped = g_server.back_fb_mapped;
+    /* Direct presentation from shadow buffer: no flipping needed */
 }
 
 void drm_flush_rect(int x, int y, int w, int h) {
@@ -245,18 +211,12 @@ void drm_flush_rect(int x, int y, int w, int h) {
                &g_server.shadow_fb[r * stride + x0],
                (size_t)(x1 - x0) * sizeof(uint32_t));
     }
-
-    drmModeClip clip;
-    clip.x1 = (uint16_t)x0;
-    clip.y1 = (uint16_t)y0;
-    clip.x2 = (uint16_t)x1;
-    clip.y2 = (uint16_t)y1;
-    drmModeDirtyFB(g_server.drm_fd, g_server.fb_id, &clip, 1);
+    __asm__ volatile("sfence" ::: "memory");
 }
 
 void drm_flush_screen(void) {
     if (!g_server.fb_mapped || !g_server.shadow_fb) return;
     memcpy(g_server.fb_mapped, g_server.shadow_fb,
            (size_t)(g_server.width * g_server.height) * sizeof(uint32_t));
-    drm_swap_buffers();
+    __asm__ volatile("sfence" ::: "memory");
 }

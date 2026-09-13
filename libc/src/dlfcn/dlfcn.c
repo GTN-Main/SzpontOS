@@ -91,7 +91,19 @@ typedef struct {
 #define SHT_SYMTAB 2
 #define SHT_STRTAB 3
 #define SHT_RELA   4
+#define SHT_DYNAMIC 6
 #define SHT_DYNSYM 11
+
+#define DT_NULL   0
+#define DT_NEEDED 1
+
+typedef struct {
+    int64_t d_tag;
+    union {
+        uint64_t d_val;
+        uint64_t d_ptr;
+    } d_un;
+} local_elf_dyn_t;
 
 typedef struct dl_handle {
     char name[128];
@@ -102,7 +114,7 @@ typedef struct dl_handle {
     size_t str_size;
 } dl_handle_t;
 
-#define MAX_DL_HANDLES 32
+#define MAX_DL_HANDLES 64
 static dl_handle_t g_dl_handles[MAX_DL_HANDLES];
 static size_t g_dl_count = 0;
 static uintptr_t g_next_dl_base = 0x0000720000000000ULL;
@@ -253,15 +265,19 @@ static void init_main_binary_symbols(void) {
                 fd = open(path, O_RDONLY, 0);
             } else if (path[0] != '\0') {
                 char full[256];
-                snprintf(full, sizeof(full), "/bin/%s", path);
+                snprintf(full, sizeof(full), "/usr/bin/%s", path);
                 fd = open(full, O_RDONLY, 0);
+                if (fd < 0) {
+                    snprintf(full, sizeof(full), "/bin/%s", path);
+                    fd = open(full, O_RDONLY, 0);
+                }
             }
         }
     }
 
     /* 2. Fallback to common main binaries */
     if (fd < 0) {
-        const char *main_paths[] = {"/bin/Xorg", "/bin/xdemo", "/bin/sh", "/bin/init", NULL};
+        const char *main_paths[] = {"/usr/bin/Xorg", "/bin/Xorg", "/bin/xdemo", "/bin/sh", "/bin/init", NULL};
         for (int i = 0; main_paths[i] != NULL; i++) {
             fd = open(main_paths[i], O_RDONLY, 0);
             if (fd >= 0) {
@@ -338,6 +354,19 @@ static void init_main_binary_symbols(void) {
         }
     }
     close(fd);
+
+    /* Preload core system shared libraries so dynamic symbols are available to all modules */
+    const char *preload_libs[] = {
+        "/lib/libdrm.so",
+        "/lib/libgbm.so",
+        "/lib/libpixman-1.so",
+        "/lib/libm.so",
+        "/lib/libc.so",
+        NULL
+    };
+    for (int i = 0; preload_libs[i]; i++) {
+        dlopen(preload_libs[i], RTLD_GLOBAL);
+    }
 }
 
 void *dlsym(void *handle, const char *symbol) {
@@ -392,7 +421,15 @@ void *dlopen(const char *filename, int flags) {
 
     /* Check if already loaded */
     for (size_t i = 0; i < g_dl_count; i++) {
-        if (strcmp(g_dl_handles[i].name, filename) == 0) {
+        const char *hn = g_dl_handles[i].name;
+        const char *hbase = strrchr(hn, '/');
+        if (hbase) hbase++; else hbase = hn;
+        const char *fnbase = strrchr(filename, '/');
+        if (fnbase) fnbase++; else fnbase = filename;
+
+        if (strcmp(hn, filename) == 0 ||
+            strcmp(hbase, fnbase) == 0 ||
+            (strncmp(hbase, fnbase, 6) == 0 && strstr(hbase, ".so") && strstr(fnbase, ".so"))) {
             return &g_dl_handles[i];
         }
     }
@@ -409,21 +446,54 @@ void *dlopen(const char *filename, int flags) {
         strncpy(path, filename, sizeof(path) - 1);
         path[sizeof(path) - 1] = '\0';
         fd = open(path, O_RDONLY, 0);
+        if (fd < 0) {
+            char *so_pos = strstr(path, ".so.");
+            if (so_pos) {
+                *(so_pos + 3) = '\0';
+                fd = open(path, O_RDONLY, 0);
+            }
+        }
     } else {
         const char *search_dirs[] = {
             "/usr/lib/xorg/modules/drivers",
+            "/usr/lib/xorg/modules/input",
+            "/usr/lib/xorg/modules/xlibre-25/drivers",
+            "/usr/lib/xorg/modules/xlibre-25/input",
+            "/usr/lib/xorg/modules/xlibre-25",
             "/usr/lib/xorg/modules",
             "/lib",
             "/usr/lib",
             NULL
         };
 
+        char base_fname[128];
+        strncpy(base_fname, filename, sizeof(base_fname) - 1);
+        base_fname[sizeof(base_fname) - 1] = '\0';
+        char *so_pos = strstr(base_fname, ".so.");
+        if (so_pos) {
+            *(so_pos + 3) = '\0';
+        }
+
         for (int i = 0; search_dirs[i] != NULL; i++) {
             snprintf(path, sizeof(path), "%s/%s", search_dirs[i], filename);
             fd = open(path, O_RDONLY, 0);
             if (fd >= 0) break;
 
+            if (so_pos) {
+                snprintf(path, sizeof(path), "%s/%s", search_dirs[i], base_fname);
+                fd = open(path, O_RDONLY, 0);
+                if (fd >= 0) break;
+            }
+
             snprintf(path, sizeof(path), "%s/%s.so", search_dirs[i], filename);
+            fd = open(path, O_RDONLY, 0);
+            if (fd >= 0) break;
+
+            snprintf(path, sizeof(path), "%s/lib%s.so", search_dirs[i], filename);
+            fd = open(path, O_RDONLY, 0);
+            if (fd >= 0) break;
+
+            snprintf(path, sizeof(path), "%s/%s_drv.so", search_dirs[i], filename);
             fd = open(path, O_RDONLY, 0);
             if (fd >= 0) break;
         }

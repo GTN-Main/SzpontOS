@@ -27,6 +27,7 @@ KERNEL_C_SRCS := \
     $(ROOT_DIR)/kernel/src/kernel/module.c \
     $(ROOT_DIR)/kernel/src/kernel/ksymtab.c \
     $(ROOT_DIR)/kernel/src/kernel/sysctl.c \
+    $(ROOT_DIR)/kernel/src/kernel/smp.c \
     $(ROOT_DIR)/kernel/src/kernel/kqueue.c \
     $(ROOT_DIR)/kernel/src/syscall/syscall.c \
     $(ROOT_DIR)/kernel/src/drivers/serial.c \
@@ -69,6 +70,7 @@ KERNEL_C_SRCS := \
     $(ROOT_DIR)/kernel/arch/x86_64/idt.c \
     $(ROOT_DIR)/kernel/arch/x86_64/pic.c \
     $(ROOT_DIR)/kernel/arch/x86_64/pit.c \
+    $(ROOT_DIR)/kernel/arch/x86_64/mtrr.c \
     $(ROOT_DIR)/kernel/arch/x86_64/syscall_arch.c
 
 KERNEL_ASM_SRCS := \

@@ -7,6 +7,7 @@ EXTRA_FLAGS=()
 VGA_FLAGS=("-vga" "std" "-global" "VGA.vgamem_mb=64" "-global" "VGA.xres=2560" "-global" "VGA.yres=1440")
 MACHINE_OPT="q35,i8042=on"
 ENABLE_USB_KBD=true
+SMP_CORES=4
 
 # Detect Host OS
 OS_TYPE="$(uname -s)"
@@ -56,6 +57,10 @@ for arg in "$@"; do
         --timing-stress|--realistic-timing)
             echo "[*] Włączono realistyczne zegary i wirtualny licznik instrukcji (-icount shift=auto)"
             EXTRA_FLAGS+=("-icount" "shift=auto,sleep=on" "-rtc" "base=utc,clock=vm")
+            ;;
+        --smp=*)
+            SMP_CORES="${arg#*=}"
+            echo "[*] Liczba rdzeni procesora (SMP): $SMP_CORES"
             ;;
         --no-shutdown)
             EXTRA_FLAGS+=("-no-shutdown")
@@ -122,6 +127,7 @@ fi
 exec $QEMU_CMD \
     -M "$MACHINE_OPT" \
     -cpu "$CPU_TYPE" \
+    -smp "$SMP_CORES" \
     -m 512M \
     "${VGA_FLAGS[@]}" \
     -display "$DISPLAY_OPT" \

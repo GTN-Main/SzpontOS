@@ -47,6 +47,7 @@
 #include <drivers/ioapic.h>
 #include <drivers/usb.h>
 #include <drivers/rtc.h>
+#include <kernel/smp.h>
 
 /* Limine Requests */
 __attribute__((used, section(".requests"))) static volatile LIMINE_BASE_REVISION(3);
@@ -145,6 +146,10 @@ void _start(void) {
     uint64_t hhdm_offset = g_hhdm_request.response->offset;
     pmm_init(g_memmap_request.response, hhdm_offset);
     vmm_init(hhdm_offset);
+
+    /* Initialize in-RAM Shadow Backbuffer & Write-Combining early for blazing fast Framebuffer */
+    framebuffer_init_backbuffer();
+
     pic_enable_apic_extint();
     acpi_init();
     ioapic_init();
@@ -159,10 +164,10 @@ void _start(void) {
         pit_route_irq();
     }
 
-    run_heap_self_test();
+    /* Step 5c: Symmetric Multiprocessing (SMP) Initialization */
+    smp_init();
 
-    /* Initialize in-RAM Shadow Backbuffer & Write-Combining for blazing fast Framebuffer */
-    framebuffer_init_backbuffer();
+    run_heap_self_test();
 
     /* Step 6: Virtual File System, UNIX TTY & Root FS (Initramfs) */
     vfs_init();

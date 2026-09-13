@@ -207,6 +207,9 @@ setjobctl(int on)
 				jobctl_notty();
 				return;
 			}
+			if (initialpgrp <= 1) {
+				initialpgrp = rootpid;
+			}
 			if (initialpgrp != getpgrp()) {
 				if (!iflag) {
 					initialpgrp = -1;
@@ -223,9 +226,13 @@ setjobctl(int on)
 		setpgid(0, rootpid);
 		tcsetpgrp(ttyfd, rootpid);
 	} else { /* turning job control off */
-		setpgid(0, initialpgrp);
+		if (initialpgrp > 1) {
+			setpgid(0, initialpgrp);
+			if (ttyfd >= 0) {
+				tcsetpgrp(ttyfd, initialpgrp);
+			}
+		}
 		if (ttyfd >= 0) {
-			tcsetpgrp(ttyfd, initialpgrp);
 			close(ttyfd);
 			ttyfd = -1;
 		}

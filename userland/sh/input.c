@@ -329,7 +329,15 @@ interactive_readline(int fd, char *buf, size_t max_size)
 	while (1) {
 		char c;
 		ssize_t n = read(fd, &c, 1);
-		if (n <= 0) {
+		if (n < 0) {
+			if (errno == EINTR)
+				continue;
+			tcsetattr(fd, TCSANOW, &orig_term);
+			if (len == 0)
+				return 0;
+			break;
+		}
+		if (n == 0) {
 			tcsetattr(fd, TCSANOW, &orig_term);
 			if (len == 0)
 				return 0;

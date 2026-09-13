@@ -5,6 +5,7 @@ include $(ROOT_DIR)/config.mk
 CORE_PROGS := \
     $(ROOTFS_DIR)/bin/hello \
     $(ROOTFS_DIR)/bin/cat \
+    $(ROOTFS_DIR)/bin/env \
     $(ROOTFS_DIR)/bin/id \
     $(ROOTFS_DIR)/bin/whoami \
     $(ROOTFS_DIR)/bin/useradd \
@@ -69,8 +70,11 @@ CORE_PROGS := \
     $(ROOTFS_DIR)/bin/unixtest \
     $(ROOTFS_DIR)/bin/gittest \
     $(ROOTFS_DIR)/bin/startx \
+    $(ROOTFS_DIR)/bin/szpontlogin \
     $(ROOTFS_DIR)/bin/szpontdesktop \
     $(ROOTFS_DIR)/bin/szponterm \
+    $(ROOTFS_DIR)/bin/makaljer \
+    $(ROOTFS_DIR)/bin/szpontdetected \
     $(ROOTFS_DIR)/bin/curltest \
     $(ROOTFS_DIR)/bin/mesadrmtest \
     $(ROOTFS_DIR)/bin/cpptest
@@ -81,83 +85,147 @@ all: progs
 
 progs: $(CORE_PROGS)
 
-# Standard dynamic binaries linked against libc.so and libm.so
-$(ROOTFS_DIR)/bin/%: $(ROOT_DIR)/userland/bin/%.c $(CRT0_O) $(LIBC_SO) $(LIBM_SO) | $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(ROOTFS_DIR)/bin $(BUILD_DIR)/userland/bin
+# Compile standard utility objects
+$(BUILD_DIR)/userland/bin/%.o: $(ROOT_DIR)/userland/bin/%.c | $(SYSROOT_STAMP) $(BUILD_DIR)/userland/bin
+	@mkdir -p $(BUILD_DIR)/userland/bin
 	@echo "  [CC]  $<"
-	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/$*.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -c $< -o $(BUILD_DIR)/userland/bin/$*.o
+	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/$*.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -c $< -o $@
+
+# Link standard dynamic binaries
+$(ROOTFS_DIR)/bin/%: $(BUILD_DIR)/userland/bin/%.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/bin $(LIBC_SO) $(LIBM_SO)
+	@mkdir -p $(ROOTFS_DIR)/bin
 	@echo "  [LD]  $@"
-	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $(BUILD_DIR)/userland/bin/$*.o -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lm -lc -o $@
+	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $< -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lm -lc -o $@
 	@chmod +x $@
 
-# Build donut (dynamically linked against libc.so and libm.so)
-$(ROOTFS_DIR)/bin/donut: $(ROOT_DIR)/userland/bin/donut.c $(CRT0_O) $(LIBC_SO) $(LIBM_SO) | $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(ROOTFS_DIR)/bin $(BUILD_DIR)/userland/bin
+# Build donut
+$(BUILD_DIR)/userland/bin/donut.o: $(ROOT_DIR)/userland/bin/donut.c | $(SYSROOT_STAMP) $(BUILD_DIR)/userland/bin
+	@mkdir -p $(BUILD_DIR)/userland/bin
 	@echo "  [CC-DYN] $<"
-	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/donut.d -c $< -o $(BUILD_DIR)/userland/bin/donut.o
+	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/donut.d -c $< -o $@
+
+$(ROOTFS_DIR)/bin/donut: $(BUILD_DIR)/userland/bin/donut.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/bin $(LIBC_SO) $(LIBM_SO)
+	@mkdir -p $(ROOTFS_DIR)/bin
 	@echo "  [LD-DYN] $@"
-	@$(LD) $(USER_LDFLAGS) -pie $(CRT0_O) $(BUILD_DIR)/userland/bin/donut.o $(LIBM_SO) $(LIBC_SO) -o $@
+	@$(LD) $(USER_LDFLAGS) -pie $(CRT0_O) $< $(LIBM_SO) $(LIBC_SO) -o $@
+
+# X11 Display & Login Manager (szpontlogin)
+$(BUILD_DIR)/userland/bin/szpontlogin.o: $(ROOT_DIR)/userland/bin/szpontlogin.c | $(SYSROOT_STAMP) $(BUILD_DIR)/userland/bin
+	@mkdir -p $(BUILD_DIR)/userland/bin
+	@echo "  [CC-SZPONTLOGIN] $<"
+	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/szpontlogin.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -c $< -o $@
+
+$(ROOTFS_DIR)/bin/szpontlogin: $(BUILD_DIR)/userland/bin/szpontlogin.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/bin $(LIBC_SO) $(LIBM_SO) $(ROOTFS_DIR)/lib/libX11.so $(ROOTFS_DIR)/lib/libXext.so
+	@mkdir -p $(ROOTFS_DIR)/bin
+	@echo "  [LD-SZPONTLOGIN] $@"
+	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $< -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lXext -lX11 -lxcb -lXau -lXdmcp -lm -lc -o $@
+	@chmod +x $@
 
 # X11 Desktop Environment (szpontdesktop)
-$(ROOTFS_DIR)/bin/szpontdesktop: $(ROOT_DIR)/userland/bin/szpontdesktop.c $(CRT0_O) $(LIBC_SO) $(LIBM_SO) $(ROOTFS_DIR)/lib/libX11.so $(ROOTFS_DIR)/lib/libXext.so | $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(ROOTFS_DIR)/bin $(BUILD_DIR)/userland/bin
+$(BUILD_DIR)/userland/bin/szpontdesktop.o: $(ROOT_DIR)/userland/bin/szpontdesktop.c | $(SYSROOT_STAMP) $(BUILD_DIR)/userland/bin
+	@mkdir -p $(BUILD_DIR)/userland/bin
 	@echo "  [CC-SZPONTDESKTOP] $<"
-	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/szpontdesktop.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -I$(ROOT_DIR)/third_party/stb -c $< -o $(BUILD_DIR)/userland/bin/szpontdesktop.o
+	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/szpontdesktop.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -I$(ROOT_DIR)/third_party/stb -c $< -o $@
+
+$(ROOTFS_DIR)/bin/szpontdesktop: $(BUILD_DIR)/userland/bin/szpontdesktop.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/bin $(LIBC_SO) $(LIBM_SO) $(ROOTFS_DIR)/lib/libX11.so $(ROOTFS_DIR)/lib/libXext.so
+	@mkdir -p $(ROOTFS_DIR)/bin
 	@echo "  [LD-SZPONTDESKTOP] $@"
-	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $(BUILD_DIR)/userland/bin/szpontdesktop.o -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lXext -lX11 -lxcb -lXau -lXdmcp -lm -lc -o $@
+	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $< -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lXext -lX11 -lxcb -lXau -lXdmcp -lm -lc -o $@
 	@chmod +x $@
 
 # Native X11 Terminal Emulator (szponterm)
-$(ROOTFS_DIR)/bin/szponterm: $(ROOT_DIR)/userland/bin/szponterm.c $(CRT0_O) $(LIBC_SO) $(LIBM_SO) $(ROOTFS_DIR)/lib/libX11.so | $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(ROOTFS_DIR)/bin $(BUILD_DIR)/userland/bin
+$(BUILD_DIR)/userland/bin/szponterm.o: $(ROOT_DIR)/userland/bin/szponterm.c | $(SYSROOT_STAMP) $(BUILD_DIR)/userland/bin
+	@mkdir -p $(BUILD_DIR)/userland/bin
 	@echo "  [CC-SZPONTERM] $<"
-	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/szponterm.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -c $< -o $(BUILD_DIR)/userland/bin/szponterm.o
+	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/szponterm.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -c $< -o $@
+
+$(ROOTFS_DIR)/bin/szponterm: $(BUILD_DIR)/userland/bin/szponterm.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/bin $(LIBC_SO) $(LIBM_SO) $(ROOTFS_DIR)/lib/libX11.so
+	@mkdir -p $(ROOTFS_DIR)/bin
 	@echo "  [LD-SZPONTERM] $@"
-	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $(BUILD_DIR)/userland/bin/szponterm.o -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lX11 -lxcb -lXau -lXdmcp -lm -lc -o $@
+	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $< -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lX11 -lxcb -lXau -lXdmcp -lm -lc -o $@
+	@chmod +x $@
+
+# Native X11 Artwork Viewer (makaljer)
+$(BUILD_DIR)/userland/bin/makaljer.o: $(ROOT_DIR)/userland/bin/makaljer.c | $(SYSROOT_STAMP) $(BUILD_DIR)/userland/bin
+	@mkdir -p $(BUILD_DIR)/userland/bin
+	@echo "  [CC-MAKALJER] $<"
+	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/makaljer.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -I$(ROOT_DIR)/third_party/stb -c $< -o $@
+
+$(ROOTFS_DIR)/bin/makaljer: $(BUILD_DIR)/userland/bin/makaljer.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/bin $(LIBC_SO) $(LIBM_SO) $(ROOTFS_DIR)/lib/libX11.so $(ROOTFS_DIR)/lib/libXext.so
+	@mkdir -p $(ROOTFS_DIR)/bin
+	@echo "  [LD-MAKALJER] $@"
+	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $< -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lXext -lX11 -lxcb -lXau -lXdmcp -lm -lc -o $@
+	@chmod +x $@
+
+# Native X11 Artwork Viewer (szpontdetected)
+$(BUILD_DIR)/userland/bin/szpontdetected.o: $(ROOT_DIR)/userland/bin/szpontdetected.c | $(SYSROOT_STAMP) $(BUILD_DIR)/userland/bin
+	@mkdir -p $(BUILD_DIR)/userland/bin
+	@echo "  [CC-SZPONTDETECTED] $<"
+	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/szpontdetected.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -I$(ROOT_DIR)/third_party/stb -c $< -o $@
+
+$(ROOTFS_DIR)/bin/szpontdetected: $(BUILD_DIR)/userland/bin/szpontdetected.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/bin $(LIBC_SO) $(LIBM_SO) $(ROOTFS_DIR)/lib/libX11.so $(ROOTFS_DIR)/lib/libXext.so
+	@mkdir -p $(ROOTFS_DIR)/bin
+	@echo "  [LD-SZPONTDETECTED] $@"
+	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $< -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lXext -lX11 -lxcb -lXau -lXdmcp -lm -lc -o $@
 	@chmod +x $@
 
 # X11 Session Launcher (startx)
-$(ROOTFS_DIR)/bin/startx: $(ROOT_DIR)/userland/bin/startx.c $(CRT0_O) $(LIBC_SO) | $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(ROOTFS_DIR)/bin $(BUILD_DIR)/userland/bin
+$(BUILD_DIR)/userland/bin/startx.o: $(ROOT_DIR)/userland/bin/startx.c | $(SYSROOT_STAMP) $(BUILD_DIR)/userland/bin
+	@mkdir -p $(BUILD_DIR)/userland/bin
 	@echo "  [CC-STARTX] $<"
-	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/startx.d -c $< -o $(BUILD_DIR)/userland/bin/startx.o
+	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/startx.d -c $< -o $@
+
+$(ROOTFS_DIR)/bin/startx: $(BUILD_DIR)/userland/bin/startx.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/bin $(LIBC_SO)
+	@mkdir -p $(ROOTFS_DIR)/bin
 	@echo "  [LD-STARTX] $@"
-	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $(BUILD_DIR)/userland/bin/startx.o -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lc -o $@
+	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $< -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lc -o $@
 	@chmod +x $@
 
 # cURL Diagnostic Test Tool
-$(ROOTFS_DIR)/bin/curltest: $(ROOT_DIR)/userland/bin/curltest.c $(CRT0_O) $(LIBC_SO) $(ROOTFS_DIR)/lib/libcurl.so | $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(ROOTFS_DIR)/bin $(BUILD_DIR)/userland/bin
+$(BUILD_DIR)/userland/bin/curltest.o: $(ROOT_DIR)/userland/bin/curltest.c | $(SYSROOT_STAMP) $(BUILD_DIR)/userland/bin
+	@mkdir -p $(BUILD_DIR)/userland/bin
 	@echo "  [CC-CURLTEST] $<"
-	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/curltest.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -c $< -o $(BUILD_DIR)/userland/bin/curltest.o
+	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/curltest.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -c $< -o $@
+
+$(ROOTFS_DIR)/bin/curltest: $(BUILD_DIR)/userland/bin/curltest.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/bin $(LIBC_SO) $(ROOTFS_DIR)/lib/libcurl.so $(ROOTFS_DIR)/lib/libz.so
+	@mkdir -p $(ROOTFS_DIR)/bin
 	@echo "  [LD-CURLTEST] $@"
-	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $(BUILD_DIR)/userland/bin/curltest.o $(ROOTFS_DIR)/lib/libcurl.so.4 $(ROOTFS_DIR)/lib/libssl.so.4 $(ROOTFS_DIR)/lib/libcrypto.so.4 $(ROOTFS_DIR)/lib/libc.so $(ROOTFS_DIR)/lib/libm.so -o $@
+	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $< -L$(ROOTFS_DIR)/lib -Wl,-rpath-link=$(ROOTFS_DIR)/lib -lcurl -lssl -lcrypto -lz -lm -lc -o $@
 	@chmod +x $@
 
 # Native DRM test utilities linked against libdrm.so
-$(ROOTFS_DIR)/bin/drmtest: $(ROOT_DIR)/userland/bin/drmtest.c $(CRT0_O) $(LIBC_SO) $(LIBM_SO) $(ROOTFS_DIR)/lib/libdrm.so | $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(ROOTFS_DIR)/bin $(BUILD_DIR)/userland/bin
+$(BUILD_DIR)/userland/bin/drmtest.o: $(ROOT_DIR)/userland/bin/drmtest.c | $(SYSROOT_STAMP) $(BUILD_DIR)/userland/bin
+	@mkdir -p $(BUILD_DIR)/userland/bin
 	@echo "  [CC]  $<"
-	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/drmtest.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include/libdrm -c $< -o $(BUILD_DIR)/userland/bin/drmtest.o
+	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/drmtest.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include/libdrm -c $< -o $@
+
+$(ROOTFS_DIR)/bin/drmtest: $(BUILD_DIR)/userland/bin/drmtest.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/bin $(LIBC_SO) $(LIBM_SO) $(ROOTFS_DIR)/lib/libdrm.so
+	@mkdir -p $(ROOTFS_DIR)/bin
 	@echo "  [LD]  $@"
-	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $(BUILD_DIR)/userland/bin/drmtest.o -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -ldrm -lm -lc -o $@
+	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $< -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -ldrm -lm -lc -o $@
 	@chmod +x $@
 
-$(ROOTFS_DIR)/bin/mesadrmtest: $(ROOT_DIR)/userland/bin/mesadrmtest.c $(CRT0_O) $(LIBC_SO) $(LIBM_SO) $(ROOTFS_DIR)/lib/libdrm.so | $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(ROOTFS_DIR)/bin $(BUILD_DIR)/userland/bin
+$(BUILD_DIR)/userland/bin/mesadrmtest.o: $(ROOT_DIR)/userland/bin/mesadrmtest.c | $(SYSROOT_STAMP) $(BUILD_DIR)/userland/bin
+	@mkdir -p $(BUILD_DIR)/userland/bin
 	@echo "  [CC]  $<"
-	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/mesadrmtest.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include/libdrm -c $< -o $(BUILD_DIR)/userland/bin/mesadrmtest.o
+	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/mesadrmtest.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include/libdrm -c $< -o $@
+
+$(ROOTFS_DIR)/bin/mesadrmtest: $(BUILD_DIR)/userland/bin/mesadrmtest.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/bin $(LIBC_SO) $(LIBM_SO) $(ROOTFS_DIR)/lib/libdrm.so
+	@mkdir -p $(ROOTFS_DIR)/bin
 	@echo "  [LD]  $@"
-	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $(BUILD_DIR)/userland/bin/mesadrmtest.o -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -ldrm -lm -lc -o $@
+	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $< -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -ldrm -lm -lc -o $@
 	@chmod +x $@
 
 # Native C++ Validation Suite linked against libstdc++.so, libm.so, libc.so
-$(ROOTFS_DIR)/bin/cpptest: $(ROOT_DIR)/userland/bin/cpptest.cpp $(CRT0_O) $(CRTI_O) $(CRTN_O) $(LIBC_SO) $(LIBM_SO) $(LIBSTDCXX_SO) | $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(ROOTFS_DIR)/bin $(BUILD_DIR)/userland/bin
+$(BUILD_DIR)/userland/bin/cpptest.o: $(ROOT_DIR)/userland/bin/cpptest.cpp | $(SYSROOT_STAMP) $(BUILD_DIR)/userland/bin
+	@mkdir -p $(BUILD_DIR)/userland/bin
 	@echo "  [CXX] $<"
-	@$(CXX) $(USER_CXXFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/cpptest.d -c $< -o $(BUILD_DIR)/userland/bin/cpptest.o
+	@$(CXX) $(USER_CXXFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/cpptest.d -c $< -o $@
+
+$(ROOTFS_DIR)/bin/cpptest: $(BUILD_DIR)/userland/bin/cpptest.o $(CRT0_O) $(CRTI_O) $(CRTN_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/bin $(LIBC_SO) $(LIBM_SO) $(LIBSTDCXX_SO)
+	@mkdir -p $(ROOTFS_DIR)/bin
 	@echo "  [LD]  $@"
-	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $(CRTI_O) $$($(CC) -print-file-name=crtbegin.o) $(BUILD_DIR)/userland/bin/cpptest.o $$($(CC) -print-file-name=crtend.o) $(CRTN_O) -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lstdc++ -lm -lc -o $@
+	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $(CRTI_O) $$($(CC) -print-file-name=crtbegin.o) $< $$($(CC) -print-file-name=crtend.o) $(CRTN_O) -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lstdc++ -lm -lc -o $@
 	@chmod +x $@
 
 -include $(wildcard $(BUILD_DIR)/userland/bin/*.d)

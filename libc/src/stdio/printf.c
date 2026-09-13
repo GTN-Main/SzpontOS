@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <stdint.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
 
 static FILE g_stdin_file = {.fd = STDIN_FILENO, .flags = 0, .error = 0, .eof = 0, .unget = 0, .has_unget = 0};
 static FILE g_stdout_file = {.fd = STDOUT_FILENO, .flags = 0, .error = 0, .eof = 0, .unget = 0, .has_unget = 0};
@@ -943,6 +944,27 @@ int vsscanf(const char *str, const char *format, va_list ap) {
             count++;
             break;
         }
+        case 'f':
+        case 'F':
+        case 'e':
+        case 'E':
+        case 'g':
+        case 'G': {
+            char *end = NULL;
+            double val = strtod(s, &end);
+            if (end == s)
+                return count;
+            if (is_long) {
+                double *p = va_arg(ap, double *);
+                *p = val;
+            } else {
+                float *p = va_arg(ap, float *);
+                *p = (float)val;
+            }
+            s = end;
+            count++;
+            break;
+        }
         case '[': {
             f++;
             int invert = 0;
@@ -1010,10 +1032,47 @@ int vfscanf(FILE *stream, const char *format, va_list ap) {
 }
 
 int setvbuf(FILE *stream, char *buf, int mode, size_t size) {
-    (void)stream;
-    (void)buf;
-    (void)mode;
-    (void)size;
+    if (!stream) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (mode != _IOFBF && mode != _IOLBF && mode != _IONBF) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    fflush(stream);
+
+    if (stream->own_buf && stream->buf) {
+        free(stream->buf);
+        stream->buf = NULL;
+        stream->own_buf = 0;
+    }
+
+    stream->buf_mode = mode;
+    if (mode == _IONBF) {
+        stream->buf = NULL;
+        stream->buf_size = 0;
+    } else {
+        size_t alloc_size = (size == 0) ? BUFSIZ : size;
+        if (buf) {
+            stream->buf = (unsigned char *)buf;
+            stream->buf_size = alloc_size;
+            stream->own_buf = 0;
+        } else {
+            stream->buf = (unsigned char *)malloc(alloc_size);
+            if (stream->buf) {
+                stream->buf_size = alloc_size;
+                stream->own_buf = 1;
+            } else {
+                stream->buf_size = 0;
+                stream->buf_mode = _IONBF;
+                return -1;
+            }
+        }
+    }
+    stream->buf_pos = 0;
+    stream->buf_end = 0;
     return 0;
 }
 
@@ -1050,15 +1109,136 @@ int remove(const char *pathname) {
     return 0;
 }
 
+#define MAX_POPEN_ENTRIES 32
+static struct {
+    FILE *stream;
+    pid_t pid;
+} s_popen_list[MAX_POPEN_ENTRIES];
+
 FILE *popen(const char *command, const char *type) {
-    (void)command;
-    (void)type;
-    return NULL;
+    if (!command || !type) {
+        errno = EINVAL;
+        return NULL;
+    }
+
+    int read_mode = 0;
+    if (type[0] == 'r') {
+        read_mode = 1;
+    } else if (type[0] == 'w') {
+        read_mode = 0;
+    } else {
+        errno = EINVAL;
+        return NULL;
+    }
+
+    int slot = -1;
+    for (int i = 0; i < MAX_POPEN_ENTRIES; i++) {
+        if (!s_popen_list[i].stream) {
+            slot = i;
+            break;
+        }
+    }
+    if (slot == -1) {
+        errno = EMFILE;
+        return NULL;
+    }
+
+    int p[2];
+    if (pipe(p) < 0) {
+        return NULL;
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(p[0]);
+        close(p[1]);
+        return NULL;
+    }
+
+    if (pid == 0) {
+        /* Child process */
+        if (read_mode) {
+            close(p[0]);
+            if (p[1] != STDOUT_FILENO) {
+                dup2(p[1], STDOUT_FILENO);
+                close(p[1]);
+            }
+        } else {
+            close(p[1]);
+            if (p[0] != STDIN_FILENO) {
+                dup2(p[0], STDIN_FILENO);
+                close(p[0]);
+            }
+        }
+
+        for (int i = 0; i < MAX_POPEN_ENTRIES; i++) {
+            if (s_popen_list[i].stream && s_popen_list[i].stream->fd >= 0) {
+                close(s_popen_list[i].stream->fd);
+            }
+        }
+
+        execl("/bin/sh", "sh", "-c", command, (char *)NULL);
+        _exit(127);
+    }
+
+    /* Parent process */
+    FILE *stream = NULL;
+    if (read_mode) {
+        close(p[1]);
+        stream = fdopen(p[0], "r");
+    } else {
+        close(p[0]);
+        stream = fdopen(p[1], "w");
+    }
+
+    if (!stream) {
+        int err = errno;
+        close(read_mode ? p[0] : p[1]);
+        waitpid(pid, NULL, 0);
+        errno = err;
+        return NULL;
+    }
+
+    s_popen_list[slot].stream = stream;
+    s_popen_list[slot].pid = pid;
+    return stream;
 }
 
 int pclose(FILE *stream) {
-    if (stream) fclose(stream);
-    return 0;
+    if (!stream) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    int slot = -1;
+    for (int i = 0; i < MAX_POPEN_ENTRIES; i++) {
+        if (s_popen_list[i].stream == stream) {
+            slot = i;
+            break;
+        }
+    }
+    if (slot == -1) {
+        errno = ECHILD;
+        fclose(stream);
+        return -1;
+    }
+
+    pid_t pid = s_popen_list[slot].pid;
+    s_popen_list[slot].stream = NULL;
+    s_popen_list[slot].pid = 0;
+
+    fclose(stream);
+
+    int status = 0;
+    pid_t wait_res;
+    do {
+        wait_res = waitpid(pid, &status, 0);
+    } while (wait_res == -1 && errno == EINTR);
+
+    if (wait_res == -1) {
+        return -1;
+    }
+    return status;
 }
 
 #undef getc

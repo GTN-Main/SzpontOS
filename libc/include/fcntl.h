@@ -38,6 +38,14 @@ extern "C" {
 #define F_SETLK 6
 #define F_SETLKW 7
 #define F_DUPFD_CLOEXEC 1030
+#define F_ADD_SEALS 1033
+#define F_GET_SEALS 1034
+
+#define F_SEAL_SEAL 0x0001
+#define F_SEAL_SHRINK 0x0002
+#define F_SEAL_GROW 0x0004
+#define F_SEAL_WRITE 0x0008
+#define F_SEAL_FUTURE_WRITE 0x0010
 
 #define F_RDLCK 0
 #define F_WRLCK 1

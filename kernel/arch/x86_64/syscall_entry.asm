@@ -3,33 +3,31 @@ default rel
 
 global syscall_entry
 global arch_syscall_return
-global g_user_temp_rsp
 extern syscall_dispatcher
-extern g_current_kernel_stack
-
-section .bss
-g_user_temp_rsp: resq 1
 
 section .text
 
 syscall_entry:
     ; RCX contains user RIP, R11 contains user RFLAGS
-    ; Save user RSP temporarily
-    mov [rel g_user_temp_rsp], rsp
+    ; In user mode, user GS was active. Swap to kernel GS base pointing to cpu_t.
+    swapgs
 
-    ; Switch to current thread's kernel stack
-    mov rsp, [rel g_current_kernel_stack]
+    ; Save user RSP temporarily in per-CPU storage (cpu_t.user_rsp at gs:24)
+    mov [gs:24], rsp
+
+    ; Switch to current thread's kernel stack (cpu_t.kernel_stack at gs:16)
+    mov rsp, [gs:16]
 
     ; Push user execution context onto the KERNEL stack
-    push qword [rel g_user_temp_rsp] ; [rsp + 64]: User RSP
-    push r11                         ; [rsp + 56]: User RFLAGS
-    push rcx                         ; [rsp + 48]: User RIP
-    push rbp                         ; [rsp + 40]
-    push rbx                         ; [rsp + 32]
-    push r12                         ; [rsp + 24]
-    push r13                         ; [rsp + 16]
-    push r14                         ; [rsp + 8]
-    push r15                         ; [rsp + 0]
+    push qword [gs:24] ; [rsp + 64]: User RSP
+    push r11           ; [rsp + 56]: User RFLAGS
+    push rcx           ; [rsp + 48]: User RIP
+    push rbp           ; [rsp + 40]
+    push rbx           ; [rsp + 32]
+    push r12           ; [rsp + 24]
+    push r13           ; [rsp + 16]
+    push r14           ; [rsp + 8]
+    push r15           ; [rsp + 0]
 
     ; Push 7th argument `a6` (passed in R9 by userland) onto the stack.
     ; 9 registers (72B) + 8B (a6) = 80B -> perfectly aligns RSP to 16 bytes before call!
@@ -45,10 +43,6 @@ syscall_entry:
     mov rsi, rdi        ; a1 in RSI (2nd C arg)
     mov rdi, rax        ; sys_no in RDI (1st C arg)
 
-    ; NOTE: SYSCALL cleared IF and it stays cleared — this kernel's scheduler
-    ; uses cooperative coroutine switches and its IRQ handlers must never
-    ; preempt code that can hold kernel locks (e.g. sched lock). Blocking
-    ; syscalls (console read) poll their device directly instead of sleeping.
     call syscall_dispatcher
 
     ; Clean up 7th argument from stack
@@ -65,7 +59,10 @@ syscall_entry:
     pop rbp
     pop rcx             ; User RIP for sysret
     pop r11             ; User RFLAGS for sysret
-    pop rsp             ; User RSP
+    pop rsp             ; Restore original user RSP directly
+
+    ; Restore user GS
+    swapgs
 
     ; Return to Ring 3 (sysretq)
     o64 sysret
@@ -84,4 +81,7 @@ arch_syscall_return:
 
     ; In child process, fork() returns 0 in RAX
     xor rax, rax
+
+    ; Restore user GS
+    swapgs
     o64 sysret

@@ -45,6 +45,7 @@ static size_t g_iso_count = 0;
 
 static uintptr_t g_lapic_virt = 0;
 static bool g_ioapic_active = false;
+static uint32_t g_lapic_timer_initial = 0;
 
 static inline uint32_t ioapic_read(ioapic_desc_t *io, uint8_t reg) {
     volatile uint32_t *base = (volatile uint32_t *)io->virt_addr;
@@ -128,10 +129,61 @@ bool lapic_timer_init(uint32_t frequency_hz) {
     /* Reconfigure: unmasked, periodic */
     lapic[0x320 / 4] = 0x20 | (1 << 17); /* vector 0x20, periodic, unmasked */
     lapic[0x380 / 4] = (uint32_t)initial;
+    g_lapic_timer_initial = (uint32_t)initial;
 
     klog_info("LAPIC Timer: %u Hz active (initial count %u, %u ticks/10ms, TSC %llu Hz)",
               frequency_hz, (uint32_t)initial, elapsed, (unsigned long long)tsc_hz);
     return true;
+}
+
+void lapic_timer_init_ap(void) {
+    if (!g_lapic_virt || g_lapic_timer_initial == 0) {
+        return;
+    }
+    volatile uint32_t *lapic = (volatile uint32_t *)g_lapic_virt;
+    lapic[0x3E0 / 4] = 0x3;               /* Divider = 16 */
+    lapic[0x320 / 4] = 0x20 | (1 << 17);  /* Vector 0x20, periodic, unmasked */
+    lapic[0x380 / 4] = g_lapic_timer_initial;
+}
+
+void lapic_init_cpu(void) {
+    if (!g_lapic_virt) {
+        return;
+    }
+
+    /* Enable Local APIC via MSR (bit 11) */
+    uint64_t apic_base = rdmsr(0x1B);
+    apic_base |= (1ULL << 11);
+    wrmsr(0x1B, apic_base);
+
+    volatile uint32_t *lapic = (volatile uint32_t *)g_lapic_virt;
+
+    /* SVR (0xF0) - Enable APIC + spurious vector 0xFF */
+    lapic[0xF0 / 4] = 0x1FF;
+    /* TPR (0x80) - Clear Task Priority Register to accept all interrupts */
+    lapic[0x80 / 4] = 0;
+
+    /* Mask LINT0 (disable ExtINT legacy PIC bypass) and set LINT1 as NMI */
+    lapic[0x350 / 4] = 0x10000;
+    lapic[0x360 / 4] = 0x00000400;
+}
+
+void lapic_send_ipi(uint32_t lapic_id, uint8_t vector) {
+    if (!g_lapic_virt) {
+        return;
+    }
+    volatile uint32_t *lapic = (volatile uint32_t *)g_lapic_virt;
+
+    /* Wait for previous IPI delivery to complete (bit 12) */
+    while (lapic[0x300 / 4] & (1 << 12)) {
+        __builtin_ia32_pause();
+    }
+
+    /* High register: destination APIC ID in bits [31:24] */
+    lapic[0x310 / 4] = (lapic_id & 0xFF) << 24;
+
+    /* Low register: delivery mode Fixed (0), physical dest (0), assert (bit 14 = 1), vector */
+    lapic[0x300 / 4] = (1 << 14) | vector;
 }
 
 bool ioapic_is_active(void) {
@@ -251,18 +303,8 @@ void ioapic_init(void) {
     vmm_map_page(&g_kernel_pagemap, g_lapic_virt, lapic_phys,
                  VMM_FLAG_WRITABLE | VMM_FLAG_PRESENT | VMM_FLAG_CACHE_DISABLE);
 
-    /* Initialize Local APIC */
-    volatile uint32_t *lapic = (volatile uint32_t *)g_lapic_virt;
-
-    /* Enable Local APIC via MSR (bit 11) */
-    uint64_t apic_base = rdmsr(0x1B);
-    apic_base |= (1ULL << 11);
-    wrmsr(0x1B, apic_base);
-
-    /* SVR (0xF0) - Enable APIC + spurious vector 0xFF */
-    lapic[0xF0 / 4] = 0x1FF;
-    /* TPR (0x80) - Clear Task Priority Register to accept all interrupts */
-    lapic[0x80 / 4] = 0;
+    /* Initialize Local APIC on BSP */
+    lapic_init_cpu();
 
     /* Map and initialize each IO-APIC */
     for (size_t i = 0; i < g_ioapic_count; i++) {
@@ -293,12 +335,6 @@ void ioapic_init(void) {
     ioapic_map_irq(1, 0x21, 0, false, false);
     ioapic_map_irq(12, 0x2C, 0, false, false);
 
-    /* Mask LINT0 (disable ExtINT legacy PIC bypass) and set LINT1 as NMI */
-    if (g_lapic_virt) {
-        volatile uint32_t *lapic_regs = (volatile uint32_t *)g_lapic_virt;
-        lapic_regs[0x350 / 4] = 0x10000; /* Mask LINT0 */
-        lapic_regs[0x360 / 4] = 0x00000400; /* LINT1 = NMI */
-    }
 
     /* Mask all 16 IRQs on legacy 8259 PIC to prevent interrupt storms */
     pic_disable();

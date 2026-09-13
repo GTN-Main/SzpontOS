@@ -724,11 +724,11 @@ int vfs_access(const char *path, int mode) {
 }
 
 void fd_release(file_descriptor_t *f) {
-    if (!f)
+    if (!f || (uintptr_t)f < 0xffff800000000000ULL)
         return;
     f->refcount--;
     if (f->refcount == 0) {
-        if (f->node) {
+        if (f->node && (uintptr_t)f->node >= 0xffff800000000000ULL) {
             if ((f->node->flags == VFS_TYPE_PIPE) && f->node->device_data) {
                 pipe_chan_t *p = (pipe_chan_t *)f->node->device_data;
                 if (f->flags & O_WRONLY) {

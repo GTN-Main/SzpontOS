@@ -67,6 +67,7 @@ typedef struct vfs_node {
     uint32_t uid;
     uint32_t gid;
     uint32_t permissions;
+    uint32_t rdev;        /* Device ID (major/minor) for char/block devices */
     vfs_ops_t *ops;
     void *device_data;    /* Driver private data */
     struct vfs_node *ptr; /* Mount point or symlink redirection */

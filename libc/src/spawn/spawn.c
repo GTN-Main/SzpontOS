@@ -139,6 +139,9 @@ int posix_spawnp(pid_t *pid, const char *file, const posix_spawn_file_actions_t 
                 }
             }
         }
+        if (envp) {
+            environ = (char **)envp;
+        }
         execvp(file, argv);
         _exit(127);
     }

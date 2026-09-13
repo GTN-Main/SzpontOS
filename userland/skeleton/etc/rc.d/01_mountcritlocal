@@ -3,3 +3,6 @@
 
 echo "Checking and mounting critical local filesystems..."
 mkdir -p /tmp /var/run /var/log /proc /dev
+chmod 1777 /tmp
+mkdir -p /tmp/.X11-unix
+chmod 1777 /tmp/.X11-unix

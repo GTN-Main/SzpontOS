@@ -72,6 +72,125 @@ struct sockaddr_un {
     char sun_path[108];
 };
 
+/* Socket Options (SOL_SOCKET = 1) */
+#define SOL_SOCKET 1
+#define SO_DEBUG 1
+#define SO_REUSEADDR 2
+#define SO_TYPE 3
+#define SO_ERROR 4
+#define SO_DONTROUTE 5
+#define SO_BROADCAST 6
+#define SO_SNDBUF 7
+#define SO_RCVBUF 8
+#define SO_KEEPALIVE 9
+#define SO_OOBINLINE 10
+#define SO_NO_CHECK 11
+#define SO_PRIORITY 12
+#define SO_LINGER 13
+#define SO_BSDCOMPAT 14
+#define SO_REUSEPORT 15
+#define SO_PASSCRED 16
+#define SO_PEERCRED 17
+#define SO_RCVLOWAT 18
+#define SO_SNDLOWAT 19
+#define SO_RCVTIMEO 20
+#define SO_SNDTIMEO 21
+#define SO_BINDTODEVICE 25
+#define SO_ATTACH_FILTER 26
+#define SO_DETACH_FILTER 27
+#define SO_ACCEPTCONN 30
+#define SO_PEERSEC 31
+#define SO_SNDBUFFORCE 32
+#define SO_RCVBUFFORCE 33
+#define SO_PASSSEC 34
+
+/* TCP Options (IPPROTO_TCP = 6) */
+#define TCP_NODELAY 1
+#define TCP_MAXSEG 2
+#define TCP_CORK 3
+#define TCP_KEEPIDLE 4
+#define TCP_KEEPINTVL 5
+#define TCP_KEEPCNT 6
+#define TCP_SYNCNT 7
+#define TCP_LINGER2 8
+#define TCP_DEFER_ACCEPT 9
+#define TCP_WINDOW_CLAMP 10
+#define TCP_INFO 11
+#define TCP_QUICKACK 12
+#define TCP_CONGESTION 13
+
+/* IP Options (IPPROTO_IP = 0) */
+#define IP_TOS 1
+#define IP_TTL 2
+#define IP_HDRINCL 3
+#define IP_OPTIONS 4
+#define IP_ROUTER_ALERT 5
+#define IP_RECVOPTS 6
+#define IP_RETOPTS 7
+#define IP_PKTINFO 8
+#define IP_PKTOPTIONS 9
+#define IP_MTU_DISCOVER 10
+#define IP_RECVERR 11
+#define IP_RECVTTL 12
+#define IP_RECVTOS 13
+#define IP_MTU 14
+#define IP_MULTICAST_IF 32
+#define IP_MULTICAST_TTL 33
+#define IP_MULTICAST_LOOP 34
+#define IP_ADD_MEMBERSHIP 35
+#define IP_DROP_MEMBERSHIP 36
+
+/* IPv6 Options (IPPROTO_IPV6 = 41) */
+#define IPPROTO_IPV6 41
+#define IPV6_V6ONLY 26
+
+/* Shutdown options */
+#define SHUT_RD 0
+#define SHUT_WR 1
+#define SHUT_RDWR 2
+
+/* Socket timeout / linger / peercred structs for kernel */
+struct linger_k {
+    int l_onoff;
+    int l_linger;
+};
+
+struct ucred_k {
+    pid_t pid;
+    uid_t uid;
+    gid_t gid;
+};
+
+/* SCM_RIGHTS */
+#define SCM_RIGHTS 1
+#define UNIX_MAX_PASSED_FDS 8
+
+#define CMSG_ALIGN(len) (((len) + sizeof(size_t) - 1) & ~(sizeof(size_t) - 1))
+#define CMSG_DATA(cmsg) ((unsigned char *)((struct cmsghdr *)(cmsg) + 1))
+#define CMSG_SPACE(len) (CMSG_ALIGN(sizeof(struct cmsghdr)) + CMSG_ALIGN(len))
+#define CMSG_LEN(len)   (CMSG_ALIGN(sizeof(struct cmsghdr)) + (len))
+
+struct iovec {
+    void *iov_base;
+    size_t iov_len;
+};
+
+struct msghdr {
+    void *msg_name;
+    uint32_t msg_namelen;
+    struct iovec *msg_iov;
+    size_t msg_iovlen;
+    void *msg_control;
+    size_t msg_controllen;
+    int msg_flags;
+};
+
+struct cmsghdr {
+    size_t cmsg_len;
+    int cmsg_level;
+    int cmsg_type;
+};
+
 #define SOCK_RX_BUF_SIZE 65536
 #define SOCK_TX_BUF_SIZE 65536
 
@@ -114,6 +233,43 @@ typedef struct socket {
     file_descriptor_t *passed_fds[8];
     size_t passed_fd_count;
 
+    /* Socket configuration options */
+    int so_reuseaddr;
+    int so_reuseport;
+    int so_broadcast;
+    int so_keepalive;
+    int so_passcred;
+    int so_rcvbuf;
+    int so_sndbuf;
+    int so_error;
+    int so_dontroute;
+    int so_oobinline;
+    int so_priority;
+    int64_t so_rcvtimeo_ms;
+    int64_t so_sndtimeo_ms;
+    struct linger_k so_linger;
+    char bind_device[16];
+
+    /* TCP options */
+    int tcp_nodelay;
+    int tcp_cork;
+    int tcp_mss;
+    int tcp_keepidle;
+    int tcp_keepintvl;
+    int tcp_keepcnt;
+    int tcp_quickack;
+
+    /* IP options */
+    uint8_t ip_ttl;
+    uint8_t ip_tos;
+    int ip_multicast_loop;
+    uint8_t ip_multicast_ttl;
+    int ip_pktinfo;
+    int ipv6_v6only;
+
+    /* Shutdown state (bit 0 = SHUT_RD, bit 1 = SHUT_WR) */
+    int shutdown_flags;
+
     spinlock_t lock;
     vfs_node_t *vfs_node;
     struct socket *next;
@@ -126,37 +282,6 @@ socket_t *socket_find_udp(uint32_t local_ip, uint16_t local_port);
 socket_t *socket_find_tcp(uint32_t local_ip, uint16_t local_port, uint32_t remote_ip, uint16_t remote_port);
 socket_t *socket_find_icmp(uint32_t local_ip);
 int socket_enqueue_data(socket_t *sock, const void *data, size_t len, uint32_t from_ip, uint16_t from_port);
-
-struct iovec {
-    void *iov_base;
-    size_t iov_len;
-};
-
-struct msghdr {
-    void *msg_name;
-    uint32_t msg_namelen;
-    struct iovec *msg_iov;
-    size_t msg_iovlen;
-    void *msg_control;
-    size_t msg_controllen;
-    int msg_flags;
-};
-
-struct cmsghdr {
-    size_t cmsg_len;
-    int cmsg_level;
-    int cmsg_type;
-    /* unsigned char cmsg_data[]; */
-};
-
-#define SOL_SOCKET 1
-#define SCM_RIGHTS 1
-#define UNIX_MAX_PASSED_FDS 8
-
-#define CMSG_ALIGN(len) (((len) + sizeof(size_t) - 1) & ~(sizeof(size_t) - 1))
-#define CMSG_DATA(cmsg) ((unsigned char *)((struct cmsghdr *)(cmsg) + 1))
-#define CMSG_SPACE(len) (CMSG_ALIGN(sizeof(struct cmsghdr)) + CMSG_ALIGN(len))
-#define CMSG_LEN(len)   (CMSG_ALIGN(sizeof(struct cmsghdr)) + (len))
 
 /* Syscall implementations */
 int sys_socket(int domain, int type, int protocol);

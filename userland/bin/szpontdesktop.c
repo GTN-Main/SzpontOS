@@ -1,36 +1,52 @@
 /*
- * SzpontOS — Native X11 Desktop Environment (Szpont Experience)
+ * SzpontOS — Native X11 Desktop Environment & Window Manager (Szpont Experience)
  * (C) Copyright by Szpont Industries. All rights reserved.
  *
- * Ultra-fast, lightweight multi-window desktop manager with draggable windows,
- * application launcher ([Launch XTerm]), STB PNG/JPEG artwork viewers,
- * glassmorphic TopBar, and fluid 60 FPS performance.
+ * Lightweight, high-performance desktop panel and reparenting window manager.
+ * Renders glassmorphic TopBar, manages window decorations (cyber titlebars,
+ * traffic light controls, vibrant glowing borders), dragging, and session lifecycle.
  */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 #include <unistd.h>
-#include <math.h>
 #include <time.h>
-#include <signal.h>
+#include <poll.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <sys/ipc.h>
-#include <sys/shm.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
-#include <X11/extensions/XShm.h>
+#include <X11/Xatom.h>
 
-#define STB_IMAGE_IMPLEMENTATION
-#define STBI_NO_SIMD
-#define STBI_NO_THREAD_LOCALS
-#include "../../third_party/stb/stb_image.h"
+#define TOPBAR_HEIGHT    36
+#define TITLEBAR_HEIGHT  26
+#define BORDER_WIDTH     4
+#define MAX_MANAGED_WIN  128
 
-#define TITLEBAR_H 36
+typedef struct {
+    Window client;
+    Window frame;
+    int x, y;
+    int width, height;
+    bool is_maximized;
+    bool is_shaded;
+    int saved_x, saved_y;
+    int saved_width, saved_height;
+    char title[128];
+} client_window_t;
 
-/* Color Helper */
+static client_window_t g_clients[MAX_MANAGED_WIN];
+static int g_client_count = 0;
+static client_window_t *g_focused_client = NULL;
+static client_window_t *g_drag_client = NULL;
+static int g_drag_start_x = 0;
+static int g_drag_start_y = 0;
+static int g_drag_win_x = 0;
+static int g_drag_win_y = 0;
+
 static unsigned long make_rgb(Display *dpy, int screen, unsigned short r, unsigned short g, unsigned short b) {
     Colormap cmap = DefaultColormap(dpy, screen);
     XColor col;
@@ -44,179 +60,63 @@ static unsigned long make_rgb(Display *dpy, int screen, unsigned short r, unsign
     return WhitePixel(dpy, screen);
 }
 
-typedef struct {
-    int width;
-    int height;
-    int channels;
-    uint32_t *pixels;
-} loaded_image_t;
-
-static loaded_image_t load_image_file(const char *path1, const char *path2, const char *path3) {
-    loaded_image_t img = {0, 0, 0, NULL};
-    const char *paths[] = {path1, path2, path3};
-    unsigned char *raw = NULL;
-    int w = 0, h = 0, ch = 0;
-
-    for (int i = 0; i < 3; i++) {
-        if (!paths[i]) continue;
-        raw = stbi_load(paths[i], &w, &h, &ch, 4);
-        if (raw) {
-            printf("[szpontdesktop] Loaded artwork '%s' (%dx%d, %d channels)\n",
-                   paths[i], w, h, ch);
-            break;
-        }
-    }
-
-    if (!raw) {
-        printf("[szpontdesktop] Warning: Artwork not found (%s)\n", path1);
-        return img;
-    }
-
-    img.width = w;
-    img.height = h;
-    img.channels = 4;
-    img.pixels = (uint32_t *)malloc(w * h * sizeof(uint32_t));
-    if (img.pixels) {
-        for (int i = 0; i < w * h; i++) {
-            uint8_t r = raw[i * 4 + 0];
-            uint8_t g = raw[i * 4 + 1];
-            uint8_t b = raw[i * 4 + 2];
-            uint8_t a = raw[i * 4 + 3];
-            img.pixels[i] = (a << 24) | (r << 16) | (g << 8) | b;
-        }
-    }
-    stbi_image_free(raw);
-    return img;
-}
-
-static void draw_scaled_image(Display *dpy, Window win, GC gc, const loaded_image_t *img,
-                              int dst_x, int dst_y, int max_w, int max_h) {
-    if (!img || !img->pixels || img->width <= 0 || img->height <= 0 || max_w <= 0 || max_h <= 0)
-        return;
-
-    float aspect = (float)img->width / (float)img->height;
-    int render_w = max_w;
-    int render_h = (int)(max_w / aspect);
-    if (render_h > max_h) {
-        render_h = max_h;
-        render_w = (int)(max_h * aspect);
-    }
-    int off_x = dst_x + (max_w - render_w) / 2;
-    int off_y = dst_y + (max_h - render_h) / 2;
-
-    uint32_t *scaled = (uint32_t *)malloc(render_w * render_h * sizeof(uint32_t));
-    if (!scaled) return;
-
-    for (int y = 0; y < render_h; y++) {
-        int src_y = (y * img->height) / render_h;
-        if (src_y >= img->height) src_y = img->height - 1;
-        for (int x = 0; x < render_w; x++) {
-            int src_x = (x * img->width) / render_w;
-            if (src_x >= img->width) src_x = img->width - 1;
-            scaled[y * render_w + x] = img->pixels[src_y * img->width + src_x];
-        }
-    }
-
-    XImage *ximg = XCreateImage(dpy, DefaultVisual(dpy, DefaultScreen(dpy)),
-                                24, ZPixmap, 0, (char *)scaled,
-                                render_w, render_h, 32, 0);
-    if (ximg) {
-        XPutImage(dpy, win, gc, ximg, 0, 0, off_x, off_y, render_w, render_h);
-        ximg->data = NULL;
-        XDestroyImage(ximg);
-    }
-    free(scaled);
-}
-
-/* Color definitions */
-static unsigned long bg_color;
-static unsigned long card_bg;
-static unsigned long panel_color;
-static unsigned long titlebar_bg;
-static unsigned long fg_color;
-static unsigned long cyan_color;
-static unsigned long pink_color;
-static unsigned long green_color;
-static unsigned long yellow_color;
-static unsigned long blue_color;
-static unsigned long border_color;
-static unsigned long active_border;
-static unsigned long close_btn_col;
-static unsigned long min_btn_col;
-static unsigned long max_btn_col;
-
-/* Managed Window Struct */
-typedef struct window_entry {
-    Window win;
-    const char *title;
-    int x, y;
-    int w, h;
-    bool mapped;
-    bool focused;
-    unsigned long title_color;
-} window_entry_t;
-
-#define NUM_WINDOWS 3
-static window_entry_t g_windows[NUM_WINDOWS];
-
-static void spawn_szponterm(void) {
+static pid_t spawn_app(const char *binary) {
     pid_t pid = fork();
     if (pid == 0) {
-        char *args[] = {"/bin/szponterm", NULL};
+        char *args[] = {(char *)binary, NULL};
         extern char **environ;
-        execve("/bin/szponterm", args, environ);
+        execve(binary, args, environ);
+        fprintf(stderr, "[szpontdesktop] Failed to exec '%s'\n", binary);
         _exit(1);
     }
-    printf("[szpontdesktop] Spawned native SzponTerm process (PID %d)\n", pid);
+    if (pid > 0) {
+        printf("[szpontdesktop] Spawned process '%s' (PID %d)\n", binary, pid);
+    }
+    return pid;
 }
 
-static void draw_window_frame(Display *dpy, Window win, GC gc, int w, const char *title,
-                              unsigned long title_col, bool focused) {
-    /* Titlebar background */
+static void render_topbar(Display *dpy, Window win, GC gc, int screen_w, time_t now,
+                          unsigned long titlebar_bg, unsigned long blue_color,
+                          unsigned long cyan_color, unsigned long green_color,
+                          unsigned long pink_color, unsigned long yellow_color,
+                          unsigned long close_btn_col) {
+    /* TopBar background */
     XSetForeground(dpy, gc, titlebar_bg);
-    XFillRectangle(dpy, win, gc, 0, 0, w, TITLEBAR_H);
+    XFillRectangle(dpy, win, gc, 0, 0, (unsigned int)screen_w, TOPBAR_HEIGHT);
 
-    /* macOS Window Controls */
-    XSetForeground(dpy, gc, close_btn_col); /* Red Close */
-    XFillArc(dpy, win, gc, 12, 12, 12, 12, 0, 360 * 64);
-    XSetForeground(dpy, gc, yellow_color);  /* Yellow Minimize */
-    XFillArc(dpy, win, gc, 30, 12, 12, 12, 0, 360 * 64);
-    XSetForeground(dpy, gc, green_color);   /* Green Maximize */
-    XFillArc(dpy, win, gc, 48, 12, 12, 12, 0, 360 * 64);
-
-    /* Title string */
-    XSetForeground(dpy, gc, title_col);
-    XDrawString(dpy, win, gc, 70, 23, title, strlen(title));
-
-    /* Accent bottom line */
-    XSetForeground(dpy, gc, focused ? blue_color : panel_color);
-    XDrawLine(dpy, win, gc, 0, TITLEBAR_H, w, TITLEBAR_H);
-}
-
-static void render_topbar(Display *dpy, Window win, GC gc, int screen_w, time_t now) {
-    XSetForeground(dpy, gc, titlebar_bg);
-    XFillRectangle(dpy, win, gc, 0, 0, screen_w, 36);
-
+    /* Bottom accent line */
     XSetForeground(dpy, gc, blue_color);
-    XDrawLine(dpy, win, gc, 0, 35, screen_w, 35);
+    XDrawLine(dpy, win, gc, 0, TOPBAR_HEIGHT - 1, screen_w, TOPBAR_HEIGHT - 1);
 
+    /* Brand Logo */
     XSetForeground(dpy, gc, cyan_color);
     XDrawString(dpy, win, gc, 16, 22, "Szpont Experience", 16);
 
-    XSetForeground(dpy, gc, fg_color);
-    XDrawString(dpy, win, gc, 170, 22, "[1] Dashboard", 13);
-
+    /* [1] + SzponTerm */
     XSetForeground(dpy, gc, green_color);
-    XDrawString(dpy, win, gc, 290, 22, "[2] + SzponTerm", 15);
+    XDrawString(dpy, win, gc, 180, 22, "[1] + SzponTerm", 15);
 
-    XSetForeground(dpy, gc, fg_color);
-    XDrawString(dpy, win, gc, 430, 22, "[3] Makaljer", 12);
-    XDrawString(dpy, win, gc, 540, 22, "[4] Detected", 12);
+    /* [2] Makaljer */
+    XSetForeground(dpy, gc, pink_color);
+    XDrawString(dpy, win, gc, 320, 22, "[2] Makaljer", 12);
 
-    /* Logout / Exit Graphical Session */
+    /* [3] Detected */
+    XSetForeground(dpy, gc, yellow_color);
+    XDrawString(dpy, win, gc, 450, 22, "[3] Szpont Detected", 19);
+
+    /* [User: ...] badge */
+    const char *curr_user = getenv("USER");
+    if (!curr_user || !*curr_user) curr_user = "szpont";
+    char user_badge[64];
+    snprintf(user_badge, sizeof(user_badge), "[User: %s]", curr_user);
+    XSetForeground(dpy, gc, cyan_color);
+    XDrawString(dpy, win, gc, 640, 22, user_badge, (int)strlen(user_badge));
+
+    /* [4] Logout */
     XSetForeground(dpy, gc, close_btn_col);
-    XDrawString(dpy, win, gc, 660, 22, "[5] Logout (Exit)", 17);
+    XDrawString(dpy, win, gc, 770, 22, "[4] Logout", 10);
 
+    /* Right-aligned Clock */
     struct tm *tm_info = gmtime(&now);
     char clock_buf[64];
     if (tm_info) {
@@ -226,97 +126,219 @@ static void render_topbar(Display *dpy, Window win, GC gc, int screen_w, time_t 
     } else {
         snprintf(clock_buf, sizeof(clock_buf), "SzpontOS Display :0");
     }
-    XSetForeground(dpy, gc, yellow_color);
-    XDrawString(dpy, win, gc, screen_w - 240, 22, clock_buf, strlen(clock_buf));
+    XSetForeground(dpy, gc, cyan_color);
+    XDrawString(dpy, win, gc, screen_w - 240, 22, clock_buf, (int)strlen(clock_buf));
 }
 
-static void render_makaljer_window(Display *dpy, Window win, GC gc, const loaded_image_t *img, bool focused) {
-    (void)focused;
-    XSetForeground(dpy, gc, card_bg);
-    XFillRectangle(dpy, win, gc, 0, 0, 480, 560);
+/* Standard 16x16 crisp arrow cursor */
+static const unsigned char cursor_bits[] = {
+    0x01, 0x00, 0x03, 0x00, 0x07, 0x00, 0x0f, 0x00,
+    0x1f, 0x00, 0x3f, 0x00, 0x7f, 0x00, 0xff, 0x00,
+    0x7f, 0x00, 0x1f, 0x00, 0x3b, 0x00, 0x71, 0x00,
+    0xe0, 0x00, 0xc0, 0x01, 0x80, 0x01, 0x00, 0x00
+};
+static const unsigned char cursor_mask[] = {
+    0x03, 0x00, 0x07, 0x00, 0x0f, 0x00, 0x1f, 0x00,
+    0x3f, 0x00, 0x7f, 0x00, 0xff, 0x00, 0xff, 0x01,
+    0xff, 0x01, 0xff, 0x00, 0x7f, 0x00, 0xfb, 0x00,
+    0xf1, 0x01, 0xe0, 0x03, 0xc0, 0x03, 0x80, 0x01
+};
 
-    if (img && img->pixels) {
-        draw_scaled_image(dpy, win, gc, img, 15, 15, 450, 480);
-    } else {
-        XSetForeground(dpy, gc, yellow_color);
-        XDrawString(dpy, win, gc, 120, 270, "[ artwork/makaljer.png not found ]", 34);
+static Cursor g_default_cursor = None;
+
+static Cursor create_default_cursor(Display *dpy, Window root) {
+    Pixmap src = XCreateBitmapFromData(dpy, root, (const char *)cursor_bits, 16, 16);
+    Pixmap msk = XCreateBitmapFromData(dpy, root, (const char *)cursor_mask, 16, 16);
+    XColor fg, bg;
+    fg.red = 0xffff; fg.green = 0xffff; fg.blue = 0xffff; fg.flags = DoRed|DoGreen|DoBlue;
+    bg.red = 0x0000; bg.green = 0x0000; bg.blue = 0x0000; bg.flags = DoRed|DoGreen|DoBlue;
+    Cursor c = XCreatePixmapCursor(dpy, src, msk, &fg, &bg, 0, 0);
+    XFreePixmap(dpy, src);
+    XFreePixmap(dpy, msk);
+    return c;
+}
+
+static client_window_t *find_client_by_frame(Window frame) {
+    for (int i = 0; i < g_client_count; i++) {
+        if (g_clients[i].frame == frame) return &g_clients[i];
+    }
+    return NULL;
+}
+
+static client_window_t *find_client_by_window(Window client) {
+    for (int i = 0; i < g_client_count; i++) {
+        if (g_clients[i].client == client) return &g_clients[i];
+    }
+    return NULL;
+}
+
+static void remove_client(Window client) {
+    for (int i = 0; i < g_client_count; i++) {
+        if (g_clients[i].client == client || g_clients[i].frame == client) {
+            for (int j = i; j < g_client_count - 1; j++) {
+                g_clients[j] = g_clients[j + 1];
+            }
+            g_client_count--;
+            break;
+        }
+    }
+}
+
+static void render_titlebar(Display *dpy, client_window_t *cw, GC gc, bool is_focused,
+                            unsigned long titlebar_bg, unsigned long titlebar_unf,
+                            unsigned long cyan_color, unsigned long border_color,
+                            unsigned long close_btn_col, unsigned long min_btn_col,
+                            unsigned long max_btn_col, unsigned long text_focused,
+                            unsigned long text_unf) {
+    if (!cw || cw->frame == None) return;
+
+    /* 1. Titlebar background */
+    XSetForeground(dpy, gc, is_focused ? titlebar_bg : titlebar_unf);
+    XFillRectangle(dpy, cw->frame, gc, 0, 0, (unsigned int)cw->width, TITLEBAR_HEIGHT);
+
+    /* 2. Top accent highlight line */
+    XSetForeground(dpy, gc, is_focused ? cyan_color : border_color);
+    XDrawLine(dpy, cw->frame, gc, 0, 0, cw->width, 0);
+
+    /* 3. Bottom accent separator line */
+    XSetForeground(dpy, gc, is_focused ? cyan_color : border_color);
+    XDrawLine(dpy, cw->frame, gc, 0, TITLEBAR_HEIGHT - 1, cw->width, TITLEBAR_HEIGHT - 1);
+
+    /* 4. Traffic light control dots */
+    /* Close (Red) */
+    XSetForeground(dpy, gc, close_btn_col);
+    XFillArc(dpy, cw->frame, gc, 10, 7, 12, 12, 0, 360 * 64);
+
+    /* Minimize (Yellow) */
+    XSetForeground(dpy, gc, min_btn_col);
+    XFillArc(dpy, cw->frame, gc, 28, 7, 12, 12, 0, 360 * 64);
+
+    /* Maximize (Green) */
+    XSetForeground(dpy, gc, max_btn_col);
+    XFillArc(dpy, cw->frame, gc, 46, 7, 12, 12, 0, 360 * 64);
+
+    /* 5. Window Title Text */
+    XSetForeground(dpy, gc, is_focused ? text_focused : text_unf);
+    XDrawString(dpy, cw->frame, gc, 68, 18, cw->title, (int)strlen(cw->title));
+
+    /* 6. Border width & color on the frame */
+    XSetWindowBorderWidth(dpy, cw->frame, BORDER_WIDTH);
+    XSetWindowBorder(dpy, cw->frame, is_focused ? cyan_color : border_color);
+}
+
+static void set_focus(Display *dpy, client_window_t *cw, GC gc,
+                      unsigned long titlebar_bg, unsigned long titlebar_unf,
+                      unsigned long cyan_color, unsigned long border_color,
+                      unsigned long close_btn_col, unsigned long min_btn_col,
+                      unsigned long max_btn_col, unsigned long text_focused,
+                      unsigned long text_unf) {
+    if (!cw) return;
+    if (g_focused_client && g_focused_client != cw) {
+        /* Grab any button on previously focused client so clicking anywhere refocuses it */
+        XGrabButton(dpy, AnyButton, AnyModifier, g_focused_client->client, False,
+                    ButtonPressMask, GrabModeAsync, GrabModeAsync, None, None);
+        render_titlebar(dpy, g_focused_client, gc, false,
+                        titlebar_bg, titlebar_unf, cyan_color, border_color,
+                        close_btn_col, min_btn_col, max_btn_col, text_focused, text_unf);
+    }
+    g_focused_client = cw;
+    /* Ungrab buttons on active client so application handles clicks directly */
+    XUngrabButton(dpy, AnyButton, AnyModifier, cw->client);
+    XRaiseWindow(dpy, cw->frame);
+    render_titlebar(dpy, cw, gc, true,
+                    titlebar_bg, titlebar_unf, cyan_color, border_color,
+                    close_btn_col, min_btn_col, max_btn_col, text_focused, text_unf);
+    XSetInputFocus(dpy, cw->client, RevertToParent, CurrentTime);
+}
+
+static void close_client(Display *dpy, client_window_t *cw) {
+    if (!cw) return;
+    Atom wm_proto = XInternAtom(dpy, "WM_PROTOCOLS", False);
+    Atom wm_del = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
+    XEvent msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.type = ClientMessage;
+    msg.xclient.window = cw->client;
+    msg.xclient.message_type = wm_proto;
+    msg.xclient.format = 32;
+    msg.xclient.data.l[0] = (long)wm_del;
+    msg.xclient.data.l[1] = CurrentTime;
+    XSendEvent(dpy, cw->client, False, NoEventMask, &msg);
+}
+
+static client_window_t *decorate_window(Display *dpy, Window root, Window client, Window win_topbar,
+                                        unsigned long border_color, unsigned long titlebar_bg) {
+    if (client == root || client == win_topbar) return NULL;
+    client_window_t *existing = find_client_by_window(client);
+    if (existing) return existing;
+    if (find_client_by_frame(client)) return NULL;
+
+    XWindowAttributes attr;
+    if (!XGetWindowAttributes(dpy, client, &attr)) return NULL;
+    if (attr.override_redirect) return NULL;
+
+    int cx = attr.x;
+    int cy = attr.y;
+    int cw = attr.width;
+    int ch = attr.height;
+    if (cy < TOPBAR_HEIGHT) cy = TOPBAR_HEIGHT + 10;
+    if (cx < 10) cx = 10;
+
+    char title[128] = "SzpontOS Application";
+    char *name = NULL;
+    if (XFetchName(dpy, client, &name) && name) {
+        strncpy(title, name, sizeof(title) - 1);
+        XFree(name);
     }
 
-    /* Bottom Badge */
-    XSetForeground(dpy, gc, panel_color);
-    XFillRectangle(dpy, win, gc, 15, 510, 450, 36);
-    XSetForeground(dpy, gc, fg_color);
-    char sbuf[128];
-    snprintf(sbuf, sizeof(sbuf), "Dimensions: %dx%d px | RGBA 32-bit",
-             img ? img->width : 0, img ? img->height : 0);
-    XDrawString(dpy, win, gc, 30, 532, sbuf, strlen(sbuf));
-}
+    Window frame = XCreateSimpleWindow(dpy, root, cx, cy,
+                                       (unsigned int)cw, (unsigned int)(ch + TITLEBAR_HEIGHT),
+                                       BORDER_WIDTH, border_color, titlebar_bg);
 
-static void render_detected_window(Display *dpy, Window win, GC gc, const loaded_image_t *img, bool focused) {
-    (void)focused;
-    XSetForeground(dpy, gc, card_bg);
-    XFillRectangle(dpy, win, gc, 0, 0, 520, 560);
+    /* Frame events: Do NOT select SubstructureRedirectMask on frame, only substructure notifications */
+    XSelectInput(dpy, frame, SubstructureNotifyMask | ExposureMask | ButtonPressMask |
+                             ButtonReleaseMask | PointerMotionMask);
 
-    if (img && img->pixels) {
-        draw_scaled_image(dpy, win, gc, img, 15, 15, 490, 480);
-    } else {
-        XSetForeground(dpy, gc, yellow_color);
-        XDrawString(dpy, win, gc, 110, 270, "[ artwork/szpont-detected.png not found ]", 41);
+    if (g_default_cursor != None) {
+        XDefineCursor(dpy, frame, g_default_cursor);
     }
 
-    /* Bottom Badge */
-    XSetForeground(dpy, gc, panel_color);
-    XFillRectangle(dpy, win, gc, 15, 510, 490, 36);
-    XSetForeground(dpy, gc, fg_color);
-    char sbuf[128];
-    snprintf(sbuf, sizeof(sbuf), "Dimensions: %dx%d px | TrueColor 32-bit",
-             img ? img->width : 0, img ? img->height : 0);
-    XDrawString(dpy, win, gc, 30, 532, sbuf, strlen(sbuf));
+    XSetWindowBorderWidth(dpy, client, 0);
+    XReparentWindow(dpy, client, frame, 0, TITLEBAR_HEIGHT);
+
+    if (g_client_count < MAX_MANAGED_WIN) {
+        client_window_t *entry = &g_clients[g_client_count++];
+        memset(entry, 0, sizeof(client_window_t));
+        entry->client = client;
+        entry->frame = frame;
+        entry->x = cx;
+        entry->y = cy;
+        entry->width = cw;
+        entry->height = ch;
+        strncpy(entry->title, title, sizeof(entry->title) - 1);
+
+        XSelectInput(dpy, client, StructureNotifyMask | PropertyChangeMask | FocusChangeMask);
+
+        /* Initial button grab so clicking on unfocused client window will focus & raise it */
+        XGrabButton(dpy, AnyButton, AnyModifier, client, False,
+                    ButtonPressMask, GrabModeAsync, GrabModeAsync, None, None);
+
+        XMapWindow(dpy, client);
+        XMapWindow(dpy, frame);
+        return entry;
+    }
+
+    return NULL;
 }
 
-static void render_main_static(Display *dpy, Window win, GC gc, int screen_w, int screen_h, bool focused) {
-    (void)focused;
-    XSetForeground(dpy, gc, bg_color);
-    XFillRectangle(dpy, win, gc, 0, 0, 800, 560);
-
-    /* Left Card: System Specs */
-    XSetForeground(dpy, gc, panel_color);
-    XFillRectangle(dpy, win, gc, 20, 20, 370, 240);
-    XSetForeground(dpy, gc, pink_color);
-    XDrawRectangle(dpy, win, gc, 20, 20, 370, 240);
-
-    XSetForeground(dpy, gc, fg_color);
-    XDrawString(dpy, win, gc, 35, 45, "System Architecture & Kernel:", 29);
-    char sbuf[128];
-    snprintf(sbuf, sizeof(sbuf), "OS: SzpontOS 64-bit Monolithic (Ring 3)");
-    XDrawString(dpy, win, gc, 35, 75, sbuf, strlen(sbuf));
-    snprintf(sbuf, sizeof(sbuf), "Desktop: Szpont Experience v1.0");
-    XDrawString(dpy, win, gc, 35, 100, sbuf, strlen(sbuf));
-    snprintf(sbuf, sizeof(sbuf), "Display: %dx%d (24 bpp / 60 Hz)", screen_w, screen_h);
-    XDrawString(dpy, win, gc, 35, 125, sbuf, strlen(sbuf));
-    snprintf(sbuf, sizeof(sbuf), "Acceleration: DRM/KMS Hardware Buffer");
-    XDrawString(dpy, win, gc, 35, 150, sbuf, strlen(sbuf));
-    snprintf(sbuf, sizeof(sbuf), "Shared Libs: libX11.so, libm.so, libc.so");
-    XDrawString(dpy, win, gc, 35, 175, sbuf, strlen(sbuf));
-    snprintf(sbuf, sizeof(sbuf), "Terminal: Native SzponTerm X11");
-    XDrawString(dpy, win, gc, 35, 200, sbuf, strlen(sbuf));
-
-    /* Right Card Frame: Telemetry */
-    XSetForeground(dpy, gc, panel_color);
-    XFillRectangle(dpy, win, gc, 410, 20, 370, 240);
-    XSetForeground(dpy, gc, green_color);
-    XDrawRectangle(dpy, win, gc, 410, 20, 370, 240);
-    XSetForeground(dpy, gc, fg_color);
-    XDrawString(dpy, win, gc, 425, 45, "Interactive Input Telemetry:", 28);
-
-    /* Bottom Card Frame: Geometry Animation */
-    XSetForeground(dpy, gc, panel_color);
-    XFillRectangle(dpy, win, gc, 20, 280, 760, 260);
-    XSetForeground(dpy, gc, blue_color);
-    XDrawRectangle(dpy, win, gc, 20, 280, 760, 260);
+static int xerror_handler(Display *d, XErrorEvent *e) {
+    (void)d;
+    (void)e;
+    return 0;
 }
 
 int main(int argc, char *argv[]) {
+    setpgid(0, 0);
     const char *disp_name = (argc > 1) ? argv[1] : getenv("DISPLAY");
     if (!disp_name || !*disp_name) disp_name = ":0";
 
@@ -326,114 +348,97 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "[szpontdesktop] Fatal: Cannot connect to X server '%s'!\n", disp_name);
         return 1;
     }
+    setenv("DISPLAY", disp_name, 1);
+    setenv("XDG_CURRENT_DESKTOP", "SzpontOS", 0);
+    setenv("XDG_SESSION_TYPE", "x11", 0);
+    setenv("XDG_RUNTIME_DIR", "/tmp", 0);
+
+    XSetErrorHandler(xerror_handler);
 
     int screen = DefaultScreen(dpy);
     Window root = RootWindow(dpy, screen);
-    int depth = DefaultDepth(dpy, screen);
     int screen_w = DisplayWidth(dpy, screen);
-    int screen_h = DisplayHeight(dpy, screen);
 
-    printf("[szpontdesktop] Connected: Screen %dx%d, Depth %d bpp, Vendor: %s\n",
-           screen_w, screen_h, depth, ServerVendor(dpy));
+    /* Palette */
+    unsigned long titlebar_bg   = make_rgb(dpy, screen, 0x1818, 0x1818, 0x2525); /* Dark charcoal header */
+    unsigned long titlebar_unf  = make_rgb(dpy, screen, 0x1111, 0x1111, 0x1b1b); /* Dimmed header */
+    unsigned long cyan_color    = make_rgb(dpy, screen, 0x0000, 0xf0f0, 0xffff); /* Electric Cyan #00f0ff (Active) */
+    unsigned long pink_color    = make_rgb(dpy, screen, 0xf5f5, 0xc2c2, 0xe7e7);
+    unsigned long green_color   = make_rgb(dpy, screen, 0xa6a6, 0xe3e3, 0xa1a1);
+    unsigned long yellow_color  = make_rgb(dpy, screen, 0xf9f9, 0xe2e2, 0xafaf);
+    unsigned long blue_color    = make_rgb(dpy, screen, 0x8989, 0xb4b4, 0xfafa);
+    unsigned long border_color  = make_rgb(dpy, screen, 0x8181, 0x8c8c, 0xf8f8); /* Vibrant Indigo #818cf8 (Inactive) */
+    unsigned long close_btn_col = make_rgb(dpy, screen, 0xefef, 0x4444, 0x4444); /* Red #ef4444 */
+    unsigned long min_btn_col   = make_rgb(dpy, screen, 0xf5f5, 0x9e9e, 0x0b0b); /* Yellow #f59e0b */
+    unsigned long max_btn_col   = make_rgb(dpy, screen, 0x1010, 0xb9b9, 0x8181); /* Green #10b981 */
+    unsigned long text_focused  = make_rgb(dpy, screen, 0xf8f8, 0xfafa, 0xfcfc); /* Soft White */
+    unsigned long text_unf      = make_rgb(dpy, screen, 0x9494, 0xa3a3, 0xb8b8); /* Slate */
 
-    /* Initialize Colors */
-    bg_color      = make_rgb(dpy, screen, 0x1818, 0x1818, 0x2525);
-    card_bg       = make_rgb(dpy, screen, 0x1e1e, 0x1e1e, 0x2e2e);
-    panel_color   = make_rgb(dpy, screen, 0x3131, 0x3232, 0x4444);
-    titlebar_bg   = make_rgb(dpy, screen, 0x1111, 0x1111, 0x1b1b);
-    fg_color      = make_rgb(dpy, screen, 0xcdcd, 0xd6d6, 0xf4f4);
-    cyan_color    = make_rgb(dpy, screen, 0x8989, 0xdceb, 0xfafa);
-    pink_color    = make_rgb(dpy, screen, 0xf5f5, 0xc2c2, 0xe7e7);
-    green_color   = make_rgb(dpy, screen, 0xa6a6, 0xe3e3, 0xa1a1);
-    yellow_color  = make_rgb(dpy, screen, 0xf9f9, 0xe2e2, 0xafaf);
-    blue_color    = make_rgb(dpy, screen, 0x8989, 0xb4b4, 0xfafa);
-    border_color  = make_rgb(dpy, screen, 0x4545, 0x4747, 0x5a5a);
-    active_border = make_rgb(dpy, screen, 0x8989, 0xdceb, 0xfafa);
-    close_btn_col = make_rgb(dpy, screen, 0xf3f3, 0x8b8b, 0xabab);
-    min_btn_col   = make_rgb(dpy, screen, 0xf9f9, 0xe2e2, 0xafaf);
-    max_btn_col   = make_rgb(dpy, screen, 0xa6a6, 0xe3e3, 0xa1a1);
-
-    /* Load Artwork Images Once */
-    loaded_image_t img_makaljer = load_image_file("/usr/share/artwork/makaljer.png",
-                                                  "/usr/share/makaljer.png",
-                                                  "artwork/makaljer.png");
-
-    loaded_image_t img_detected = load_image_file("/usr/share/artwork/szpont-detected.png",
-                                                  "/usr/share/artwork/szpont-detected.jpg",
-                                                  "/usr/share/szpont-detected.png");
-    if (!img_detected.pixels) {
-        img_detected = load_image_file("artwork/szpont-detected.jpg",
-                                       "artwork/szpont-detected.png",
-                                       "artwork/szpont-scale.png");
-    }
-
-    /* 1. Top Menu Bar (1920x36) with override_redirect so it is unmanaged panel */
-    Window win_topbar = XCreateSimpleWindow(dpy, root, 0, 0, screen_w, 36, 0, border_color, titlebar_bg);
+    /* Top Menu Bar Window (screen_w x 36) with override_redirect */
+    Window win_topbar = XCreateSimpleWindow(dpy, root, 0, 0,
+                                           (unsigned int)screen_w, TOPBAR_HEIGHT, 0,
+                                           border_color, titlebar_unf);
     XSetWindowAttributes top_attr;
     top_attr.override_redirect = True;
     XChangeWindowAttributes(dpy, win_topbar, CWOverrideRedirect, &top_attr);
     XSelectInput(dpy, win_topbar, ExposureMask | ButtonPressMask | KeyPressMask);
     XMapWindow(dpy, win_topbar);
 
-    /* 2. Window 0: Main Dashboard (800x560 at 40, 72) */
-    g_windows[0].x = 40; g_windows[0].y = 72; g_windows[0].w = 800; g_windows[0].h = 560;
-    g_windows[0].title = "Szpont Experience — System Dashboard"; g_windows[0].title_color = cyan_color;
-    g_windows[0].mapped = true; g_windows[0].focused = true;
-    g_windows[0].win = XCreateSimpleWindow(dpy, root, g_windows[0].x, g_windows[0].y,
-                                           g_windows[0].w, g_windows[0].h, 2, cyan_color, bg_color);
-    XStoreName(dpy, g_windows[0].win, "Szpont Experience — System Dashboard");
-    XSelectInput(dpy, g_windows[0].win, ExposureMask | KeyPressMask | ButtonPressMask | ButtonReleaseMask | PointerMotionMask);
-    XMapWindow(dpy, g_windows[0].win);
-
-    /* 3. Window 1: Makaljer Artwork Viewer (480x560 at 860, 72) */
-    g_windows[1].x = 860; g_windows[1].y = 72; g_windows[1].w = 480; g_windows[1].h = 560;
-    g_windows[1].title = "Makaljer (PNG Artwork)"; g_windows[1].title_color = pink_color;
-    g_windows[1].mapped = true; g_windows[1].focused = false;
-    g_windows[1].win = XCreateSimpleWindow(dpy, root, g_windows[1].x, g_windows[1].y,
-                                           g_windows[1].w, g_windows[1].h, 2, pink_color, card_bg);
-    XStoreName(dpy, g_windows[1].win, "Makaljer (PNG Artwork)");
-    XSelectInput(dpy, g_windows[1].win, ExposureMask | KeyPressMask | ButtonPressMask | ButtonReleaseMask | PointerMotionMask);
-    XMapWindow(dpy, g_windows[1].win);
-
-    /* 4. Window 2: Szpont Detected Viewer (520x560 at 1360, 72) */
-    g_windows[2].x = 1360; g_windows[2].y = 72; g_windows[2].w = 520; g_windows[2].h = 560;
-    g_windows[2].title = "Szpont Detected (Artwork)"; g_windows[2].title_color = green_color;
-    g_windows[2].mapped = true; g_windows[2].focused = false;
-    g_windows[2].win = XCreateSimpleWindow(dpy, root, g_windows[2].x, g_windows[2].y,
-                                           g_windows[2].w, g_windows[2].h, 2, green_color, card_bg);
-    XStoreName(dpy, g_windows[2].win, "Szpont Detected (Artwork)");
-    XSelectInput(dpy, g_windows[2].win, ExposureMask | KeyPressMask | ButtonPressMask | ButtonReleaseMask | PointerMotionMask);
-    XMapWindow(dpy, g_windows[2].win);
-
     GC gc = XCreateGC(dpy, root, 0, NULL);
 
-    /* Render initial static scenes */
     time_t last_time = 0;
-    render_topbar(dpy, win_topbar, gc, screen_w, time(NULL));
-    render_main_static(dpy, g_windows[0].win, gc, screen_w, screen_h, true);
-    render_makaljer_window(dpy, g_windows[1].win, gc, &img_makaljer, false);
-    render_detected_window(dpy, g_windows[2].win, gc, &img_detected, false);
+    render_topbar(dpy, win_topbar, gc, screen_w, time(NULL),
+                  titlebar_unf, blue_color, cyan_color, green_color,
+                  pink_color, yellow_color, close_btn_col);
     XFlush(dpy);
 
-    /* Launch initial SzponTerm instance automatically */
-    spawn_szponterm();
+    /* Initialize default arrow cursor for root and all desktop windows */
+    g_default_cursor = create_default_cursor(dpy, root);
+    if (g_default_cursor != None) {
+        XDefineCursor(dpy, root, g_default_cursor);
+        XDefineCursor(dpy, win_topbar, g_default_cursor);
+    }
 
-    /* Drag & State */
-    int dragging_win_idx = -1;
-    int drag_start_mouse_x = 0;
-    int drag_start_mouse_y = 0;
-    int drag_win_orig_x = 0;
-    int drag_win_orig_y = 0;
+    /* Window Manager: select root redirection and window management events */
+    XSelectInput(dpy, root, SubstructureRedirectMask | SubstructureNotifyMask |
+                            ButtonPressMask | ButtonReleaseMask | PointerMotionMask);
+    XGrabButton(dpy, 1, Mod1Mask, root, True,
+                ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
+                GrabModeAsync, GrabModeAsync, None, None);
 
-    int mouse_x = 400;
-    int mouse_y = 300;
-    int click_count = 0;
-    char last_key[64] = "None";
-    float angle = 0.0f;
-    int frame_count = 0;
+    /* Grab global Alt+1..4 and Alt+q shortcuts on root */
+    KeyCode kc_1 = XKeysymToKeycode(dpy, XK_1);
+    KeyCode kc_2 = XKeysymToKeycode(dpy, XK_2);
+    KeyCode kc_3 = XKeysymToKeycode(dpy, XK_3);
+    KeyCode kc_4 = XKeysymToKeycode(dpy, XK_4);
+    KeyCode kc_q = XKeysymToKeycode(dpy, XK_q);
+    if (kc_1) XGrabKey(dpy, kc_1, Mod1Mask, root, True, GrabModeAsync, GrabModeAsync);
+    if (kc_2) XGrabKey(dpy, kc_2, Mod1Mask, root, True, GrabModeAsync, GrabModeAsync);
+    if (kc_3) XGrabKey(dpy, kc_3, Mod1Mask, root, True, GrabModeAsync, GrabModeAsync);
+    if (kc_4) XGrabKey(dpy, kc_4, Mod1Mask, root, True, GrabModeAsync, GrabModeAsync);
+    if (kc_q) XGrabKey(dpy, kc_q, Mod1Mask, root, True, GrabModeAsync, GrabModeAsync);
+
+    /* Decorate any existing windows */
+    Window root_ret, parent_ret, *children = NULL;
+    unsigned int nchildren = 0;
+    if (XQueryTree(dpy, root, &root_ret, &parent_ret, &children, &nchildren)) {
+        for (unsigned int i = 0; i < nchildren; i++) {
+            if (children[i] != win_topbar && children[i] != root) {
+                decorate_window(dpy, root, children[i], win_topbar, border_color, titlebar_bg);
+            }
+        }
+        if (children) XFree(children);
+    }
+
+    /* Automatically spawn initial native application processes (szponterm last to be foreground) */
+    spawn_app("/bin/makaljer");
+    spawn_app("/bin/szpontdetected");
+    spawn_app("/bin/szponterm");
+
+    printf("[szpontdesktop] Desktop environment and Window Manager initialized. Entering event loop.\n");
+
+    int x11_fd = ConnectionNumber(dpy);
     int running = 1;
-
-    printf("[szpontdesktop] Szpont Experience running smoothly!\n");
 
     while (running) {
         /* Process all pending X11 events */
@@ -442,191 +447,293 @@ int main(int argc, char *argv[]) {
             XNextEvent(dpy, &ev);
 
             switch (ev.type) {
-            case Expose:
-                if (ev.xexpose.window == win_topbar) {
-                    render_topbar(dpy, win_topbar, gc, screen_w, time(NULL));
-                } else if (ev.xexpose.window == g_windows[0].win) {
-                    render_main_static(dpy, g_windows[0].win, gc, screen_w, screen_h, g_windows[0].focused);
-                } else if (ev.xexpose.window == g_windows[1].win) {
-                    render_makaljer_window(dpy, g_windows[1].win, gc, &img_makaljer, g_windows[1].focused);
-                } else if (ev.xexpose.window == g_windows[2].win) {
-                    render_detected_window(dpy, g_windows[2].win, gc, &img_detected, g_windows[2].focused);
+            case MapRequest: {
+                Window w = ev.xmaprequest.window;
+                client_window_t *cw = decorate_window(dpy, root, w, win_topbar, border_color, titlebar_bg);
+                if (cw) {
+                    if (!g_focused_client || strstr(cw->title, "szponterm") || strstr(cw->title, "SzponTerm")) {
+                        set_focus(dpy, cw, gc, titlebar_bg, titlebar_unf, cyan_color, border_color,
+                                  close_btn_col, min_btn_col, max_btn_col, text_focused, text_unf);
+                    }
+                } else {
+                    XMapWindow(dpy, w);
                 }
                 break;
+            }
 
-            case ButtonPress: {
-                click_count++;
-                int win_idx = -1;
-                for (int i = 0; i < NUM_WINDOWS; i++) {
-                    if (ev.xbutton.window == g_windows[i].win) {
-                        win_idx = i;
-                        break;
+            case ConfigureRequest: {
+                client_window_t *cw = find_client_by_window(ev.xconfigurerequest.window);
+                if (cw) {
+                    int nw = ev.xconfigurerequest.width;
+                    int nh = ev.xconfigurerequest.height;
+                    if (nw > 10 && nh > 10) {
+                        cw->width = nw;
+                        cw->height = nh;
+                        XResizeWindow(dpy, cw->client, (unsigned int)nw, (unsigned int)nh);
+                        XResizeWindow(dpy, cw->frame, (unsigned int)nw, (unsigned int)(nh + TITLEBAR_HEIGHT));
+                        render_titlebar(dpy, cw, gc, (cw == g_focused_client),
+                                        titlebar_bg, titlebar_unf, cyan_color, border_color,
+                                        close_btn_col, min_btn_col, max_btn_col, text_focused, text_unf);
                     }
+                } else {
+                    XWindowChanges wc;
+                    wc.x = ev.xconfigurerequest.x;
+                    wc.y = ev.xconfigurerequest.y;
+                    if (wc.y < TOPBAR_HEIGHT) wc.y = TOPBAR_HEIGHT;
+                    wc.width = ev.xconfigurerequest.width;
+                    wc.height = ev.xconfigurerequest.height;
+                    wc.border_width = 0;
+                    wc.sibling = ev.xconfigurerequest.above;
+                    wc.stack_mode = ev.xconfigurerequest.detail;
+                    XConfigureWindow(dpy, ev.xconfigurerequest.window,
+                                     ev.xconfigurerequest.value_mask, &wc);
                 }
+                break;
+            }
 
-                if (ev.xbutton.window == win_topbar) {
-                    /* TopBar Menu Actions */
-                    if (ev.xbutton.x >= 160 && ev.xbutton.x <= 270) {
-                        g_windows[0].mapped = true;
-                        XMapWindow(dpy, g_windows[0].win);
-                        XRaiseWindow(dpy, g_windows[0].win);
-                    } else if (ev.xbutton.x >= 280 && ev.xbutton.x <= 410) {
-                        spawn_szponterm();
-                    } else if (ev.xbutton.x >= 420 && ev.xbutton.x <= 525) {
-                        g_windows[1].mapped = true;
-                        XMapWindow(dpy, g_windows[1].win);
-                        XRaiseWindow(dpy, g_windows[1].win);
-                    } else if (ev.xbutton.x >= 530 && ev.xbutton.x <= 645) {
-                        g_windows[2].mapped = true;
-                        XMapWindow(dpy, g_windows[2].win);
-                        XRaiseWindow(dpy, g_windows[2].win);
-                    } else if (ev.xbutton.x >= 650 && ev.xbutton.x <= 800) {
-                        /* [5] Logout (Exit Graphical Session) */
-                        printf("[szpontdesktop] User clicked Logout — Ending graphical session...\n");
-                        running = 0;
-                    }
-                } else if (win_idx >= 0) {
-                    /* Focus & Raise Window */
-                    for (int i = 0; i < NUM_WINDOWS; i++) {
-                        g_windows[i].focused = (i == win_idx);
-                    }
-                    XRaiseWindow(dpy, g_windows[win_idx].win);
-
-                    /* Drag window if clicked on top area */
-                    if (ev.xbutton.y < 40) {
-                        dragging_win_idx = win_idx;
-                        drag_start_mouse_x = ev.xbutton.x_root;
-                        drag_start_mouse_y = ev.xbutton.y_root;
-                        drag_win_orig_x = g_windows[win_idx].x;
-                        drag_win_orig_y = g_windows[win_idx].y;
+            case ConfigureNotify: {
+                client_window_t *cw = find_client_by_window(ev.xconfigure.window);
+                if (cw && ev.xconfigure.window == cw->client) {
+                    if (!cw->is_shaded && (cw->width != ev.xconfigure.width || cw->height != ev.xconfigure.height)) {
+                        cw->width = ev.xconfigure.width;
+                        cw->height = ev.xconfigure.height;
+                        XResizeWindow(dpy, cw->frame, (unsigned int)cw->width, (unsigned int)(cw->height + TITLEBAR_HEIGHT));
+                        render_titlebar(dpy, cw, gc, (cw == g_focused_client),
+                                        titlebar_bg, titlebar_unf, cyan_color, border_color,
+                                        close_btn_col, min_btn_col, max_btn_col, text_focused, text_unf);
                     }
                 }
                 break;
             }
 
-            case ButtonRelease:
-                dragging_win_idx = -1;
+            case EnterNotify:
+                /* Focus does not follow mouse; focus changes strictly on click */
+                break;
+
+            case DestroyNotify:
+            case UnmapNotify: {
+                Window w = (ev.type == DestroyNotify) ? ev.xdestroywindow.window : ev.xunmap.window;
+                client_window_t *cw = find_client_by_window(w);
+                if (cw) {
+                    Window frame = cw->frame;
+                    if (g_focused_client == cw) g_focused_client = NULL;
+                    if (g_drag_client == cw) g_drag_client = NULL;
+                    remove_client(w);
+                    XDestroyWindow(dpy, frame);
+                }
+                break;
+            }
+
+            case PropertyNotify: {
+                if (ev.xproperty.atom == XA_WM_NAME) {
+                    client_window_t *cw = find_client_by_window(ev.xproperty.window);
+                    if (cw) {
+                        char *name = NULL;
+                        if (XFetchName(dpy, cw->client, &name) && name) {
+                            strncpy(cw->title, name, sizeof(cw->title) - 1);
+                            XFree(name);
+                            render_titlebar(dpy, cw, gc, (cw == g_focused_client),
+                                            titlebar_bg, titlebar_unf, cyan_color, border_color,
+                                            close_btn_col, min_btn_col, max_btn_col, text_focused, text_unf);
+                        }
+                    }
+                }
+                break;
+            }
+
+            case Expose:
+                if (ev.xexpose.window == win_topbar && ev.xexpose.count == 0) {
+                    render_topbar(dpy, win_topbar, gc, screen_w, time(NULL),
+                                  titlebar_unf, blue_color, cyan_color, green_color,
+                                  pink_color, yellow_color, close_btn_col);
+                } else {
+                    client_window_t *cw = find_client_by_frame(ev.xexpose.window);
+                    if (cw && ev.xexpose.count == 0) {
+                        render_titlebar(dpy, cw, gc, (cw == g_focused_client),
+                                        titlebar_bg, titlebar_unf, cyan_color, border_color,
+                                        close_btn_col, min_btn_col, max_btn_col, text_focused, text_unf);
+                    }
+                }
+                break;
+
+            case ButtonPress:
+                if (ev.xbutton.window == win_topbar && ev.xbutton.button == 1) {
+                    int bx = ev.xbutton.x;
+                    if (bx >= 170 && bx < 300) {
+                        spawn_app("/bin/szponterm");
+                    } else if (bx >= 310 && bx < 430) {
+                        spawn_app("/bin/makaljer");
+                    } else if (bx >= 440 && bx < 630) {
+                        spawn_app("/bin/szpontdetected");
+                    } else if (bx >= 760 && bx < 870) {
+                        printf("[szpontdesktop] Logout clicked. Exiting session...\n");
+                        running = 0;
+                    }
+                } else {
+                    client_window_t *cw = find_client_by_frame(ev.xbutton.window);
+                    if (!cw) cw = find_client_by_window(ev.xbutton.window);
+                    if (!cw && ev.xbutton.subwindow != None) {
+                        cw = find_client_by_window(ev.xbutton.subwindow);
+                        if (!cw) cw = find_client_by_frame(ev.xbutton.subwindow);
+                    }
+
+                    if (cw) {
+                        set_focus(dpy, cw, gc, titlebar_bg, titlebar_unf, cyan_color, border_color,
+                                  close_btn_col, min_btn_col, max_btn_col, text_focused, text_unf);
+
+                        if (ev.xbutton.button == 1) {
+                            if (ev.xbutton.window == cw->frame && ev.xbutton.y < TITLEBAR_HEIGHT) {
+                                if (ev.xbutton.x >= 6 && ev.xbutton.x <= 24) {
+                                    /* Red close dot */
+                                    close_client(dpy, cw);
+                                } else if (ev.xbutton.x >= 25 && ev.xbutton.x <= 42) {
+                                    /* Yellow shade/minimize dot */
+                                    if (!cw->is_shaded) {
+                                        cw->is_shaded = true;
+                                        XUnmapWindow(dpy, cw->client);
+                                        XResizeWindow(dpy, cw->frame, (unsigned int)cw->width, TITLEBAR_HEIGHT);
+                                    } else {
+                                        cw->is_shaded = false;
+                                        XMapWindow(dpy, cw->client);
+                                        XResizeWindow(dpy, cw->frame, (unsigned int)cw->width, (unsigned int)(cw->height + TITLEBAR_HEIGHT));
+                                    }
+                                    render_titlebar(dpy, cw, gc, (cw == g_focused_client),
+                                                    titlebar_bg, titlebar_unf, cyan_color, border_color,
+                                                    close_btn_col, min_btn_col, max_btn_col, text_focused, text_unf);
+                                } else if (ev.xbutton.x >= 43 && ev.xbutton.x <= 60) {
+                                    /* Green maximize/restore dot */
+                                    if (!cw->is_maximized) {
+                                        cw->saved_x = cw->x;
+                                        cw->saved_y = cw->y;
+                                        cw->saved_width = cw->width;
+                                        cw->saved_height = cw->height;
+                                        cw->is_maximized = true;
+
+                                        int screen_h = DisplayHeight(dpy, screen);
+                                        int max_w = screen_w - (BORDER_WIDTH * 2);
+                                        int max_h = screen_h - TOPBAR_HEIGHT - (BORDER_WIDTH * 2);
+                                        cw->x = 0;
+                                        cw->y = TOPBAR_HEIGHT;
+                                        cw->width = max_w;
+                                        cw->height = max_h - TITLEBAR_HEIGHT;
+
+                                        XMoveResizeWindow(dpy, cw->frame, 0, TOPBAR_HEIGHT, (unsigned int)max_w, (unsigned int)max_h);
+                                        XMoveResizeWindow(dpy, cw->client, 0, TITLEBAR_HEIGHT, (unsigned int)cw->width, (unsigned int)cw->height);
+                                    } else {
+                                        cw->is_maximized = false;
+                                        cw->x = cw->saved_x;
+                                        cw->y = cw->saved_y;
+                                        cw->width = cw->saved_width;
+                                        cw->height = cw->saved_height;
+
+                                        XMoveResizeWindow(dpy, cw->frame, cw->x, cw->y, (unsigned int)cw->width, (unsigned int)(cw->height + TITLEBAR_HEIGHT));
+                                        XMoveResizeWindow(dpy, cw->client, 0, TITLEBAR_HEIGHT, (unsigned int)cw->width, (unsigned int)cw->height);
+                                    }
+                                    render_titlebar(dpy, cw, gc, (cw == g_focused_client),
+                                                    titlebar_bg, titlebar_unf, cyan_color, border_color,
+                                                    close_btn_col, min_btn_col, max_btn_col, text_focused, text_unf);
+                                } else {
+                                    /* Drag titlebar */
+                                    g_drag_client = cw;
+                                    g_drag_start_x = ev.xbutton.x_root;
+                                    g_drag_start_y = ev.xbutton.y_root;
+                                    g_drag_win_x = cw->x;
+                                    g_drag_win_y = cw->y;
+                                    XGrabPointer(dpy, root, False,
+                                                 ButtonReleaseMask | PointerMotionMask,
+                                                 GrabModeAsync, GrabModeAsync,
+                                                 None, None, CurrentTime);
+                                }
+                            } else if (ev.xbutton.state & Mod1Mask) {
+                                /* Alt + Left Click drag anywhere */
+                                g_drag_client = cw;
+                                g_drag_start_x = ev.xbutton.x_root;
+                                g_drag_start_y = ev.xbutton.y_root;
+                                g_drag_win_x = cw->x;
+                                g_drag_win_y = cw->y;
+                                XGrabPointer(dpy, root, False,
+                                             ButtonReleaseMask | PointerMotionMask,
+                                             GrabModeAsync, GrabModeAsync,
+                                             None, None, CurrentTime);
+                            } else {
+                                /* Click inside client window: replay pointer event to app */
+                                XAllowEvents(dpy, ReplayPointer, CurrentTime);
+                            }
+                        } else {
+                            XAllowEvents(dpy, ReplayPointer, CurrentTime);
+                        }
+                    }
+                }
                 break;
 
             case MotionNotify:
-                mouse_x = ev.xmotion.x_root;
-                mouse_y = ev.xmotion.y_root;
-                if (dragging_win_idx >= 0 && dragging_win_idx < NUM_WINDOWS) {
-                    int nx = drag_win_orig_x + (ev.xmotion.x_root - drag_start_mouse_x);
-                    int ny = drag_win_orig_y + (ev.xmotion.y_root - drag_start_mouse_y);
-                    if (ny < 36) ny = 36;
-                    g_windows[dragging_win_idx].x = nx;
-                    g_windows[dragging_win_idx].y = ny;
-                    XMoveWindow(dpy, g_windows[dragging_win_idx].win, nx, ny);
+                if (g_drag_client) {
+                    int dx = ev.xmotion.x_root - g_drag_start_x;
+                    int dy = ev.xmotion.y_root - g_drag_start_y;
+                    int new_x = g_drag_win_x + dx;
+                    int new_y = g_drag_win_y + dy;
+                    if (new_y < TOPBAR_HEIGHT) new_y = TOPBAR_HEIGHT;
+                    XMoveWindow(dpy, g_drag_client->frame, new_x, new_y);
+                    g_drag_client->x = new_x;
+                    g_drag_client->y = new_y;
+                }
+                break;
+
+            case ButtonRelease:
+                if (ev.xbutton.button == 1 && g_drag_client) {
+                    XUngrabPointer(dpy, CurrentTime);
+                    g_drag_client = NULL;
                 }
                 break;
 
             case KeyPress: {
-                KeySym ks = XLookupKeysym(&ev.xkey, 0);
-                char *ks_name = XKeysymToString(ks);
-                if (ks_name) {
-                    snprintf(last_key, sizeof(last_key), "%s (0x%lx)", ks_name, (unsigned long)ks);
-                }
-                if (ks == XK_1) {
-                    g_windows[0].mapped = true;
-                    XMapWindow(dpy, g_windows[0].win);
-                    XRaiseWindow(dpy, g_windows[0].win);
-                } else if (ks == XK_2 || ks == XK_t || ks == XK_T) {
-                    spawn_szponterm();
-                } else if (ks == XK_3) {
-                    g_windows[1].mapped = true;
-                    XMapWindow(dpy, g_windows[1].win);
-                    XRaiseWindow(dpy, g_windows[1].win);
-                } else if (ks == XK_4) {
-                    g_windows[2].mapped = true;
-                    XMapWindow(dpy, g_windows[2].win);
-                    XRaiseWindow(dpy, g_windows[2].win);
-                } else if (ks == XK_5 || ks == XK_Escape || ks == XK_q || ks == XK_Q) {
-                    printf("[szpontdesktop] User triggered Logout shortcut — Ending graphical session...\n");
-                    running = 0;
+                KeySym sym = XLookupKeysym(&ev.xkey, 0);
+                if (ev.xkey.state & (Mod1Mask | Mod4Mask)) {
+                    if (sym == XK_1 || sym == XK_t || sym == XK_T) {
+                        spawn_app("/bin/szponterm");
+                    } else if (sym == XK_2 || sym == XK_m || sym == XK_M) {
+                        spawn_app("/bin/makaljer");
+                    } else if (sym == XK_3 || sym == XK_d || sym == XK_D) {
+                        spawn_app("/bin/szpontdetected");
+                    } else if (sym == XK_4 || sym == XK_q || sym == XK_Q || sym == XK_Escape) {
+                        printf("[szpontdesktop] Logout requested via key. Exiting session...\n");
+                        running = 0;
+                    }
                 }
                 break;
             }
-
-            case DestroyNotify:
-                running = 0;
-                break;
             }
         }
 
-        if (!running) break;
-
-        /* 1. Update Clock on TopBar once per second */
+        /* Update clock once per second */
         time_t cur_time = time(NULL);
         if (cur_time != last_time) {
             last_time = cur_time;
-            render_topbar(dpy, win_topbar, gc, screen_w, cur_time);
+            render_topbar(dpy, win_topbar, gc, screen_w, cur_time,
+                          titlebar_unf, blue_color, cyan_color, green_color,
+                          pink_color, yellow_color, close_btn_col);
+            XFlush(dpy);
         }
 
-        /* 2. Update Dashboard Geometry Animation & Telemetry at 30 FPS */
-        if (g_windows[0].mapped && (frame_count % 2 == 0)) {
-            XSetForeground(dpy, gc, panel_color);
-            XFillRectangle(dpy, g_windows[0].win, gc, 415, 55, 360, 200);
+        /* Reap any terminated child processes */
+        while (waitpid(-1, NULL, WNOHANG) > 0) {}
 
-            XSetForeground(dpy, gc, fg_color);
-            char sbuf[128];
-            snprintf(sbuf, sizeof(sbuf), "Pointer: X = %4d, Y = %4d", mouse_x, mouse_y);
-            XDrawString(dpy, g_windows[0].win, gc, 430, 80, sbuf, strlen(sbuf));
-            snprintf(sbuf, sizeof(sbuf), "Registered Clicks: %d", click_count);
-            XDrawString(dpy, g_windows[0].win, gc, 430, 110, sbuf, strlen(sbuf));
-            snprintf(sbuf, sizeof(sbuf), "Last Key: %s", last_key);
-            XDrawString(dpy, g_windows[0].win, gc, 430, 140, sbuf, strlen(sbuf));
-            snprintf(sbuf, sizeof(sbuf), "Status: 60 FPS Multi-Window");
-            XDrawString(dpy, g_windows[0].win, gc, 430, 170, sbuf, strlen(sbuf));
-            snprintf(sbuf, sizeof(sbuf), "XTerm: Standalone Window (Press 'T' or Click TopBar)");
-            XDrawString(dpy, g_windows[0].win, gc, 430, 200, sbuf, strlen(sbuf));
-
-            /* Clear ONLY the animated bottom canvas */
-            XSetForeground(dpy, gc, panel_color);
-            XFillRectangle(dpy, g_windows[0].win, gc, 21, 281, 758, 258);
-
-            /* Rotating Geometric Star */
-            int star_cx = 580;
-            int star_cy = 410;
-            XPoint pts[9];
-            for (int i = 0; i < 8; i++) {
-                float a = angle + i * (3.14159265f / 4.0f);
-                float rad = (i % 2 == 0) ? 75.0f : 35.0f;
-                pts[i].x = star_cx + (short)(cosf(a) * rad);
-                pts[i].y = star_cy + (short)(sinf(a) * rad);
-            }
-            pts[8] = pts[0];
-            XSetForeground(dpy, gc, yellow_color);
-            XDrawLines(dpy, g_windows[0].win, gc, pts, 9, CoordModeOrigin);
-
-            /* Concentric Geometry */
-            int center_x = 220;
-            int center_y = 410;
-            for (int r = 16; r <= 100; r += 18) {
-                if (r % 36 == 0) XSetForeground(dpy, gc, cyan_color);
-                else if (r % 36 == 18) XSetForeground(dpy, gc, pink_color);
-                else XSetForeground(dpy, gc, green_color);
-                XDrawArc(dpy, g_windows[0].win, gc, center_x - r, center_y - r, r * 2, r * 2, 0, 360 * 64);
-            }
-
-            angle += 0.06f;
-        }
-
-        XFlush(dpy);
-        frame_count++;
-        usleep(33000); /* 33ms -> smooth 30 FPS */
+        /* Efficient sleep waiting for X11 events or next clock tick */
+        struct pollfd pfd;
+        pfd.fd = x11_fd;
+        pfd.events = POLLIN;
+        pfd.revents = 0;
+        poll(&pfd, 1, 50); /* 50ms responsive timeout */
     }
 
-    printf("[szpontdesktop] Cleaning up...\n");
-    if (img_makaljer.pixels) free(img_makaljer.pixels);
-    if (img_detected.pixels) free(img_detected.pixels);
+    printf("[szpontdesktop] Cleaning up and shutting down desktop session...\n");
+    kill(0, SIGTERM);
+    usleep(25000);
+    kill(0, SIGKILL);
+    while (waitpid(-1, NULL, WNOHANG) > 0) {}
+
     XFreeGC(dpy, gc);
-    for (int i = 0; i < NUM_WINDOWS; i++) {
-        XDestroyWindow(dpy, g_windows[i].win);
-    }
     XDestroyWindow(dpy, win_topbar);
     XCloseDisplay(dpy);
-    printf("[szpontdesktop] Exited cleanly.\n");
-
     return 0;
 }

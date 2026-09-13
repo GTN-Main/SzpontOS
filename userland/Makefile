@@ -7,22 +7,24 @@ include $(ROOT_DIR)/config.mk
 all: userland
 
 userland: skeleton init sh lib bin xserver
+	@mkdir -p $(dir $(USERLAND_STAMP))
+	@touch $(USERLAND_STAMP)
 
 skeleton:
 	@mkdir -p $(ROOTFS_DIR)/bin $(ROOTFS_DIR)/lib $(ROOTFS_DIR)/dev $(ROOTFS_DIR)/etc $(ROOTFS_DIR)/proc $(ROOTFS_DIR)/mnt
 	@if [ -d $(ROOTFS_SKELETON_DIR) ]; then cp -r $(ROOTFS_SKELETON_DIR)/* $(ROOTFS_DIR)/ 2>/dev/null || true; fi
 
-init: skeleton
+init: | skeleton
 	@$(MAKE) -j$(JOBS) -C $(ROOT_DIR)/userland/init
 
-sh: skeleton
+sh: | skeleton
 	@$(MAKE) -j$(JOBS) -C $(ROOT_DIR)/userland/sh
 
-lib: skeleton
+lib: | skeleton
 	@$(MAKE) -j$(JOBS) -C $(ROOT_DIR)/userland/lib
 
-bin: skeleton
+bin: | skeleton
 	@$(MAKE) -j$(JOBS) -C $(ROOT_DIR)/userland/bin
 
-xserver: skeleton
+xserver: | skeleton
 	@$(MAKE) -j$(JOBS) -C $(ROOT_DIR)/userland/xserver

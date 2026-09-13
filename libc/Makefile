@@ -5,6 +5,7 @@ include $(ROOT_DIR)/config.mk
 LIBC_C_SRCS := \
     $(ROOT_DIR)/libc/src/string/string.c \
     $(ROOT_DIR)/libc/src/stdlib/malloc.c \
+    $(ROOT_DIR)/libc/src/stdlib/env.c \
     $(ROOT_DIR)/libc/src/stdlib/atexit.c \
     $(ROOT_DIR)/libc/src/stdlib/init_array.c \
     $(ROOT_DIR)/libc/src/stdlib/locale.c \
@@ -134,6 +135,11 @@ $(SYSROOT_STAMP): $(LIBC_A) $(CRT0_O) $(CRTI_O) $(CRTN_O) $(LIBM_A) $(LIBDL_A) $
 	@cp -R $(ROOT_DIR)/libc/include/. $(SYSROOT_DIR)/usr/include/
 	@cp -f $(LIBC_A) $(CRT0_O) $(CRTI_O) $(CRTN_O) $(LIBM_A) $(LIBDL_A) $(SYSROOT_DIR)/usr/lib/ 2>/dev/null || true
 	@cp -f $(LIBC_SO) $(LIBM_SO) $(SYSROOT_DIR)/usr/lib/ 2>/dev/null || true
+	@$(AR) rcs $(SYSROOT_DIR)/usr/lib/libpthread.a 2>/dev/null || true
+	@ln -sf libc.so $(SYSROOT_DIR)/usr/lib/libpthread.so 2>/dev/null || true
+	@ln -sf libc.so $(ROOTFS_DIR)/lib/libpthread.so 2>/dev/null || true
+	@$(AR) rcs $(SYSROOT_DIR)/usr/lib/librt.a 2>/dev/null || true
+	@ln -sf libc.so $(SYSROOT_DIR)/usr/lib/librt.so 2>/dev/null || true
 	@cp -R $(ROOT_DIR)/third_party/xorgproto/include/. $(SYSROOT_DIR)/usr/include/ 2>/dev/null || true
 	@if [ -f $(ROOT_DIR)/third_party/xorgproto/include/X11/Xpoll.h.in ]; then \
 	    sed -e 's|@USE_FDS_BITS@|fds_bits|g' $(ROOT_DIR)/third_party/xorgproto/include/X11/Xpoll.h.in > $(SYSROOT_DIR)/usr/include/X11/Xpoll.h; \

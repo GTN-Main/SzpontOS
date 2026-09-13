@@ -5,6 +5,7 @@
 #include <kernel/string.h>
 #include <kernel/kprint.h>
 #include <kernel/panic.h>
+#include <kernel/signal.h>
 #include <sched/process.h>
 #include <sched/sched.h>
 
@@ -164,6 +165,29 @@ void isr_handler(interrupt_frame_t *frame) {
             lapic_eoi();
         }
     }
+
+    /* Check for fatal signals or zombie state when returning to Ring 3 */
+    if ((frame->cs & 3) == 3) {
+        process_t *curr_proc = sched_get_current_process();
+        if (curr_proc) {
+            if (curr_proc->status == PROCESS_ZOMBIE) {
+                process_exit(curr_proc->exit_code ? curr_proc->exit_code : 128);
+            }
+            uint32_t fatal_mask = (1U << SIGHUP) | (1U << SIGINT) | (1U << SIGQUIT) |
+                                  (1U << SIGKILL) | (1U << SIGTERM) | (1U << SIGSEGV) |
+                                  (1U << SIGILL);
+            uint32_t pending_fatal = curr_proc->pending_signals & fatal_mask & ~curr_proc->blocked_signals;
+            if (pending_fatal) {
+                for (int s = 1; s < 32; s++) {
+                    if (pending_fatal & (1U << s)) {
+                        if (curr_proc->signal_handlers[s] == SIG_DFL || s == SIGKILL) {
+                            process_exit(128 + s);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 void idt_init(void) {
@@ -183,3 +207,8 @@ void idt_init(void) {
 
     klog_info("IDT initialized with 256 interrupt vectors");
 }
+
+void idt_load_cpu(void) {
+    idt_load(&g_idtr);
+}
+
