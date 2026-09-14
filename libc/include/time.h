@@ -63,10 +63,13 @@ size_t strftime(char *s, size_t max, const char *format, const struct tm *tm);
 void tzset(void);
 clock_t clock(void);
 
+#define TIMER_ABSTIME 1
+
 int clock_gettime(clockid_t clk_id, struct timespec *tp);
 int clock_settime(clockid_t clk_id, const struct timespec *tp);
 int clock_getres(clockid_t clk_id, struct timespec *res);
 int nanosleep(const struct timespec *req, struct timespec *rem);
+int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *request, struct timespec *remain);
 
 #ifdef __cplusplus
 }

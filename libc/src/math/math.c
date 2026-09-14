@@ -799,6 +799,53 @@ double nextafter(double x, double y) {
     return ux.d;
 }
 
+float fdimf(float x, float y) {
+    if (isnan(x) || isnan(y))
+        return NAN;
+    return (x > y) ? (x - y) : 0.0f;
+}
+
+float fmaxf(float x, float y) {
+    if (isnan(x))
+        return y;
+    if (isnan(y))
+        return x;
+    return (x > y) ? x : y;
+}
+
+float fminf(float x, float y) {
+    if (isnan(x))
+        return y;
+    if (isnan(y))
+        return x;
+    return (x < y) ? x : y;
+}
+
+float fmaf(float x, float y, float z) {
+    return (x * y) + z;
+}
+
+float nextafterf(float x, float y) {
+    if (isnan(x) || isnan(y))
+        return NAN;
+    if (x == y)
+        return y;
+    union {
+        float f;
+        uint32_t u;
+    } ux = {.f = x};
+    if (x == 0.0f) {
+        ux.u = 1U;
+        return (y > 0.0f) ? ux.f : -ux.f;
+    }
+    if ((x > 0.0f) ^ (y > x)) {
+        ux.u--;
+    } else {
+        ux.u++;
+    }
+    return ux.f;
+}
+
 double nexttoward(double x, long double y) {
     return nextafter(x, (double)y);
 }

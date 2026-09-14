@@ -120,6 +120,28 @@ struct gbm_bo *gbm_bo_create_with_modifiers(struct gbm_device *gbm, uint32_t wid
     return gbm_bo_create(gbm, width, height, format, GBM_BO_USE_SCANOUT);
 }
 
+struct gbm_bo *gbm_bo_create_with_modifiers2(struct gbm_device *gbm, uint32_t width, uint32_t height,
+                                             uint32_t format, const uint64_t *modifiers,
+                                             const unsigned int count, uint32_t flags) {
+    (void)modifiers;
+    (void)count;
+    return gbm_bo_create(gbm, width, height, format, flags);
+}
+
+int gbm_bo_get_bpp(struct gbm_bo *bo) {
+    return bo ? (int)format_to_bpp(bo->format) : 0;
+}
+
+char *gbm_format_get_name(uint32_t gbm_format, struct gbm_format_name_desc *desc) {
+    if (!desc) return NULL;
+    desc->name[0] = (char)(gbm_format & 0xff);
+    desc->name[1] = (char)((gbm_format >> 8) & 0xff);
+    desc->name[2] = (char)((gbm_format >> 16) & 0xff);
+    desc->name[3] = (char)((gbm_format >> 24) & 0xff);
+    desc->name[4] = '\0';
+    return desc->name;
+}
+
 struct gbm_bo *gbm_bo_import(struct gbm_device *gbm, uint32_t type, void *buffer, uint32_t flags) {
     (void)gbm;
     (void)type;

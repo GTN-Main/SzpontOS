@@ -4,6 +4,7 @@
  */
 
 #include <pthread.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -35,6 +36,19 @@ typedef struct pthread_key_entry {
 static pthread_key_entry_t g_keys[MAX_PTHREAD_KEYS];
 static pthread_spinlock_t g_key_lock = 0;
 
+#define MAX_TLS_MODULES 64
+#define MAX_STATIC_TLS_FALLBACK 256
+
+typedef struct {
+    uintptr_t image;
+    size_t filesz;
+    size_t memsz;
+    size_t align;
+} szpont_tls_module_t;
+
+__attribute__((visibility("default"))) szpont_tls_module_t __szpont_tls_modules[MAX_TLS_MODULES] = {0};
+__attribute__((visibility("default"))) size_t __szpont_tls_mod_count = 0;
+
 typedef struct __pthread_internal {
     struct __pthread_internal *self; /* Offset 0: %fs:0 points to self! */
     pthread_t tid;
@@ -46,6 +60,12 @@ typedef struct __pthread_internal {
     void *stack_base;
     size_t stack_size;
     void *tsd[MAX_PTHREAD_KEYS];
+    char name[16];
+    int cancel_state;
+    int cancel_type;
+    int cancel_pending;
+    void *dtv[MAX_TLS_MODULES];
+    uint8_t static_tls[MAX_TLS_MODULES][MAX_STATIC_TLS_FALLBACK];
     struct __pthread_internal *next;
 } pthread_internal_t;
 
@@ -61,6 +81,9 @@ static void pthread_init_main_thread(void) {
     g_main_thread.tid = (pthread_t)getpid();
     g_main_thread.self = &g_main_thread;
     g_main_thread.clear_child_tid = (int)g_main_thread.tid;
+    strncpy(g_main_thread.name, "main", sizeof(g_main_thread.name) - 1);
+    g_main_thread.cancel_state = PTHREAD_CANCEL_ENABLE;
+    g_main_thread.cancel_type = PTHREAD_CANCEL_DEFERRED;
     g_thread_list = &g_main_thread;
 
     /* Set FS_BASE for main thread */
@@ -113,6 +136,9 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_
     t->stack_base = stack_base;
     t->stack_size = stack_size;
     t->self = t;
+    t->cancel_state = PTHREAD_CANCEL_ENABLE;
+    t->cancel_type = PTHREAD_CANCEL_DEFERRED;
+    strncpy(t->name, "worker", sizeof(t->name) - 1);
 
     /* Align stack pointer to 16 bytes */
     uintptr_t stack_top = (uintptr_t)stack_base + stack_size - 16;
@@ -158,6 +184,14 @@ void pthread_exit(void *retval) {
             void *val = self->tsd[i];
             self->tsd[i] = NULL;
             g_keys[i].destructor(val);
+        }
+    }
+
+    /* Free any dynamically allocated TLS buffers */
+    for (int i = 0; i < MAX_TLS_MODULES; i++) {
+        if (self->dtv[i] && self->dtv[i] != self->static_tls[i]) {
+            free(self->dtv[i]);
+            self->dtv[i] = NULL;
         }
     }
 
@@ -395,25 +429,48 @@ int pthread_sigmask(int how, const sigset_t *set, sigset_t *oldset) {
 }
 
 int pthread_setcancelstate(int state, int *oldstate) {
+    pthread_internal_t *self = get_current_thread();
     if (oldstate)
-        *oldstate = PTHREAD_CANCEL_ENABLE;
-    (void)state;
+        *oldstate = self->cancel_state;
+    if (state != PTHREAD_CANCEL_ENABLE && state != PTHREAD_CANCEL_DISABLE)
+        return EINVAL;
+    self->cancel_state = state;
     return 0;
 }
 
 int pthread_setcanceltype(int type, int *oldtype) {
+    pthread_internal_t *self = get_current_thread();
     if (oldtype)
-        *oldtype = PTHREAD_CANCEL_DEFERRED;
-    (void)type;
+        *oldtype = self->cancel_type;
+    if (type != PTHREAD_CANCEL_DEFERRED && type != PTHREAD_CANCEL_ASYNCHRONOUS)
+        return EINVAL;
+    self->cancel_type = type;
     return 0;
 }
 
 int pthread_cancel(pthread_t thread) {
-    (void)thread;
+    pthread_init_main_thread();
+    while (__sync_lock_test_and_set(&g_list_lock, 1)) {
+        __builtin_ia32_pause();
+    }
+    pthread_internal_t *curr = g_thread_list;
+    while (curr && curr->tid != thread) {
+        curr = curr->next;
+    }
+    __sync_lock_release(&g_list_lock);
+
+    if (!curr)
+        return ESRCH;
+
+    curr->cancel_pending = 1;
     return 0;
 }
 
 void pthread_testcancel(void) {
+    pthread_internal_t *self = get_current_thread();
+    if (self->cancel_pending && self->cancel_state == PTHREAD_CANCEL_ENABLE) {
+        pthread_exit(PTHREAD_CANCELED);
+    }
 }
 
 typedef struct {
@@ -426,5 +483,82 @@ void *__tls_get_addr(tls_index *ti) {
         pthread_init_main_thread();
     }
     pthread_internal_t *t = get_current_thread();
-    return (void *)((uintptr_t)t + (ti ? ti->ti_offset : 0));
+    if (!ti)
+        return t;
+
+    unsigned long mod = ti->ti_module;
+    if (mod >= MAX_TLS_MODULES)
+        mod = 0;
+
+    if (!t->dtv[mod]) {
+        size_t memsz = 0;
+        size_t filesz = 0;
+        uintptr_t img = 0;
+
+        if (mod < MAX_TLS_MODULES && __szpont_tls_modules[mod].memsz > 0) {
+            memsz = __szpont_tls_modules[mod].memsz;
+            filesz = __szpont_tls_modules[mod].filesz;
+            img = __szpont_tls_modules[mod].image;
+        }
+
+        size_t alloc_sz = (memsz > 0) ? memsz : 4096;
+        alloc_sz = (alloc_sz + 15) & ~15ULL;
+
+        void *block = calloc(1, alloc_sz);
+        if (!block) {
+            block = t->static_tls[mod];
+            memset(block, 0, sizeof(t->static_tls[mod]));
+        }
+
+        if (img && filesz > 0 && block) {
+            memcpy(block, (const void *)img, filesz);
+        }
+
+        t->dtv[mod] = block;
+    }
+
+    return (void *)((uintptr_t)t->dtv[mod] + ti->ti_offset);
 }
+
+int pthread_setname_np(pthread_t thread, const char *name) {
+    if (!name)
+        return EINVAL;
+    pthread_init_main_thread();
+    while (__sync_lock_test_and_set(&g_list_lock, 1)) {
+        __builtin_ia32_pause();
+    }
+    pthread_internal_t *curr = g_thread_list;
+    while (curr && curr->tid != thread) {
+        curr = curr->next;
+    }
+    __sync_lock_release(&g_list_lock);
+
+    if (!curr)
+        return ESRCH;
+
+    strncpy(curr->name, name, sizeof(curr->name) - 1);
+    curr->name[sizeof(curr->name) - 1] = '\0';
+    return 0;
+}
+
+int pthread_getname_np(pthread_t thread, char *name, size_t len) {
+    if (!name || len == 0)
+        return EINVAL;
+    pthread_init_main_thread();
+    while (__sync_lock_test_and_set(&g_list_lock, 1)) {
+        __builtin_ia32_pause();
+    }
+    pthread_internal_t *curr = g_thread_list;
+    while (curr && curr->tid != thread) {
+        curr = curr->next;
+    }
+    __sync_lock_release(&g_list_lock);
+
+    if (!curr)
+        return ESRCH;
+
+    strncpy(name, curr->name[0] ? curr->name : "thread", len - 1);
+    name[len - 1] = '\0';
+    return 0;
+}
+

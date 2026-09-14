@@ -127,3 +127,12 @@
 [submodule "third_party/xkeyboard-config"]
 	path = third_party/xkeyboard-config
 	url = https://gitlab.freedesktop.org/xkeyboard-config/xkeyboard-config.git
+[submodule "third_party/mesa"]
+	path = third_party/mesa
+	url = https://gitlab.freedesktop.org/mesa/mesa.git
+[submodule "third_party/libXxf86vm"]
+	path = third_party/libXxf86vm
+	url = https://gitlab.freedesktop.org/xorg/lib/libxxf86vm.git
+[submodule "third_party/libxshmfence"]
+	path = third_party/libxshmfence
+	url = https://gitlab.freedesktop.org/xorg/lib/libxshmfence.git

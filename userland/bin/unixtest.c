@@ -12,6 +12,7 @@
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <sys/times.h>
+#include <sys/io.h>
 #include <errno.h>
 
 static int g_tests_passed = 0;
@@ -199,6 +200,31 @@ static void test_system_and_limits(void) {
     TEST_ASSERT(prev_alarm == 0, "alarm() call succeeds");
 }
 
+static void test_priority_and_ioperm(void) {
+    printf("[*] Testing Process Priority and IOPerm...\n");
+
+    errno = 0;
+    int p = getpriority(PRIO_PROCESS, 0);
+    TEST_ASSERT(errno == 0, "getpriority(PRIO_PROCESS, 0) succeeds");
+
+    int s = setpriority(PRIO_PROCESS, 0, 5);
+    TEST_ASSERT(s == 0, "setpriority(PRIO_PROCESS, 0, 5) succeeds");
+
+    errno = 0;
+    p = getpriority(PRIO_PROCESS, 0);
+    TEST_ASSERT(errno == 0 && p == 5, "getpriority returns updated priority (5)");
+
+    s = setpriority(PRIO_PROCESS, 0, 0);
+    TEST_ASSERT(s == 0, "setpriority(PRIO_PROCESS, 0, 0) restores priority");
+
+    int io = ioperm(0x3f8, 8, 1);
+    TEST_ASSERT(io == 0, "ioperm(0x3f8, 8, 1) enables port access for root");
+
+    errno = 0;
+    int io_invalid = ioperm(0x10000, 1, 1);
+    TEST_ASSERT(io_invalid == -1 && errno == EINVAL, "ioperm out of range returns EINVAL");
+}
+
 int main(int argc, char **argv) {
     (void)argc;
     (void)argv;
@@ -215,6 +241,7 @@ int main(int argc, char **argv) {
     test_truncate_and_pread();
     test_umask();
     test_system_and_limits();
+    test_priority_and_ioperm();
 
     printf("\n====================================================\n");
     printf(" Results: %d Passed, %d Failed\n", g_tests_passed, g_tests_failed);

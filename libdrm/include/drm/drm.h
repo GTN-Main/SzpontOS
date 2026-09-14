@@ -1,3 +1,5 @@
+#ifndef _DRM_H_
+#define _DRM_H_
 #ifndef _LIBC_DRM_DRM_H
 #define _LIBC_DRM_DRM_H
 
@@ -199,3 +201,4 @@ struct drm_event_vblank {
 #include <drm/drm_mode.h>
 
 #endif /* _LIBC_DRM_DRM_H */
+#endif /* _DRM_H_ */

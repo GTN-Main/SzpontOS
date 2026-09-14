@@ -27,6 +27,10 @@ int sched_yield(void);
 int sched_get_priority_max(int policy);
 int sched_get_priority_min(int policy);
 
+static inline int sched_getcpu(void) {
+    return 0;
+}
+
 #ifdef __cplusplus
 }
 #endif

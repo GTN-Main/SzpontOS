@@ -76,7 +76,12 @@ static void elf_read_user_mem(pagemap_t *map, uintptr_t vaddr, void *dst, size_t
 }
 
 static int elf_load_segments(vfs_node_t *file, pagemap_t *map, uintptr_t base_vaddr, uintptr_t *out_memsz,
-                             Elf64_Phdr **out_phdrs, size_t *out_phnum, uintptr_t *out_dyn_vaddr) {
+                             Elf64_Phdr **out_phdrs, size_t *out_phnum, uintptr_t *out_dyn_vaddr,
+                             elf_tls_info_t *out_tls) {
+    if (!file || file->flags != VFS_TYPE_FILE || !file->ops || !file->ops->read) {
+        return -1;
+    }
+
     Elf64_Ehdr ehdr;
     if (file->ops->read(file, 0, sizeof(Elf64_Ehdr), &ehdr) != sizeof(Elf64_Ehdr)) {
         return -1;
@@ -105,6 +110,13 @@ static int elf_load_segments(vfs_node_t *file, pagemap_t *map, uintptr_t base_va
         Elf64_Phdr *p = &phdrs[i];
         if (p->p_type == PT_DYNAMIC) {
             dyn_vaddr = base_vaddr + p->p_vaddr;
+        }
+
+        if (p->p_type == PT_TLS && out_tls) {
+            out_tls->image = base_vaddr + p->p_vaddr;
+            out_tls->filesz = p->p_filesz;
+            out_tls->memsz = p->p_memsz;
+            out_tls->align = p->p_align;
         }
 
         if (p->p_type != PT_LOAD)
@@ -306,9 +318,9 @@ static inline uint32_t elf_hash(const char *name) {
     return h;
 }
 
-static uintptr_t elf_lookup_symbol_in_so(elf_loaded_so_t *so, const char *name, uint32_t h, size_t *out_size) {
-    if (!so->symtab || !so->strtab)
-        return 0;
+static Elf64_Sym *elf_find_symbol_in_so(elf_loaded_so_t *so, const char *name, uint32_t h) {
+    if (!so || !so->symtab || !so->strtab)
+        return NULL;
 
     if (so->hashtab && so->nbucket > 0) {
         uint32_t sym_idx = so->buckets[h % so->nbucket];
@@ -316,33 +328,34 @@ static uintptr_t elf_lookup_symbol_in_so(elf_loaded_so_t *so, const char *name, 
             Elf64_Sym *sym = &so->symtab[sym_idx];
             if (sym->st_name < so->str_size) {
                 const char *sym_name = so->strtab + sym->st_name;
-                if (strcmp(sym_name, name) == 0) {
-                    if (sym->st_shndx != 0) {
-                        if (out_size)
-                            *out_size = sym->st_size;
-                        return so->base_vaddr + sym->st_value;
-                    }
+                if (strcmp(sym_name, name) == 0 && sym->st_shndx != 0) {
+                    return sym;
                 }
             }
             sym_idx = so->chains[sym_idx];
         }
-        return 0;
+        return NULL;
     }
 
     for (size_t s = 0; s < so->sym_count; s++) {
         Elf64_Sym *sym = &so->symtab[s];
         if (sym->st_name < so->str_size) {
             const char *sym_name = so->strtab + sym->st_name;
-            if (strcmp(sym_name, name) == 0) {
-                if (sym->st_shndx != 0) {
-                    if (out_size)
-                        *out_size = sym->st_size;
-                    return so->base_vaddr + sym->st_value;
-                }
+            if (strcmp(sym_name, name) == 0 && sym->st_shndx != 0) {
+                return sym;
             }
         }
     }
-    return 0;
+    return NULL;
+}
+
+static uintptr_t elf_lookup_symbol_in_so(elf_loaded_so_t *so, const char *name, uint32_t h, size_t *out_size) {
+    Elf64_Sym *sym = elf_find_symbol_in_so(so, name, h);
+    if (!sym)
+        return 0;
+    if (out_size)
+        *out_size = sym->st_size;
+    return so->base_vaddr + sym->st_value;
 }
 
 static uintptr_t elf_resolve_symbol_ext(const char *name, elf_loaded_so_t *so_list, size_t so_count, size_t *out_size) {
@@ -392,6 +405,7 @@ static int elf_apply_relocations(pagemap_t *map, elf_loaded_so_t *target, elf_lo
     if (!target)
         return -1;
 
+    size_t target_idx = (size_t)(target - so_list) + 1;
     uintptr_t last_vpage = 0;
     uint8_t *last_kptr = NULL;
 
@@ -447,6 +461,57 @@ static int elf_apply_relocations(pagemap_t *map, elf_loaded_so_t *target, elf_lo
                 elf_write_user_mem(map, dest_vaddr, &val32, sizeof(uint32_t));
                 break;
             }
+            case R_X86_64_DTPMOD64: {
+                uint64_t mod_id = target_idx;
+                if (sym_idx != 0 && target->symtab && sym_idx < target->sym_count) {
+                    Elf64_Sym *sym = &target->symtab[sym_idx];
+                    if (sym->st_shndx != 0) {
+                        mod_id = target_idx;
+                    } else if (sym->st_name < target->str_size) {
+                        const char *sym_name = target->strtab + sym->st_name;
+                        uint32_t h = elf_hash(sym_name);
+                        for (size_t s = 0; s < so_count; s++) {
+                            Elf64_Sym *def_sym = elf_find_symbol_in_so(&so_list[s], sym_name, h);
+                            if (def_sym) {
+                                mod_id = s + 1;
+                                break;
+                            }
+                        }
+                    }
+                }
+                elf_write_u64_cached(map, dest_vaddr, mod_id, &last_vpage, &last_kptr);
+                break;
+            }
+            case R_X86_64_DTPOFF64: {
+                uint64_t offset = rel->r_addend;
+                if (sym_idx != 0 && target->symtab && sym_idx < target->sym_count) {
+                    Elf64_Sym *sym = &target->symtab[sym_idx];
+                    if (sym->st_shndx != 0) {
+                        offset += sym->st_value;
+                    } else if (sym->st_name < target->str_size) {
+                        const char *sym_name = target->strtab + sym->st_name;
+                        uint32_t h = elf_hash(sym_name);
+                        for (size_t s = 0; s < so_count; s++) {
+                            Elf64_Sym *def_sym = elf_find_symbol_in_so(&so_list[s], sym_name, h);
+                            if (def_sym) {
+                                offset += def_sym->st_value;
+                                break;
+                            }
+                        }
+                    }
+                }
+                elf_write_u64_cached(map, dest_vaddr, offset, &last_vpage, &last_kptr);
+                break;
+            }
+            case R_X86_64_TPOFF64: {
+                uint64_t offset = rel->r_addend;
+                if (sym_idx != 0 && target->symtab && sym_idx < target->sym_count) {
+                    Elf64_Sym *sym = &target->symtab[sym_idx];
+                    offset += sym->st_value;
+                }
+                elf_write_u64_cached(map, dest_vaddr, offset, &last_vpage, &last_kptr);
+                break;
+            }
             case R_X86_64_COPY:
                 if (sym_val && sym_size) {
                     void *tmp_buf = kmalloc(sym_size);
@@ -498,7 +563,7 @@ static int elf_apply_relocations(pagemap_t *map, elf_loaded_so_t *target, elf_lo
 
 int elf_load_binary(vfs_node_t *file, pagemap_t *map, uintptr_t *out_entry, uintptr_t *out_user_stack,
                     uintptr_t *out_brk_start) {
-    if (!file || !file->ops || !file->ops->read || !map)
+    if (!file || file->flags != VFS_TYPE_FILE || !file->ops || !file->ops->read || !map)
         return -1;
 
     Elf64_Ehdr ehdr;
@@ -513,19 +578,18 @@ int elf_load_binary(vfs_node_t *file, pagemap_t *map, uintptr_t *out_entry, uint
     Elf64_Phdr *exe_phdrs = NULL;
     size_t exe_phnum = 0;
 
-    if (elf_load_segments(file, map, exe_base, &exe_memsz, &exe_phdrs, &exe_phnum, &dyn_vaddr) != 0) {
-        klog_error("ELF: Failed to load executable segments!");
-        return -1;
-    }
-
     elf_loaded_so_t *loaded_sos = kmalloc(MAX_LOADED_SO * sizeof(elf_loaded_so_t));
     if (!loaded_sos) {
-        if (exe_phdrs)
-            kfree(exe_phdrs);
         return -1;
     }
     memset(loaded_sos, 0, MAX_LOADED_SO * sizeof(elf_loaded_so_t));
     size_t loaded_so_count = 0;
+
+    if (elf_load_segments(file, map, exe_base, &exe_memsz, &exe_phdrs, &exe_phnum, &dyn_vaddr, &loaded_sos[0].tls) != 0) {
+        klog_error("ELF: Failed to load executable segments!");
+        kfree(loaded_sos);
+        return -1;
+    }
 
     /* Register main executable in loaded_sos[0] */
     strncpy(loaded_sos[0].name, "main", sizeof(loaded_sos[0].name) - 1);
@@ -581,6 +645,14 @@ int elf_load_binary(vfs_node_t *file, pagemap_t *map, uintptr_t *out_entry, uint
                             ksnprintf(so_path, sizeof(so_path), "/usr/lib/xorg/modules/drivers/%s", so_name);
                             so_file = vfs_lookup(so_path);
                         }
+                        if (!so_file) {
+                            ksnprintf(so_path, sizeof(so_path), "/usr/lib/dri/%s", so_name);
+                            so_file = vfs_lookup(so_path);
+                        }
+                        if (!so_file) {
+                            ksnprintf(so_path, sizeof(so_path), "/lib/dri/%s", so_name);
+                            so_file = vfs_lookup(so_path);
+                        }
                         /* Fallback: if so_name contains version suffix like .so.0, strip it */
                         if (!so_file) {
                             char base_name[128];
@@ -599,15 +671,24 @@ int elf_load_binary(vfs_node_t *file, pagemap_t *map, uintptr_t *out_entry, uint
                                     ksnprintf(so_path, sizeof(so_path), "/usr/lib/xorg/modules/%s", base_name);
                                     so_file = vfs_lookup(so_path);
                                 }
+                                if (!so_file) {
+                                    ksnprintf(so_path, sizeof(so_path), "/usr/lib/dri/%s", base_name);
+                                    so_file = vfs_lookup(so_path);
+                                }
+                                if (!so_file) {
+                                    ksnprintf(so_path, sizeof(so_path), "/lib/dri/%s", base_name);
+                                    so_file = vfs_lookup(so_path);
+                                }
                             }
                         }
 
-                        if (so_file) {
+                        if (so_file && so_file->flags == VFS_TYPE_FILE) {
                             uintptr_t so_dyn_vaddr = 0;
                             uintptr_t so_memsz = 0;
 
-                            if (elf_load_segments(so_file, map, cur_so_base, &so_memsz, NULL, NULL, &so_dyn_vaddr) == 0) {
-                                elf_loaded_so_t *so_entry = &loaded_sos[loaded_so_count++];
+                            elf_loaded_so_t *so_entry = &loaded_sos[loaded_so_count];
+                            if (elf_load_segments(so_file, map, cur_so_base, &so_memsz, NULL, NULL, &so_dyn_vaddr, &so_entry->tls) == 0) {
+                                loaded_so_count++;
                                 strncpy(so_entry->name, so_name, sizeof(so_entry->name) - 1);
                                 so_entry->base_vaddr = cur_so_base;
                                 so_entry->mem_size = so_memsz;
@@ -664,6 +745,25 @@ int elf_load_binary(vfs_node_t *file, pagemap_t *map, uintptr_t *out_entry, uint
             elf_write_user_mem(map, arr_vaddr, so_inits, so_init_count * sizeof(uintptr_t));
             elf_write_user_mem(map, cnt_vaddr, &so_init_count, sizeof(size_t));
         }
+    }
+
+    /* Populate TLS module templates into libc */
+    szpont_tls_module_t tls_mods[64];
+    memset(tls_mods, 0, sizeof(tls_mods));
+    for (size_t i = 0; i < loaded_so_count && i < 63; i++) {
+        tls_mods[i + 1].image = loaded_sos[i].tls.image;
+        tls_mods[i + 1].filesz = loaded_sos[i].tls.filesz;
+        tls_mods[i + 1].memsz = loaded_sos[i].tls.memsz;
+        tls_mods[i + 1].align = loaded_sos[i].tls.align;
+    }
+    size_t tls_mod_count = loaded_so_count + 1;
+
+    size_t tls_sym_sz = 0;
+    uintptr_t tls_arr_vaddr = elf_resolve_symbol_ext("__szpont_tls_modules", loaded_sos, loaded_so_count, &tls_sym_sz);
+    uintptr_t tls_cnt_vaddr = elf_resolve_symbol_ext("__szpont_tls_mod_count", loaded_sos, loaded_so_count, &tls_sym_sz);
+    if (tls_arr_vaddr && tls_cnt_vaddr) {
+        elf_write_user_mem(map, tls_arr_vaddr, tls_mods, sizeof(tls_mods));
+        elf_write_user_mem(map, tls_cnt_vaddr, &tls_mod_count, sizeof(size_t));
     }
 
     /* Clean up temporary kernel heap buffers */

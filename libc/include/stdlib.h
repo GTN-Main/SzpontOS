@@ -22,7 +22,14 @@ void *malloc(size_t size);
 void *calloc(size_t nmemb, size_t size);
 void *realloc(void *ptr, size_t size);
 void *reallocarray(void *ptr, size_t nmemb, size_t size);
+void *aligned_alloc(size_t alignment, size_t size);
+int posix_memalign(void **memptr, size_t alignment, size_t size);
 void free(void *ptr);
+
+#ifndef alloca
+#define alloca(size) __builtin_alloca(size)
+#endif
+void *alloca(size_t size);
 
 void exit(int status) __attribute__((noreturn));
 void _Exit(int status) __attribute__((noreturn));
@@ -47,6 +54,8 @@ int rand(void);
 void srand(unsigned int seed);
 long random(void);
 void srandom(unsigned int seed);
+char *initstate(unsigned int seed, char *state, size_t n);
+char *setstate(char *state);
 
 int abs(int j);
 long labs(long j);

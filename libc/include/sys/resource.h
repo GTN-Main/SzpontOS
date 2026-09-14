@@ -58,9 +58,15 @@ struct rusage {
     long ru_nivcsw;
 };
 
+#define PRIO_PROCESS 0
+#define PRIO_PGRP    1
+#define PRIO_USER    2
+
 int getrlimit(int resource, struct rlimit *rlim);
 int setrlimit(int resource, const struct rlimit *rlim);
 int getrusage(int who, struct rusage *usage);
+int getpriority(int which, id_t who);
+int setpriority(int which, id_t who, int prio);
 
 #ifdef __cplusplus
 }

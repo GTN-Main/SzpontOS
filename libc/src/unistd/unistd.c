@@ -1096,9 +1096,47 @@ int iopl(int level) {
 }
 
 int ioperm(unsigned long from, unsigned long num, int turn_on) {
-    (void)from;
-    (void)num;
-    (void)turn_on;
-    return 0;
+    return (int)__check_syscall(__syscall3(SYS_ioperm, (int64_t)from, (int64_t)num, (int64_t)turn_on));
 }
 
+int getpriority(int which, id_t who) {
+    errno = 0;
+    int64_t ret = __syscall2(SYS_getpriority, (int64_t)which, (int64_t)who);
+    if (ret < 0) {
+        errno = (int)-ret;
+        return -1;
+    }
+    return 20 - (int)ret;
+}
+
+int setpriority(int which, id_t who, int prio) {
+    return (int)__check_syscall(__syscall3(SYS_setpriority, (int64_t)which, (int64_t)who, (int64_t)prio));
+}
+
+int inotify_init(void) {
+    return (int)__check_syscall(__syscall0(SYS_inotify_init));
+}
+
+int inotify_init1(int flags) {
+    return (int)__check_syscall(__syscall1(SYS_inotify_init1, (int64_t)flags));
+}
+
+int inotify_add_watch(int fd, const char *pathname, uint32_t mask) {
+    return (int)__check_syscall(__syscall3(SYS_inotify_add_watch, (int64_t)fd, (int64_t)pathname, (int64_t)mask));
+}
+
+int inotify_rm_watch(int fd, int wd) {
+    return (int)__check_syscall(__syscall2(SYS_inotify_rm_watch, (int64_t)fd, (int64_t)wd));
+}
+
+int eventfd(unsigned int initval, int flags) {
+    return (int)__check_syscall(__syscall2(SYS_eventfd2, (int64_t)initval, (int64_t)flags));
+}
+
+int eventfd_read(int fd, uint64_t *value) {
+    return read(fd, value, sizeof(uint64_t)) == sizeof(uint64_t) ? 0 : -1;
+}
+
+int eventfd_write(int fd, uint64_t value) {
+    return write(fd, &value, sizeof(uint64_t)) == sizeof(uint64_t) ? 0 : -1;
+}

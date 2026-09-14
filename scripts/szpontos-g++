@@ -14,7 +14,7 @@ for arg in "$@"; do
 done
 
 if [ "$has_shared" -eq 1 ]; then
-    exec x86_64-elf-gcc "${filtered_args[@]}" -nostartfiles /Users/rafal/Projects/SzpontOS/build/sysroot/usr/lib/dso_handle.o -Wl,-shared -Wl,-z,undefs
+    exec x86_64-elf-g++ "${filtered_args[@]}" -nostartfiles /Users/rafal/Projects/SzpontOS/build/sysroot/usr/lib/dso_handle.o -Wl,-shared -Wl,-z,undefs
 else
-    exec x86_64-elf-gcc "${filtered_args[@]}"
+    exec x86_64-elf-g++ "${filtered_args[@]}"
 fi

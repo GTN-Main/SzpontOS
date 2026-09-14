@@ -103,3 +103,16 @@ int pthread_condattr_destroy(pthread_condattr_t *attr) {
     (void)attr;
     return 0;
 }
+
+int pthread_condattr_setclock(pthread_condattr_t *attr, clockid_t clock_id) {
+    if (!attr) return EINVAL;
+    attr->clock = clock_id;
+    return 0;
+}
+
+int pthread_condattr_getclock(const pthread_condattr_t *attr, clockid_t *clock_id) {
+    if (!attr || !clock_id) return EINVAL;
+    *clock_id = attr->clock;
+    return 0;
+}
+

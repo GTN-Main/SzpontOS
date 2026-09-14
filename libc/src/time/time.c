@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include <sys/syscall.h>
+#include <errno.h>
 
 time_t time(time_t *tloc) {
     return (time_t)__syscall1(SYS_time, (int64_t)tloc);
@@ -36,15 +37,38 @@ int clock_settime(clockid_t clk_id, const struct timespec *tp) {
 }
 
 int clock_getres(clockid_t clk_id, struct timespec *res) {
-    if (res) {
-        res->tv_sec = 0;
-        res->tv_nsec = 10000000; /* 10ms */
-    }
-    return 0;
+    return (int)__syscall2(SYS_clock_getres, (int64_t)clk_id, (int64_t)res);
 }
 
 int nanosleep(const struct timespec *req, struct timespec *rem) {
     return (int)__syscall2(SYS_nanosleep, (int64_t)req, (int64_t)rem);
+}
+
+int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *request, struct timespec *remain) {
+    if (!request || request->tv_nsec < 0 || request->tv_nsec >= 1000000000L)
+        return EINVAL;
+    if (clock_id != CLOCK_REALTIME && clock_id != CLOCK_MONOTONIC)
+        return EINVAL;
+
+    struct timespec req = *request;
+    if (flags & TIMER_ABSTIME) {
+        struct timespec now;
+        if (clock_gettime(clock_id, &now) != 0)
+            return errno;
+        req.tv_sec = request->tv_sec - now.tv_sec;
+        req.tv_nsec = request->tv_nsec - now.tv_nsec;
+        if (req.tv_nsec < 0) {
+            req.tv_sec--;
+            req.tv_nsec += 1000000000L;
+        }
+        if (req.tv_sec < 0 || (req.tv_sec == 0 && req.tv_nsec <= 0))
+            return 0; /* time already passed */
+    }
+
+    if (nanosleep(&req, remain) != 0)
+        return errno;
+
+    return 0;
 }
 
 int ftime(struct timeb *tp) {

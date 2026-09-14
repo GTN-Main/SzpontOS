@@ -142,6 +142,92 @@ void *reallocarray(void *ptr, size_t nmemb, size_t size) {
     return realloc(ptr, nmemb * size);
 }
 
+void *aligned_alloc(size_t alignment, size_t size) {
+    if (alignment == 0 || (alignment & (alignment - 1)) != 0) {
+        errno = EINVAL;
+        return NULL;
+    }
+    if (alignment <= ALIGNMENT) {
+        return malloc(size);
+    }
+    if (size == 0)
+        size = alignment;
+    size = ALIGN_UP(size, ALIGNMENT);
+
+    /* Allocate from sbrk with padding */
+    void *cur_brk = sbrk(0);
+    if (cur_brk == (void *)-1)
+        return NULL;
+
+    uintptr_t cur = (uintptr_t)cur_brk;
+    uintptr_t target_payload = ALIGN_UP(cur + HEADER_SIZE, alignment);
+    uintptr_t target_hdr = target_payload - HEADER_SIZE;
+    size_t pad = target_hdr - cur;
+
+    if (pad > 0 && pad < HEADER_SIZE) {
+        target_payload = ALIGN_UP(cur + HEADER_SIZE * 2, alignment);
+        target_hdr = target_payload - HEADER_SIZE;
+        pad = target_hdr - cur;
+    }
+
+    if (pad > 0) {
+        /* Allocate padding as a free block */
+        void *p_pad = sbrk((intptr_t)pad);
+        if (p_pad == (void *)-1)
+            return NULL;
+        block_header_t *pad_block = (block_header_t *)p_pad;
+        pad_block->size = pad - HEADER_SIZE;
+        pad_block->is_free = 1;
+        pad_block->next = NULL;
+        pad_block->prev = NULL;
+
+        if (!g_head) {
+            g_head = pad_block;
+        } else {
+            block_header_t *last = g_head;
+            while (last->next)
+                last = last->next;
+            last->next = pad_block;
+            pad_block->prev = last;
+        }
+    }
+
+    size_t total_size = size + HEADER_SIZE;
+    void *p = sbrk((intptr_t)total_size);
+    if (p == (void *)-1)
+        return NULL;
+
+    block_header_t *new_block = (block_header_t *)p;
+    new_block->size = size;
+    new_block->is_free = 0;
+    new_block->next = NULL;
+    new_block->prev = NULL;
+
+    if (!g_head) {
+        g_head = new_block;
+    } else {
+        block_header_t *last = g_head;
+        while (last->next)
+            last = last->next;
+        last->next = new_block;
+        new_block->prev = last;
+    }
+
+    return (void *)((uintptr_t)new_block + HEADER_SIZE);
+}
+
+int posix_memalign(void **memptr, size_t alignment, size_t size) {
+    if (!memptr)
+        return EINVAL;
+    if (alignment == 0 || (alignment & (alignment - 1)) != 0 || (alignment % sizeof(void *)) != 0)
+        return EINVAL;
+    void *ptr = aligned_alloc(alignment, size);
+    if (!ptr)
+        return ENOMEM;
+    *memptr = ptr;
+    return 0;
+}
+
 void *calloc(size_t nmemb, size_t size) {
     if (nmemb > 0 && size > (size_t)-1 / nmemb) {
         errno = ENOMEM;
@@ -507,10 +593,3 @@ void srand(unsigned int seed) {
     g_rand_next = seed;
 }
 
-long random(void) {
-    return (long)rand();
-}
-
-void srandom(unsigned int seed) {
-    srand(seed);
-}

@@ -19,17 +19,27 @@ ALL_ROOTFS_SOS := \
 	$(ROOTFS_DIR)/lib/libfontenc.so \
 	$(ROOTFS_DIR)/lib/libXfont2.so \
 	$(ROOTFS_DIR)/lib/libxcvt.so \
+	$(ROOTFS_DIR)/lib/libxshmfence.so \
 	$(ROOTFS_DIR)/lib/libpciaccess.so \
 	$(ROOTFS_DIR)/lib/libICE.so \
 	$(ROOTFS_DIR)/lib/libSM.so \
 	$(ROOTFS_DIR)/lib/libXpm.so \
 	$(ROOTFS_DIR)/lib/libXext.so \
+	$(ROOTFS_DIR)/lib/libXfixes.so \
+	$(ROOTFS_DIR)/lib/libXrender.so \
+	$(ROOTFS_DIR)/lib/libXrandr.so \
+	$(ROOTFS_DIR)/lib/libXxf86vm.so \
 	$(ROOTFS_DIR)/lib/libXt.so \
 	$(ROOTFS_DIR)/lib/libXmu.so \
 	$(ROOTFS_DIR)/lib/libXaw.so \
 	$(ROOTFS_DIR)/lib/libcrypto.so \
 	$(ROOTFS_DIR)/lib/libssl.so \
-	$(ROOTFS_DIR)/lib/libcurl.so
+	$(ROOTFS_DIR)/lib/libcurl.so \
+	$(ROOTFS_DIR)/lib/libgallium-25.0.5.so \
+	$(ROOTFS_DIR)/lib/libEGL.so \
+	$(ROOTFS_DIR)/lib/libGLESv2.so \
+	$(ROOTFS_DIR)/lib/libexpat.so \
+	$(ROOTFS_DIR)/lib/dri/libdril_dri.so
 
 # ==============================================================================
 # GNU libstdc++-v3 (Out-of-tree build)
@@ -579,6 +589,28 @@ $(ROOTFS_DIR)/lib/libxcvt.so: $(wildcard third_party/libxcvt/lib/*.c) | $(SYSROO
 	@cp -f third_party/libxcvt/include/libxcvt/*.h $(SYSROOT_DIR)/usr/include/libxcvt/ 2>/dev/null || true
 
 # ==============================================================================
+# libxshmfence Target
+# ==============================================================================
+$(ROOTFS_DIR)/lib/libxshmfence.so: third_party/libxshmfence/src/xshmfence_futex.c third_party/libxshmfence/src/xshmfence_alloc.c third_party/libxshmfence/src/xshmfence.h | $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(BUILD_DIR)/third_party/libxshmfence $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11 $(SYSROOT_DIR)/usr/lib/pkgconfig
+	@echo "  [MAKE-LIBXSHMFENCE] Kompilacja libxshmfence..."
+	@$(CC) -fPIC -O2 -ffreestanding -fno-builtin -DHAVE_FUTEX=1 -DHAVE_MEMFD_CREATE=1 -DSHMDIR=\"/tmp\" -isystem $(abspath $(SYSROOT_DIR))/usr/include -Ithird_party/libxshmfence/src -c third_party/libxshmfence/src/xshmfence_futex.c -o $(BUILD_DIR)/third_party/libxshmfence/xshmfence_futex.o
+	@$(CC) -fPIC -O2 -ffreestanding -fno-builtin -DHAVE_FUTEX=1 -DHAVE_MEMFD_CREATE=1 -DSHMDIR=\"/tmp\" -isystem $(abspath $(SYSROOT_DIR))/usr/include -Ithird_party/libxshmfence/src -c third_party/libxshmfence/src/xshmfence_alloc.c -o $(BUILD_DIR)/third_party/libxshmfence/xshmfence_alloc.o
+	@$(LD) -shared -soname libxshmfence.so.1 -o $(SYSROOT_DIR)/usr/lib/libxshmfence.so.1 $(BUILD_DIR)/third_party/libxshmfence/xshmfence_futex.o $(BUILD_DIR)/third_party/libxshmfence/xshmfence_alloc.o -L$(abspath $(SYSROOT_DIR))/usr/lib -lc
+	@ln -sf libxshmfence.so.1 $(SYSROOT_DIR)/usr/lib/libxshmfence.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libxshmfence.so.1 $(ROOTFS_DIR)/lib/libxshmfence.so.1
+	@ln -sf libxshmfence.so.1 $(ROOTFS_DIR)/lib/libxshmfence.so
+	@cp -f third_party/libxshmfence/src/xshmfence.h $(SYSROOT_DIR)/usr/include/X11/xshmfence.h
+	@sed -e 's|@prefix@|/usr|g' \
+	     -e 's|@exec_prefix@|/usr|g' \
+	     -e 's|@libdir@|/usr/lib|g' \
+	     -e 's|@includedir@|/usr/include|g' \
+	     -e 's|@PACKAGE_VERSION@|1.3.2|g' \
+	     third_party/libxshmfence/xshmfence.pc.in > $(SYSROOT_DIR)/usr/lib/pkgconfig/xshmfence.pc
+
+libxshmfence: $(ROOTFS_DIR)/lib/libxshmfence.so
+
+# ==============================================================================
 # libpciaccess Target
 # ==============================================================================
 PCIACCESS_SRCS := $(addprefix third_party/libpciaccess/src/, common_bridge.c common_iterator.c common_init.c common_interface.c common_capability.c common_device_name.c common_map.c common_vgaarb.c common_io.c linux_sysfs.c linux_devmem.c)
@@ -763,6 +795,135 @@ $(ROOTFS_DIR)/lib/libXext.so: $(XEXT_OBJS) | $(ROOTFS_DIR)/lib/libX11.so $(SYSRO
 	@cp -r third_party/libXext/include/X11/extensions/* $(SYSROOT_DIR)/usr/include/X11/extensions/
 	@printf "prefix=/usr\nexec_prefix=\$${prefix}\nlibdir=\$${exec_prefix}/lib\nincludedir=\$${prefix}/include\n\nName: Xext\nDescription: Misc X Extension Library\nVersion: 1.3.6\nLibs: -L\$${libdir} -lXext\nCflags: -I\$${includedir}\n" > $(SYSROOT_DIR)/usr/lib/pkgconfig/xext.pc
 	@cp -f $(SYSROOT_DIR)/usr/lib/pkgconfig/xext.pc $(SYSROOT_DIR)/usr/share/pkgconfig/ 2>/dev/null || true
+
+# ==============================================================================
+# libXfixes Target
+# ==============================================================================
+XFIXES_SRCS := $(wildcard third_party/libXfixes/src/*.c)
+XFIXES_OBJS := $(patsubst third_party/libXfixes/src/%.c, $(BUILD_DIR)/third_party/libXfixes/%.o, $(XFIXES_SRCS))
+
+$(BUILD_DIR)/third_party/libXfixes:
+	@mkdir -p $@
+
+$(BUILD_DIR)/third_party/libXfixes/config.h: | $(BUILD_DIR)/third_party/libXfixes
+	@touch $@
+
+$(BUILD_DIR)/third_party/libXfixes/%.o: third_party/libXfixes/src/%.c | $(ROOTFS_DIR)/lib/libX11.so $(BUILD_DIR)/third_party/libXfixes/config.h $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libXfixes
+	@echo "  [CC-LIBXFIXES] $<"
+	@$(CC) -fPIC -O2 -ffreestanding -fno-builtin -DHAVE_CONFIG_H \
+	    -isystem $(abspath $(SYSROOT_DIR))/usr/include -Ithird_party/libXfixes/include \
+	    -Ithird_party/libXfixes/include/X11/extensions \
+	    -Ithird_party/libXfixes/src -I$(BUILD_DIR)/third_party/libXfixes -c $< -o $@
+
+$(ROOTFS_DIR)/lib/libXfixes.so: $(XFIXES_OBJS) | $(ROOTFS_DIR)/lib/libX11.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(BUILD_DIR)/third_party/libXfixes $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/extensions $(SYSROOT_DIR)/usr/lib/pkgconfig
+	@echo "  [LD-LIBXFIXES] $@"
+	@$(LD) -shared -soname libXfixes.so.3 -o $(SYSROOT_DIR)/usr/lib/libXfixes.so.3 $(XFIXES_OBJS) -L$(abspath $(SYSROOT_DIR))/usr/lib -lX11 -lc
+	@ln -sf libXfixes.so.3 $(SYSROOT_DIR)/usr/lib/libXfixes.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libXfixes.so.3 $(ROOTFS_DIR)/lib/libXfixes.so.3
+	@ln -sf libXfixes.so.3 $(ROOTFS_DIR)/lib/libXfixes.so
+	@mkdir -p $(SYSROOT_DIR)/usr/include/X11/extensions
+	@cp -f third_party/libXfixes/include/X11/extensions/*.h $(SYSROOT_DIR)/usr/include/X11/extensions/
+	@printf "prefix=/usr\nexec_prefix=\$${prefix}\nlibdir=\$${exec_prefix}/lib\nincludedir=\$${prefix}/include\n\nName: Xfixes\nDescription: X Fixes Library\nVersion: 6.0.1\nRequires: xproto fixesproto\nLibs: -L\$${libdir} -lXfixes\nCflags: -I\$${includedir}\n" > $(SYSROOT_DIR)/usr/lib/pkgconfig/xfixes.pc
+	@cp -f $(SYSROOT_DIR)/usr/lib/pkgconfig/xfixes.pc $(SYSROOT_DIR)/usr/share/pkgconfig/ 2>/dev/null || true
+
+libXfixes: $(ROOTFS_DIR)/lib/libXfixes.so
+
+# ==============================================================================
+# libXrender Target
+# ==============================================================================
+XRENDER_SRCS := $(wildcard third_party/libXrender/src/*.c)
+XRENDER_OBJS := $(patsubst third_party/libXrender/src/%.c, $(BUILD_DIR)/third_party/libXrender/%.o, $(XRENDER_SRCS))
+
+$(BUILD_DIR)/third_party/libXrender:
+	@mkdir -p $@
+
+$(BUILD_DIR)/third_party/libXrender/config.h: | $(BUILD_DIR)/third_party/libXrender
+	@touch $@
+
+$(BUILD_DIR)/third_party/libXrender/%.o: third_party/libXrender/src/%.c | $(ROOTFS_DIR)/lib/libX11.so $(BUILD_DIR)/third_party/libXrender/config.h $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libXrender
+	@echo "  [CC-LIBXRENDER] $<"
+	@$(CC) -fPIC -O2 -ffreestanding -fno-builtin -DHAVE_CONFIG_H \
+	    -isystem $(abspath $(SYSROOT_DIR))/usr/include -Ithird_party/libXrender/include \
+	    -Ithird_party/libXrender/include/X11/extensions \
+	    -Ithird_party/libXrender/src -I$(BUILD_DIR)/third_party/libXrender -c $< -o $@
+
+$(ROOTFS_DIR)/lib/libXrender.so: $(XRENDER_OBJS) | $(ROOTFS_DIR)/lib/libX11.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(BUILD_DIR)/third_party/libXrender $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/extensions $(SYSROOT_DIR)/usr/lib/pkgconfig
+	@echo "  [LD-LIBXRENDER] $@"
+	@$(LD) -shared -soname libXrender.so.1 -o $(SYSROOT_DIR)/usr/lib/libXrender.so.1 $(XRENDER_OBJS) -L$(abspath $(SYSROOT_DIR))/usr/lib -lX11 -lc
+	@ln -sf libXrender.so.1 $(SYSROOT_DIR)/usr/lib/libXrender.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libXrender.so.1 $(ROOTFS_DIR)/lib/libXrender.so.1
+	@ln -sf libXrender.so.1 $(ROOTFS_DIR)/lib/libXrender.so
+	@mkdir -p $(SYSROOT_DIR)/usr/include/X11/extensions
+	@cp -f third_party/libXrender/include/X11/extensions/*.h $(SYSROOT_DIR)/usr/include/X11/extensions/
+	@printf "prefix=/usr\nexec_prefix=\$${prefix}\nlibdir=\$${exec_prefix}/lib\nincludedir=\$${prefix}/include\n\nName: Xrender\nDescription: X Render Library\nVersion: 0.9.11\nRequires: xproto renderproto >= 0.9\nLibs: -L\$${libdir} -lXrender\nCflags: -I\$${includedir}\n" > $(SYSROOT_DIR)/usr/lib/pkgconfig/xrender.pc
+	@cp -f $(SYSROOT_DIR)/usr/lib/pkgconfig/xrender.pc $(SYSROOT_DIR)/usr/share/pkgconfig/ 2>/dev/null || true
+
+libXrender: $(ROOTFS_DIR)/lib/libXrender.so
+
+# ==============================================================================
+# libXrandr Target
+# ==============================================================================
+XRANDR_SRCS := $(wildcard third_party/libXrandr/src/*.c)
+XRANDR_OBJS := $(patsubst third_party/libXrandr/src/%.c, $(BUILD_DIR)/third_party/libXrandr/%.o, $(XRANDR_SRCS))
+
+$(BUILD_DIR)/third_party/libXrandr:
+	@mkdir -p $@
+
+$(BUILD_DIR)/third_party/libXrandr/config.h: | $(BUILD_DIR)/third_party/libXrandr
+	@touch $@
+
+$(BUILD_DIR)/third_party/libXrandr/%.o: third_party/libXrandr/src/%.c | $(ROOTFS_DIR)/lib/libX11.so $(ROOTFS_DIR)/lib/libXext.so $(ROOTFS_DIR)/lib/libXrender.so $(BUILD_DIR)/third_party/libXrandr/config.h $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libXrandr
+	@echo "  [CC-LIBXRANDR] $<"
+	@$(CC) -fPIC -O2 -ffreestanding -fno-builtin -DHAVE_CONFIG_H \
+	    -isystem $(abspath $(SYSROOT_DIR))/usr/include -Ithird_party/libXrandr/include \
+	    -Ithird_party/libXrandr/include/X11/extensions \
+	    -Ithird_party/libXrandr/src -I$(BUILD_DIR)/third_party/libXrandr -c $< -o $@
+
+$(ROOTFS_DIR)/lib/libXrandr.so: $(XRANDR_OBJS) | $(ROOTFS_DIR)/lib/libX11.so $(ROOTFS_DIR)/lib/libXext.so $(ROOTFS_DIR)/lib/libXrender.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(BUILD_DIR)/third_party/libXrandr $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/extensions $(SYSROOT_DIR)/usr/lib/pkgconfig
+	@echo "  [LD-LIBXRANDR] $@"
+	@$(LD) -shared -soname libXrandr.so.2 -o $(SYSROOT_DIR)/usr/lib/libXrandr.so.2 $(XRANDR_OBJS) -L$(abspath $(SYSROOT_DIR))/usr/lib -lXrender -lXext -lX11 -lc
+	@ln -sf libXrandr.so.2 $(SYSROOT_DIR)/usr/lib/libXrandr.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libXrandr.so.2 $(ROOTFS_DIR)/lib/libXrandr.so.2
+	@ln -sf libXrandr.so.2 $(ROOTFS_DIR)/lib/libXrandr.so
+	@mkdir -p $(SYSROOT_DIR)/usr/include/X11/extensions
+	@cp -f third_party/libXrandr/include/X11/extensions/*.h $(SYSROOT_DIR)/usr/include/X11/extensions/
+	@printf "prefix=/usr\nexec_prefix=\$${prefix}\nlibdir=\$${exec_prefix}/lib\nincludedir=\$${prefix}/include\n\nName: Xrandr\nDescription: X RandR Library\nVersion: 1.5.4\nRequires: xproto randrproto >= 1.5\nLibs: -L\$${libdir} -lXrandr\nCflags: -I\$${includedir}\n" > $(SYSROOT_DIR)/usr/lib/pkgconfig/xrandr.pc
+	@cp -f $(SYSROOT_DIR)/usr/lib/pkgconfig/xrandr.pc $(SYSROOT_DIR)/usr/share/pkgconfig/ 2>/dev/null || true
+
+libXrandr: $(ROOTFS_DIR)/lib/libXrandr.so
+
+# ==============================================================================
+# libXxf86vm Target
+# ==============================================================================
+XXF86VM_SRCS := third_party/libXxf86vm/src/XF86VMode.c
+XXF86VM_OBJS := $(BUILD_DIR)/third_party/libXxf86vm/XF86VMode.o
+
+$(BUILD_DIR)/third_party/libXxf86vm:
+	@mkdir -p $@
+
+$(BUILD_DIR)/third_party/libXxf86vm/XF86VMode.o: third_party/libXxf86vm/src/XF86VMode.c | $(ROOTFS_DIR)/lib/libX11.so $(ROOTFS_DIR)/lib/libXext.so $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libXxf86vm
+	@echo "  [CC-LIBXXF86VM] $<"
+	@$(CC) -fPIC -O2 -ffreestanding -fno-builtin \
+	    -isystem $(abspath $(SYSROOT_DIR))/usr/include -Ithird_party/libXxf86vm/include \
+	    -Ithird_party/libXxf86vm/include/X11/extensions \
+	    -Ithird_party/libXxf86vm/src -c $< -o $@
+
+$(ROOTFS_DIR)/lib/libXxf86vm.so: $(XXF86VM_OBJS) | $(ROOTFS_DIR)/lib/libX11.so $(ROOTFS_DIR)/lib/libXext.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(BUILD_DIR)/third_party/libXxf86vm $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/extensions $(SYSROOT_DIR)/usr/lib/pkgconfig
+	@echo "  [LD-LIBXXF86VM] $@"
+	@$(LD) -shared -soname libXxf86vm.so.1 -o $(SYSROOT_DIR)/usr/lib/libXxf86vm.so.1 $(XXF86VM_OBJS) -L$(abspath $(SYSROOT_DIR))/usr/lib -lXext -lX11 -lc
+	@ln -sf libXxf86vm.so.1 $(SYSROOT_DIR)/usr/lib/libXxf86vm.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libXxf86vm.so.1 $(ROOTFS_DIR)/lib/libXxf86vm.so.1
+	@ln -sf libXxf86vm.so.1 $(ROOTFS_DIR)/lib/libXxf86vm.so
+	@mkdir -p $(SYSROOT_DIR)/usr/include/X11/extensions
+	@cp -f third_party/libXxf86vm/include/X11/extensions/*.h $(SYSROOT_DIR)/usr/include/X11/extensions/
+	@printf "prefix=/usr\nexec_prefix=\$${prefix}\nlibdir=\$${exec_prefix}/lib\nincludedir=\$${prefix}/include\n\nName: Xxf86vm\nDescription: XFree86 Video Mode Extension Library\nVersion: 1.1.5\nRequires: xf86vidmodeproto\nRequires.private: x11 xext\nLibs: -L\$${libdir} -lXxf86vm\nCflags: -I\$${includedir}\n" > $(SYSROOT_DIR)/usr/lib/pkgconfig/xxf86vm.pc
+	@cp -f $(SYSROOT_DIR)/usr/lib/pkgconfig/xxf86vm.pc $(SYSROOT_DIR)/usr/share/pkgconfig/ 2>/dev/null || true
+
+libXxf86vm: $(ROOTFS_DIR)/lib/libXxf86vm.so
 
 # ==============================================================================
 # libXt Target
@@ -1185,6 +1346,8 @@ $(BUILD_DIR)/szpontos_cross.ini: scripts/szpontos_cross.ini | $(BUILD_DIR)
 	@sed -e 's|@ROOT_DIR@|$(abspath $(ROOT_DIR))|g' \
 	     -e 's|@SYSROOT_DIR@|$(abspath $(SYSROOT_DIR))|g' $< > $@
 
+cross-ini: $(BUILD_DIR)/szpontos_cross.ini
+
 third_party/xkbcomp/configure: third_party/xkbcomp/configure.ac
 	@echo "  [PRECONF-XKBCOMP] Generowanie configure dla xkbcomp..."
 	@cd third_party/xkbcomp && autoreconf -fi -I ../util-macros -I /opt/homebrew/share/aclocal 2>/dev/null || true
@@ -1243,7 +1406,7 @@ $(XSERVER_BUILD_DIR)/build.ninja: $(BUILD_DIR)/szpontos_cross.ini | $(ROOTFS_DIR
 	    -Dxwin=false \
 	    -Dxquartz=false \
 	    -Dglamor=false \
-	    -Dglx=false \
+	    -Dglx=true \
 	    -Ddri1=false \
 	    -Ddri2=false \
 	    -Ddri3=false \
@@ -1282,7 +1445,7 @@ $(XSERVER_BUILD_DIR)/build.ninja: $(BUILD_DIR)/szpontos_cross.ini | $(ROOTFS_DIR
 	    -Dxwin=false \
 	    -Dxquartz=false \
 	    -Dglamor=false \
-	    -Dglx=false \
+	    -Dglx=true \
 	    -Ddri1=false \
 	    -Ddri2=false \
 	    -Ddri3=false \
@@ -1376,6 +1539,92 @@ $(ROOTFS_DIR)/usr/lib/xorg/modules/input/kbd_drv.so: $(KBD_OBJS) | $(ROOTFS_DIR)
 	@cp -f $(KBD_BUILD_DIR)/kbd_drv.so $(ROOTFS_DIR)/usr/lib/xorg/modules/xlibre-25/input/
 	@cp -f $(KBD_BUILD_DIR)/kbd_drv.so $(ROOTFS_DIR)/usr/lib/xorg/modules/
 
+# ==============================================================================
+# Mesa 3D Graphics Library (Gallium softpipe / swrast / EGL / GLES2)
+# ==============================================================================
+MESA_BUILD_DIR := $(BUILD_DIR)/third_party/mesa
+MESA_CROSS_FILE := $(BUILD_DIR)/szpontos_cross.ini
+
+$(MESA_BUILD_DIR)/build.ninja: $(MESA_CROSS_FILE) | $(ROOTFS_DIR)/lib/libdrm.so $(ROOTFS_DIR)/lib/libxshmfence.so $(ROOTFS_DIR)/lib/libxcb.so $(ROOTFS_DIR)/lib/libXxf86vm.so $(LIBSTDCXX_SO) $(SYSROOT_STAMP)
+	@mkdir -p $(MESA_BUILD_DIR)
+	@echo "  [CONF-MESA] Konfiguracja Mesa 3D (meson cross-compile)..."
+	@PKG_CONFIG_PATH="$(abspath $(SYSROOT_DIR))/usr/lib/pkgconfig:$(abspath $(SYSROOT_DIR))/usr/share/pkgconfig" \
+	meson setup $(MESA_BUILD_DIR) third_party/mesa \
+	    --cross-file $(MESA_CROSS_FILE) \
+	    -Dprefix=/usr \
+	    -Dgallium-drivers=softpipe \
+	    -Dgallium-vdpau=disabled \
+	    -Dgallium-va=disabled \
+	    -Dgallium-xa=disabled \
+	    -Dplatforms=x11 \
+	    -Dglx=dri \
+	    -Dglx-direct=true \
+	    -Degl=enabled \
+	    -Dgbm=enabled \
+	    -Dgles1=disabled \
+	    -Dgles2=enabled \
+	    -Dshared-glapi=enabled \
+	    -Dllvm=disabled \
+	    -Dvalgrind=disabled \
+	    -Dlibunwind=disabled \
+	    -Dbuild-tests=false \
+	    -Db_lundef=false \
+	    -Dshader-cache=disabled \
+	    -D'vulkan-drivers=[]' \
+	    -D'vulkan-layers=[]' \
+	    -Dcpp_rtti=false --reconfigure 2>/dev/null || \
+	PKG_CONFIG_PATH="$(abspath $(SYSROOT_DIR))/usr/lib/pkgconfig:$(abspath $(SYSROOT_DIR))/usr/share/pkgconfig" \
+	meson setup $(MESA_BUILD_DIR) third_party/mesa \
+	    --cross-file $(MESA_CROSS_FILE) \
+	    -Dprefix=/usr \
+	    -Dgallium-drivers=softpipe \
+	    -Dgallium-vdpau=disabled \
+	    -Dgallium-va=disabled \
+	    -Dgallium-xa=disabled \
+	    -Dplatforms=x11 \
+	    -Dglx=dri \
+	    -Dglx-direct=true \
+	    -Degl=enabled \
+	    -Dgbm=enabled \
+	    -Dgles1=disabled \
+	    -Dgles2=enabled \
+	    -Dshared-glapi=enabled \
+	    -Dllvm=disabled \
+	    -Dvalgrind=disabled \
+	    -Dlibunwind=disabled \
+	    -Dbuild-tests=false \
+	    -Db_lundef=false \
+	    -Dshader-cache=disabled \
+	    -D'vulkan-drivers=[]' \
+	    -D'vulkan-layers=[]' \
+	    -Dcpp_rtti=false
+
+$(MESA_BUILD_DIR)/src/egl/libEGL.so.1.0.0: $(MESA_BUILD_DIR)/build.ninja
+	@echo "  [NINJA-MESA] Kompilacja Mesa 3D (ninja -j$(JOBS))..."
+	@ninja -j$(JOBS) -C $(MESA_BUILD_DIR)
+	@DESTDIR=$(abspath $(SYSROOT_DIR)) ninja -j$(JOBS) -C $(MESA_BUILD_DIR) install >/dev/null 2>&1 || true
+
+$(ROOTFS_DIR)/lib/libEGL.so: $(MESA_BUILD_DIR)/src/egl/libEGL.so.1.0.0 | $(ROOTFS_DIR)
+	@mkdir -p $(ROOTFS_DIR)/lib/dri $(ROOTFS_DIR)/lib/gbm $(ROOTFS_DIR)/usr/lib
+	@cp -a $(SYSROOT_DIR)/usr/lib/libgallium*.so* $(ROOTFS_DIR)/lib/
+	@cp -a $(SYSROOT_DIR)/usr/lib/libEGL* $(ROOTFS_DIR)/lib/
+	@cp -a $(SYSROOT_DIR)/usr/lib/libGLESv2* $(ROOTFS_DIR)/lib/
+	@cp -a $(SYSROOT_DIR)/usr/lib/libGL* $(ROOTFS_DIR)/lib/
+	@$(MAKE) -C $(ROOT_DIR)/libgbm install
+	@cp -a $(SYSROOT_DIR)/usr/lib/libexpat* $(ROOTFS_DIR)/lib/
+	@cp -a $(SYSROOT_DIR)/usr/lib/dri/* $(ROOTFS_DIR)/lib/dri/
+	@ln -sf kms_swrast_dri.so $(ROOTFS_DIR)/lib/dri/szpont-drm_dri.so
+	@ln -sf kms_swrast_dri.so $(SYSROOT_DIR)/usr/lib/dri/szpont-drm_dri.so
+	@rm -rf $(ROOTFS_DIR)/usr/lib/dri $(ROOTFS_DIR)/usr/lib/gbm
+	@ln -sf /lib/dri $(ROOTFS_DIR)/usr/lib/dri
+	@ln -sf /lib/gbm $(ROOTFS_DIR)/usr/lib/gbm
+
+$(ROOTFS_DIR)/lib/libGL.so: $(ROOTFS_DIR)/lib/libEGL.so
+$(ROOTFS_DIR)/lib/libGLESv2.so: $(ROOTFS_DIR)/lib/libEGL.so
+$(ROOTFS_DIR)/lib/libgallium-25.0.5.so: $(ROOTFS_DIR)/lib/libEGL.so
+$(ROOTFS_DIR)/lib/libexpat.so: $(ROOTFS_DIR)/lib/libEGL.so
+$(ROOTFS_DIR)/lib/dri/libdril_dri.so: $(ROOTFS_DIR)/lib/libEGL.so
+
 ALL_THIRDPARTY_OUTPUTS := \
 	$(LIBNCURSES_A) $(LIBZ_A) $(ROOTFS_DIR)/bin/nano $(ROOTFS_DIR)/bin/file $(MAGIC_DB) \
 	$(ROOTFS_DIR)/bin/zsh $(ROOTFS_DIR)/bin/fastfetch $(ROOTFS_DIR)/bin/git $(ALL_ROOTFS_SOS) \
@@ -1395,8 +1644,8 @@ third-party: $(THIRDPARTY_STAMP)
 # ==============================================================================
 .PHONY: ncurses nano file zsh fastfetch zlib git \
         libXau libXdmcp libxcb libX11 libxkbfile libfontenc libXfont2 libxcvt \
-        libpciaccess pixman libICE libSM libXpm libXext libXt libXmu libXaw \
-        xterm openssl curl openssh xkbcomp xkeyboard-config xserver mouse-drv kbd-drv
+        libpciaccess pixman libICE libSM libXpm libXext libXt libXmu libXaw libXxf86vm \
+        xterm openssl curl openssh xkbcomp xkeyboard-config xserver mouse-drv kbd-drv mesa
 
 ncurses: $(LIBNCURSES_A)
 nano: $(ROOTFS_DIR)/bin/nano
@@ -1431,4 +1680,5 @@ xkeyboard-config: $(ROOTFS_DIR)/usr/share/X11/xkb
 xserver: $(ROOTFS_DIR)/usr/bin/Xorg
 mouse-drv: $(ROOTFS_DIR)/usr/lib/xorg/modules/input/mouse_drv.so
 kbd-drv: $(ROOTFS_DIR)/usr/lib/xorg/modules/input/kbd_drv.so
+mesa: $(ROOTFS_DIR)/lib/libEGL.so
 

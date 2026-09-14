@@ -1572,6 +1572,7 @@ static int64_t sys_fork(void) {
     child->egid = parent->egid;
     child->suid = parent->suid;
     child->sgid = parent->sgid;
+    child->priority = parent->priority;
     child->umask = parent->umask;
     child->ngroups = parent->ngroups;
     memcpy(child->groups, parent->groups, sizeof(child->groups));
@@ -1671,6 +1672,9 @@ static int64_t sys_fork(void) {
 static int64_t sys_iopl(int level) {
     if (level < 0 || level > 3)
         return -1;
+    process_t *proc = sched_get_current_process();
+    if (proc && proc->euid != 0)
+        return -1; /* -EPERM */
     extern uint64_t g_current_kernel_stack;
     cpu_t *cpu = smp_current_cpu();
     uint64_t kstack = (cpu && cpu->kernel_stack) ? cpu->kernel_stack : g_current_kernel_stack;
@@ -1679,6 +1683,41 @@ static int64_t sys_iopl(int level) {
         *rflags_ptr = (*rflags_ptr & ~0x3000ULL) | ((uint64_t)(level & 3) << 12);
     }
     return 0;
+}
+
+static int64_t sys_ioperm(unsigned long from, unsigned long num, int turn_on) {
+    if (from + num > 0x10000 || from + num < from)
+        return -22; /* -EINVAL */
+
+    process_t *proc = sched_get_current_process();
+    if (proc && proc->euid != 0)
+        return -1; /* -EPERM */
+
+    extern uint64_t g_current_kernel_stack;
+    cpu_t *cpu = smp_current_cpu();
+    uint64_t kstack = (cpu && cpu->kernel_stack) ? cpu->kernel_stack : g_current_kernel_stack;
+    if (kstack) {
+        uint64_t *rflags_ptr = (uint64_t *)(kstack - 16);
+        if (turn_on) {
+            *rflags_ptr = (*rflags_ptr & ~0x3000ULL) | ((uint64_t)3 << 12); /* IOPL = 3 */
+        } else {
+            *rflags_ptr = (*rflags_ptr & ~0x3000ULL); /* IOPL = 0 */
+        }
+    }
+    return 0;
+}
+
+static int64_t sys_getpriority(int which, id_t who) {
+    int prio = 0;
+    int ret = process_getpriority(which, who, &prio);
+    if (ret < 0)
+        return ret;
+    /* POSIX/Linux convention: return 20 - nice on success so non-negative */
+    return (int64_t)(20 - prio);
+}
+
+static int64_t sys_setpriority(int which, id_t who, int prio) {
+    return process_setpriority(which, who, prio);
 }
 
 #define MAX_EXEC_ARGS 128
@@ -3121,6 +3160,10 @@ static uint64_t syscall_dispatch_inner(uint64_t sys_no, uint64_t a1, uint64_t a2
         return sys_statfs((const char *)a1, (struct statfs *)a2);
     case SYS_fstatfs:
         return sys_fstatfs((int)a1, (struct statfs *)a2);
+    case SYS_getpriority:
+        return sys_getpriority((int)a1, (id_t)a2);
+    case SYS_setpriority:
+        return sys_setpriority((int)a1, (id_t)a2, (int)a3);
     case SYS_getprocs:
         return sys_getprocs((proc_info_t *)a1, (size_t)a2);
     case SYS_sleep:
@@ -3128,6 +3171,8 @@ static uint64_t syscall_dispatch_inner(uint64_t sys_no, uint64_t a1, uint64_t a2
         return 0;
     case SYS_iopl:
         return sys_iopl((int)a1);
+    case SYS_ioperm:
+        return sys_ioperm((unsigned long)a1, (unsigned long)a2, (int)a3);
     case SYS_fork:
         return sys_fork();
     case SYS_clone:

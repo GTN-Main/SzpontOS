@@ -14,6 +14,10 @@ extern "C" {
 void __assert_fail(const char *assertion, const char *file, unsigned int line, const char *function)
     __attribute__((noreturn));
 
+#if !defined(__cplusplus) && !defined(static_assert)
+#define static_assert _Static_assert
+#endif
+
 #ifdef __cplusplus
 }
 #endif

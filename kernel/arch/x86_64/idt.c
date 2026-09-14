@@ -8,6 +8,7 @@
 #include <kernel/signal.h>
 #include <sched/process.h>
 #include <sched/sched.h>
+#include <mm/usercopy.h>
 
 struct __attribute__((packed)) idt_entry {
     uint16_t isr_low;   /* The lower 16 bits of the ISR's address */
@@ -102,9 +103,25 @@ void isr_handler(interrupt_frame_t *frame) {
             klog_error("R14: 0x%016lx  R15: 0x%016lx", frame->r14, frame->r15);
 
             if (frame->rsp >= 0x1000 && frame->rsp < 0x800000000000ULL) {
-                uint64_t *sp = (uint64_t *)frame->rsp;
-                klog_error("Stack top [RSP]: 0x%016lx  [RSP+8]: 0x%016lx", sp[0], sp[1]);
-                klog_error("Stack [RSP+16]:  0x%016lx  [RSP+24]: 0x%016lx", sp[2], sp[3]);
+                uint64_t stack_words[8];
+                if (copy_from_user(stack_words, frame->rsp, sizeof(stack_words))) {
+                    klog_error("Stack [RSP+00]: 0x%016lx  [RSP+08]: 0x%016lx", stack_words[0], stack_words[1]);
+                    klog_error("Stack [RSP+16]: 0x%016lx  [RSP+24]: 0x%016lx", stack_words[2], stack_words[3]);
+                    klog_error("Stack [RSP+32]: 0x%016lx  [RSP+40]: 0x%016lx", stack_words[4], stack_words[5]);
+                    klog_error("Stack [RSP+48]: 0x%016lx  [RSP+56]: 0x%016lx", stack_words[6], stack_words[7]);
+                }
+            }
+
+            uintptr_t cur_rbp = frame->rbp;
+            for (int depth = 0; depth < 10 && cur_rbp >= 0x1000 && cur_rbp < 0x800000000000ULL; depth++) {
+                uint64_t ret_addr = 0;
+                uint64_t next_rbp = 0;
+                if (copy_from_user(&next_rbp, cur_rbp, 8) && copy_from_user(&ret_addr, cur_rbp + 8, 8)) {
+                    klog_error("  [USER BACKTRACE #%d] RBP: 0x%016lx  RET: 0x%016lx", depth, cur_rbp, ret_addr);
+                    cur_rbp = next_rbp;
+                } else {
+                    break;
+                }
             }
             klog_error("====================================================");
 

@@ -110,12 +110,15 @@
 #define SYS_rt_sigpending 127
 #define SYS_statfs 137
 #define SYS_fstatfs 138
+#define SYS_getpriority 140
+#define SYS_setpriority 141
 #define SYS_sysctl 156
 #define SYS_arch_prctl 158
 #define SYS_setrlimit 160
 #define SYS_sync 162
 #define SYS_reboot 169
 #define SYS_iopl 172
+#define SYS_ioperm 173
 #define SYS_init_module 175
 #define SYS_delete_module 176
 #define SYS_getprocs 178

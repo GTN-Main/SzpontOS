@@ -97,9 +97,48 @@ FILE *freopen(const char *pathname, const char *mode, FILE *stream) {
     return new_f;
 }
 
+FILE *open_memstream(char **bufp, size_t *sizep) {
+    if (!bufp || !sizep) {
+        errno = EINVAL;
+        return NULL;
+    }
+
+    FILE *f = (FILE *)calloc(1, sizeof(FILE));
+    if (!f) {
+        errno = ENOMEM;
+        return NULL;
+    }
+
+    f->fd = -1;
+    f->flags = O_RDWR;
+    f->is_memstream = 1;
+    f->mem_bufp = bufp;
+    f->mem_sizep = sizep;
+    f->mem_capacity = 64;
+    f->mem_buf = (char *)malloc(f->mem_capacity);
+    if (!f->mem_buf) {
+        free(f);
+        errno = ENOMEM;
+        return NULL;
+    }
+    f->mem_buf[0] = '\0';
+    f->mem_size = 0;
+    f->mem_pos = 0;
+
+    *bufp = f->mem_buf;
+    *sizep = 0;
+
+    return f;
+}
+
 int fclose(FILE *stream) {
     if (!stream)
         return EOF;
+    if (stream->is_memstream) {
+        fflush(stream);
+        free(stream);
+        return 0;
+    }
     if (stream->fd >= 0) {
         close(stream->fd);
         stream->fd = -1;
@@ -116,6 +155,8 @@ int fclose(FILE *stream) {
 
 size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream) {
     if (!ptr || !stream || size == 0 || nmemb == 0)
+        return 0;
+    if (stream->is_memstream)
         return 0;
     size_t total_bytes = size * nmemb;
     size_t bytes_read = 0;
@@ -172,6 +213,38 @@ size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream) {
     if (!ptr || !stream || size == 0 || nmemb == 0)
         return 0;
     size_t total_bytes = size * nmemb;
+
+    if (stream->is_memstream) {
+        size_t needed = stream->mem_pos + total_bytes + 1;
+        if (needed > stream->mem_capacity) {
+            size_t new_cap = stream->mem_capacity * 2;
+            if (new_cap < needed) new_cap = needed + 64;
+            char *new_buf = (char *)realloc(stream->mem_buf, new_cap);
+            if (!new_buf) {
+                stream->error = 1;
+                errno = ENOMEM;
+                return 0;
+            }
+            if (stream->mem_pos > stream->mem_size) {
+                memset(new_buf + stream->mem_size, 0, stream->mem_pos - stream->mem_size);
+            }
+            stream->mem_buf = new_buf;
+            stream->mem_capacity = new_cap;
+        } else if (stream->mem_pos > stream->mem_size) {
+            memset(stream->mem_buf + stream->mem_size, 0, stream->mem_pos - stream->mem_size);
+        }
+
+        memcpy(stream->mem_buf + stream->mem_pos, ptr, total_bytes);
+        stream->mem_pos += total_bytes;
+        if (stream->mem_pos > stream->mem_size) {
+            stream->mem_size = stream->mem_pos;
+        }
+        stream->mem_buf[stream->mem_size] = '\0';
+        *stream->mem_bufp = stream->mem_buf;
+        *stream->mem_sizep = stream->mem_size;
+        return nmemb;
+    }
+
     size_t bytes_written = 0;
     const uint8_t *src = (const uint8_t *)ptr;
 
@@ -193,6 +266,27 @@ int fseek(FILE *stream, long offset, int whence) {
     stream->eof = 0;
     stream->buf_pos = 0;
     stream->buf_end = 0;
+
+    if (stream->is_memstream) {
+        long new_pos = 0;
+        if (whence == SEEK_SET) {
+            new_pos = offset;
+        } else if (whence == SEEK_CUR) {
+            new_pos = (long)stream->mem_pos + offset;
+        } else if (whence == SEEK_END) {
+            new_pos = (long)stream->mem_size + offset;
+        } else {
+            errno = EINVAL;
+            return -1;
+        }
+        if (new_pos < 0) {
+            errno = EINVAL;
+            return -1;
+        }
+        stream->mem_pos = (size_t)new_pos;
+        return 0;
+    }
+
     off_t ret = lseek(stream->fd, (off_t)offset, whence);
     return (ret == (off_t)-1) ? -1 : 0;
 }
@@ -200,6 +294,8 @@ int fseek(FILE *stream, long offset, int whence) {
 long ftell(FILE *stream) {
     if (!stream)
         return -1;
+    if (stream->is_memstream)
+        return (long)stream->mem_pos;
     long pos = (long)lseek(stream->fd, 0, SEEK_CUR);
     if (pos >= 0 && stream->buf && stream->buf_end > stream->buf_pos) {
         pos -= (long)(stream->buf_end - stream->buf_pos);
@@ -221,7 +317,15 @@ void rewind(FILE *stream) {
 }
 
 int fflush(FILE *stream) {
-    (void)stream;
+    if (!stream)
+        return 0;
+    if (stream->is_memstream) {
+        if (stream->mem_buf) {
+            stream->mem_buf[stream->mem_size] = '\0';
+            *stream->mem_bufp = stream->mem_buf;
+            *stream->mem_sizep = stream->mem_size;
+        }
+    }
     return 0;
 }
 
@@ -302,9 +406,8 @@ char *fgets(char *s, int size, FILE *stream) {
 int fputc(int c, FILE *stream) {
     if (!stream)
         return EOF;
-    char ch = (char)c;
-    ssize_t ret = write(stream->fd, &ch, 1);
-    return (ret == 1) ? (unsigned char)c : EOF;
+    unsigned char ch = (unsigned char)c;
+    return (fwrite(&ch, 1, 1, stream) == 1) ? (int)ch : EOF;
 }
 
 int fputs(const char *s, FILE *stream) {

@@ -74,6 +74,11 @@
 #define R_X86_64_GOTPCREL 9  /* 32 bit signed pc relative offset to GOT: G + GOT + A - P */
 #define R_X86_64_32 10       /* Direct 32 bit zero extended: S + A */
 #define R_X86_64_32S 11      /* Direct 32 bit sign extended: S + A */
+#define R_X86_64_DTPMOD64 16 /* ID of module containing symbol */
+#define R_X86_64_DTPOFF64 17 /* Offset in TLS block */
+#define R_X86_64_TPOFF64 18  /* Offset in initial TLS block */
+#define R_X86_64_DTPOFF32 21 /* Offset in TLS block 32-bit */
+#define R_X86_64_TPOFF32 23  /* Offset in initial TLS block 32-bit */
 
 #define ELF64_R_SYM(i) ((i) >> 32)
 #define ELF64_R_TYPE(i) ((i) & 0xFFFFFFFFL)
@@ -89,6 +94,8 @@
 #define STT_FUNC 2
 #define STT_SECTION 3
 #define STT_FILE 4
+#define STT_COMMON 5
+#define STT_TLS 6
 
 /* Auxiliary vector entries */
 #define AT_NULL 0
@@ -180,6 +187,20 @@ typedef struct {
     } a_un;
 } Elf64_Auxv;
 
+typedef struct elf_tls_info {
+    uintptr_t image;
+    size_t filesz;
+    size_t memsz;
+    size_t align;
+} elf_tls_info_t;
+
+typedef struct szpont_tls_module {
+    uintptr_t image;
+    size_t filesz;
+    size_t memsz;
+    size_t align;
+} szpont_tls_module_t;
+
 typedef struct elf_loaded_so {
     char name[64];
     uintptr_t base_vaddr;
@@ -203,6 +224,7 @@ typedef struct elf_loaded_so {
     uintptr_t fini_func;
     uintptr_t init_array;
     size_t init_array_sz;
+    elf_tls_info_t tls;
 } elf_loaded_so_t;
 
 int elf_load_binary(vfs_node_t *file, pagemap_t *map, uintptr_t *out_entry, uintptr_t *out_user_stack,

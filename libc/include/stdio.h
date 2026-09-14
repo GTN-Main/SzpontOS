@@ -29,6 +29,14 @@ typedef struct _FILE {
     size_t buf_end;
     int buf_mode;
     int own_buf;
+    /* Memory stream support (open_memstream) */
+    int is_memstream;
+    char **mem_bufp;
+    size_t *mem_sizep;
+    char *mem_buf;
+    size_t mem_size;
+    size_t mem_capacity;
+    size_t mem_pos;
 } FILE;
 
 #define _IOFBF 0
@@ -49,6 +57,7 @@ extern FILE *stderr;
 FILE *fopen(const char *pathname, const char *mode);
 FILE *fdopen(int fd, const char *mode);
 FILE *freopen(const char *pathname, const char *mode, FILE *stream);
+FILE *open_memstream(char **bufp, size_t *sizep);
 FILE *popen(const char *command, const char *type);
 int pclose(FILE *stream);
 int fclose(FILE *stream);

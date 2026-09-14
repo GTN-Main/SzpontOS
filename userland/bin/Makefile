@@ -77,7 +77,9 @@ CORE_PROGS := \
     $(ROOTFS_DIR)/bin/szpontdetected \
     $(ROOTFS_DIR)/bin/curltest \
     $(ROOTFS_DIR)/bin/mesadrmtest \
-    $(ROOTFS_DIR)/bin/cpptest
+    $(ROOTFS_DIR)/bin/cpptest \
+    $(ROOTFS_DIR)/bin/gltriangle \
+    $(ROOTFS_DIR)/bin/glxgears
 
 .PHONY: all progs
 
@@ -226,6 +228,30 @@ $(ROOTFS_DIR)/bin/cpptest: $(BUILD_DIR)/userland/bin/cpptest.o $(CRT0_O) $(CRTI_
 	@mkdir -p $(ROOTFS_DIR)/bin
 	@echo "  [LD]  $@"
 	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $(CRTI_O) $$($(CC) -print-file-name=crtbegin.o) $< $$($(CC) -print-file-name=crtend.o) $(CRTN_O) -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lstdc++ -lm -lc -o $@
+	@chmod +x $@
+
+# Native OpenGL / EGL smoke test linked against libEGL.so, libGLESv2.so, libm.so, libc.so
+$(BUILD_DIR)/userland/bin/gltriangle.o: $(ROOT_DIR)/userland/bin/gltriangle.c | $(SYSROOT_STAMP) $(BUILD_DIR)/userland/bin
+	@mkdir -p $(BUILD_DIR)/userland/bin
+	@echo "  [CC]  $<"
+	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/gltriangle.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -c $< -o $@
+
+$(ROOTFS_DIR)/bin/gltriangle: $(BUILD_DIR)/userland/bin/gltriangle.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/bin $(LIBC_SO) $(LIBM_SO)
+	@mkdir -p $(ROOTFS_DIR)/bin
+	@echo "  [LD]  $@"
+	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $< -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lEGL -lGLESv2 -lm -lc -Wl,--allow-shlib-undefined -o $@
+	@chmod +x $@
+
+# Native GLX Gears demo linked against libGL.so, libX11.so, libm.so, libc.so
+$(BUILD_DIR)/userland/bin/glxgears.o: $(ROOT_DIR)/userland/bin/glxgears.c | $(SYSROOT_STAMP) $(BUILD_DIR)/userland/bin
+	@mkdir -p $(BUILD_DIR)/userland/bin
+	@echo "  [CC]  $<"
+	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/glxgears.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -c $< -o $@
+
+$(ROOTFS_DIR)/bin/glxgears: $(BUILD_DIR)/userland/bin/glxgears.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/bin $(LIBC_SO) $(LIBM_SO) $(ROOTFS_DIR)/lib/libGL.so $(ROOTFS_DIR)/lib/libX11.so
+	@mkdir -p $(ROOTFS_DIR)/bin
+	@echo "  [LD]  $@"
+	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $< -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lGL -lX11 -lxcb -lm -lc -Wl,--allow-shlib-undefined -o $@
 	@chmod +x $@
 
 -include $(wildcard $(BUILD_DIR)/userland/bin/*.d)

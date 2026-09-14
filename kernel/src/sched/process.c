@@ -104,6 +104,7 @@ process_t *process_create(const char *name) {
     proc->suid = 0;
     proc->sgid = 0;
     proc->ngroups = 0;
+    proc->priority = 0;
     strncpy(proc->name, name ? name : "process", sizeof(proc->name) - 1);
     proc->status = PROCESS_ACTIVE;
     proc->pagemap = vmm_create_address_space();
@@ -565,6 +566,141 @@ int process_getgroups(size_t size, gid_t *list) {
         }
     }
     return count;
+}
+
+int process_getpriority(int which, id_t who, int *out_prio) {
+    if (!out_prio)
+        return -22; /* -EINVAL */
+
+    process_t *curr = sched_get_current_process();
+    if (!curr)
+        return -3; /* -ESRCH */
+
+    spinlock_acquire(&g_process_lock);
+
+    int best_prio = 20;
+    bool found = false;
+
+    if (which == PRIO_PROCESS) {
+        pid_t target_pid = (who == 0) ? curr->pid : (pid_t)who;
+        list_node_t *pos;
+        list_for_each(pos, &g_process_list) {
+            process_t *p = container_of(pos, process_t, proc_list_node);
+            if (p->pid == target_pid && p->status != PROCESS_DEAD) {
+                best_prio = p->priority;
+                found = true;
+                break;
+            }
+        }
+    } else if (which == PRIO_PGRP) {
+        pid_t target_pgid = (who == 0) ? curr->pgid : (pid_t)who;
+        list_node_t *pos;
+        list_for_each(pos, &g_process_list) {
+            process_t *p = container_of(pos, process_t, proc_list_node);
+            if (p->pgid == target_pgid && p->status != PROCESS_DEAD) {
+                if (p->priority < best_prio)
+                    best_prio = p->priority;
+                found = true;
+            }
+        }
+    } else if (which == PRIO_USER) {
+        uid_t target_uid = (who == 0) ? curr->uid : (uid_t)who;
+        list_node_t *pos;
+        list_for_each(pos, &g_process_list) {
+            process_t *p = container_of(pos, process_t, proc_list_node);
+            if (p->uid == target_uid && p->status != PROCESS_DEAD) {
+                if (p->priority < best_prio)
+                    best_prio = p->priority;
+                found = true;
+            }
+        }
+    } else {
+        spinlock_release(&g_process_lock);
+        return -22; /* -EINVAL */
+    }
+
+    spinlock_release(&g_process_lock);
+
+    if (!found)
+        return -3; /* -ESRCH */
+
+    *out_prio = best_prio;
+    return 0;
+}
+
+int process_setpriority(int which, id_t who, int prio) {
+    if (prio < -20) prio = -20;
+    if (prio > 19) prio = 19;
+
+    process_t *curr = sched_get_current_process();
+    if (!curr)
+        return -3; /* -ESRCH */
+
+    /* Lowering nice value (raising priority) requires superuser */
+    if (prio < 0 && curr->euid != 0)
+        return -13; /* -EACCES */
+
+    spinlock_acquire(&g_process_lock);
+
+    bool found = false;
+    bool perm_denied = false;
+
+    if (which == PRIO_PROCESS) {
+        pid_t target_pid = (who == 0) ? curr->pid : (pid_t)who;
+        list_node_t *pos;
+        list_for_each(pos, &g_process_list) {
+            process_t *p = container_of(pos, process_t, proc_list_node);
+            if (p->pid == target_pid && p->status != PROCESS_DEAD) {
+                found = true;
+                if (curr->euid == 0 || curr->euid == p->uid || curr->uid == p->uid) {
+                    p->priority = prio;
+                } else {
+                    perm_denied = true;
+                }
+                break;
+            }
+        }
+    } else if (which == PRIO_PGRP) {
+        pid_t target_pgid = (who == 0) ? curr->pgid : (pid_t)who;
+        list_node_t *pos;
+        list_for_each(pos, &g_process_list) {
+            process_t *p = container_of(pos, process_t, proc_list_node);
+            if (p->pgid == target_pgid && p->status != PROCESS_DEAD) {
+                found = true;
+                if (curr->euid == 0 || curr->euid == p->uid || curr->uid == p->uid) {
+                    p->priority = prio;
+                } else {
+                    perm_denied = true;
+                }
+            }
+        }
+    } else if (which == PRIO_USER) {
+        uid_t target_uid = (who == 0) ? curr->uid : (uid_t)who;
+        list_node_t *pos;
+        list_for_each(pos, &g_process_list) {
+            process_t *p = container_of(pos, process_t, proc_list_node);
+            if (p->uid == target_uid && p->status != PROCESS_DEAD) {
+                found = true;
+                if (curr->euid == 0 || curr->euid == p->uid || curr->uid == p->uid) {
+                    p->priority = prio;
+                } else {
+                    perm_denied = true;
+                }
+            }
+        }
+    } else {
+        spinlock_release(&g_process_lock);
+        return -22; /* -EINVAL */
+    }
+
+    spinlock_release(&g_process_lock);
+
+    if (!found)
+        return -3; /* -ESRCH */
+    if (perm_denied)
+        return -1; /* -EPERM */
+
+    return 0;
 }
 
 int process_sigaction(int sig, const struct sigaction *act, struct sigaction *oldact) {

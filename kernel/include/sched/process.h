@@ -25,6 +25,10 @@
 #define RLIMIT_MEMLOCK 8
 #define RLIMIT_AS 9
 
+#define PRIO_PROCESS 0
+#define PRIO_PGRP    1
+#define PRIO_USER    2
+
 struct rlimit_k {
     uint64_t rlim_cur;
     uint64_t rlim_max;
@@ -75,6 +79,7 @@ typedef struct process {
     } shm_mappings[32];
 
     int exit_code;
+    int priority; /* Nice value: -20 (highest) to 19 (lowest), default 0 */
     uint64_t cpu_time_ns;
     wait_queue_t wait_child;
 
@@ -127,6 +132,9 @@ pid_t process_getsid(pid_t pid);
 
 int process_setgroups(size_t size, const gid_t *list);
 int process_getgroups(size_t size, gid_t *list);
+
+int process_getpriority(int which, id_t who, int *out_prio);
+int process_setpriority(int which, id_t who, int prio);
 
 int process_sigaction(int sig, const struct sigaction *act, struct sigaction *oldact);
 int process_sigprocmask(int how, const sigset_t *set, sigset_t *oldset);

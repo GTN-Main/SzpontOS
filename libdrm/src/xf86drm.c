@@ -63,6 +63,24 @@ int drmDropMaster(int fd) {
     return ioctl(fd, DRM_IOCTL_DROP_MASTER, 0);
 }
 
+int drmGetMagic(int fd, drm_magic_t *magic) {
+    if (!magic) return -EINVAL;
+    struct drm_auth auth;
+    memset(&auth, 0, sizeof(auth));
+    int ret = ioctl(fd, DRM_IOCTL_GET_MAGIC, &auth);
+    if (ret == 0) {
+        *magic = auth.magic;
+    }
+    return ret;
+}
+
+int drmAuthMagic(int fd, drm_magic_t magic) {
+    struct drm_auth auth;
+    memset(&auth, 0, sizeof(auth));
+    auth.magic = magic;
+    return ioctl(fd, DRM_IOCTL_AUTH_MAGIC, &auth);
+}
+
 drmVersionPtr drmGetVersion(int fd) {
     struct drm_version ver;
     memset(&ver, 0, sizeof(ver));
@@ -80,6 +98,9 @@ drmVersionPtr drmGetVersion(int fd) {
     v->version_major = ver.version_major;
     v->version_minor = ver.version_minor;
     v->version_patchlevel = ver.version_patchlevel;
+    v->name_len = ver.name_len;
+    v->date_len = ver.date_len;
+    v->desc_len = ver.desc_len;
 
     if (ver.name_len > 0) {
         v->name = (char *)malloc(ver.name_len + 1);
@@ -243,6 +264,15 @@ char *drmGetRenderDeviceNameFromFd(int fd) {
     return strdup("/dev/dri/renderD128");
 }
 
+char *drmGetPrimaryDeviceNameFromFd(int fd) {
+    (void)fd;
+    return strdup("/dev/dri/card0");
+}
+
+char *drmGetDeviceNameFromFd2(int fd) {
+    return drmGetRenderDeviceNameFromFd(fd);
+}
+
 int drmGetDevice2(int fd, uint32_t flags, drmDevicePtr *device) {
     (void)fd;
     (void)flags;
@@ -262,13 +292,19 @@ int drmGetDevice2(int fd, uint32_t flags, drmDevicePtr *device) {
     dev->available_nodes = (1 << DRM_NODE_PRIMARY) | (1 << DRM_NODE_RENDER);
     dev->bustype = DRM_BUS_PCI;
 
-    dev->businfo.pci.domain = 0;
-    dev->businfo.pci.bus = 0;
-    dev->businfo.pci.dev = 1;
-    dev->businfo.pci.func = 0;
+    dev->businfo.pci = (drmPciBusInfoPtr)calloc(1, sizeof(drmPciBusInfo));
+    if (dev->businfo.pci) {
+        dev->businfo.pci->domain = 0;
+        dev->businfo.pci->bus = 0;
+        dev->businfo.pci->dev = 1;
+        dev->businfo.pci->func = 0;
+    }
 
-    dev->deviceinfo.pci.vendor_id = 0x1234;
-    dev->deviceinfo.pci.device_id = 0x1111;
+    dev->deviceinfo.pci = (drmPciDeviceInfoPtr)calloc(1, sizeof(drmPciDeviceInfo));
+    if (dev->deviceinfo.pci) {
+        dev->deviceinfo.pci->vendor_id = 0x1234;
+        dev->deviceinfo.pci->device_id = 0x1111;
+    }
 
     *device = dev;
     return 0;
@@ -286,6 +322,11 @@ int drmGetDevices2(uint32_t flags, drmDevicePtr devices[], int max_devices) {
     return 0;
 }
 
+int drmGetDeviceFromDevId(dev_t dev_id, uint32_t flags, drmDevicePtr *device) {
+    (void)dev_id;
+    return drmGetDevice2(-1, flags, device);
+}
+
 void drmFreeDevice(drmDevicePtr *device) {
     if (!device || !*device) return;
     drmDevicePtr dev = *device;
@@ -295,6 +336,8 @@ void drmFreeDevice(drmDevicePtr *device) {
         }
         free(dev->nodes);
     }
+    if (dev->businfo.pci) free(dev->businfo.pci);
+    if (dev->deviceinfo.pci) free(dev->deviceinfo.pci);
     free(dev);
     *device = NULL;
 }
@@ -309,3 +352,18 @@ void drmFreeDevices(drmDevicePtr devices[], int count) {
         }
     }
 }
+
+int drmDevicesEqual(drmDevicePtr a, drmDevicePtr b) {
+    if (a == b) return 1;
+    if (!a || !b) return 0;
+    if (a->bustype != b->bustype) return 0;
+    if (a->bustype == DRM_BUS_PCI) {
+        if (!a->businfo.pci || !b->businfo.pci) return 0;
+        return (a->businfo.pci->domain == b->businfo.pci->domain &&
+                a->businfo.pci->bus == b->businfo.pci->bus &&
+                a->businfo.pci->dev == b->businfo.pci->dev &&
+                a->businfo.pci->func == b->businfo.pci->func);
+    }
+    return 1;
+}
+

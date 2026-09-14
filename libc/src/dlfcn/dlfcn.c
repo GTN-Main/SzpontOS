@@ -86,8 +86,12 @@ typedef struct {
 #define R_X86_64_GLOB_DAT  6
 #define R_X86_64_JUMP_SLOT 7
 #define R_X86_64_RELATIVE  8
+#define R_X86_64_DTPMOD64  16
+#define R_X86_64_DTPOFF64  17
 
 #define PT_LOAD   1
+#define PT_DYNAMIC 2
+#define PT_TLS    7
 #define SHT_SYMTAB 2
 #define SHT_STRTAB 3
 #define SHT_RELA   4
@@ -455,6 +459,7 @@ void *dlopen(const char *filename, int flags) {
         }
     } else {
         const char *search_dirs[] = {
+            "/usr/lib/dri",
             "/usr/lib/xorg/modules/drivers",
             "/usr/lib/xorg/modules/input",
             "/usr/lib/xorg/modules/xlibre-25/drivers",
@@ -521,6 +526,18 @@ void *dlopen(const char *filename, int flags) {
     uintptr_t base_addr = g_next_dl_base;
     g_next_dl_base += 0x0000000010000000ULL; /* 256MB per module */
 
+typedef struct {
+    uintptr_t image;
+    size_t filesz;
+    size_t memsz;
+    size_t align;
+} szpont_tls_module_t;
+
+extern szpont_tls_module_t __szpont_tls_modules[64];
+extern size_t __szpont_tls_mod_count;
+
+    size_t dl_mod_id = 0;
+
     /* 1. Map PT_LOAD segments */
     if (ehdr.e_phoff && ehdr.e_phnum) {
         size_t phdr_size = (size_t)ehdr.e_phentsize * ehdr.e_phnum;
@@ -544,6 +561,14 @@ void *dlopen(const char *filename, int flags) {
                         if (phdrs[i].p_memsz > phdrs[i].p_filesz) {
                             memset((void *)(vaddr + phdrs[i].p_filesz), 0,
                                    phdrs[i].p_memsz - phdrs[i].p_filesz);
+                        }
+                    } else if (phdrs[i].p_type == PT_TLS) {
+                        if (__szpont_tls_mod_count < 64) {
+                            dl_mod_id = __szpont_tls_mod_count++;
+                            __szpont_tls_modules[dl_mod_id].image = base_addr + phdrs[i].p_vaddr;
+                            __szpont_tls_modules[dl_mod_id].filesz = phdrs[i].p_filesz;
+                            __szpont_tls_modules[dl_mod_id].memsz = phdrs[i].p_memsz;
+                            __szpont_tls_modules[dl_mod_id].align = phdrs[i].p_align;
                         }
                     }
                 }
@@ -676,6 +701,14 @@ void *dlopen(const char *filename, int flags) {
                 } else if (*target < base_addr && *target != 0) {
                     *target += base_addr;
                 }
+            } else if (type == R_X86_64_DTPMOD64) {
+                *target = (uint64_t)(dl_mod_id ? dl_mod_id : 1);
+            } else if (type == R_X86_64_DTPOFF64) {
+                uint64_t offset = relas[j].r_addend;
+                if (sym_idx < sym_count && symtab) {
+                    offset += symtab[sym_idx].st_value;
+                }
+                *target = offset;
             }
         }
         free(relas);

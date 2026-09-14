@@ -35,7 +35,7 @@ def optimize_rootfs(source_dir):
             if os.path.islink(full) or not os.path.isfile(full):
                 continue
             if f.endswith(".so"):
-                matches = [m for m in os.listdir(lib_dir) if m.startswith(f + ".") and not os.path.islink(os.path.join(lib_dir, m))]
+                matches = [m for m in os.listdir(lib_dir) if m.startswith(f + ".") and os.path.isfile(os.path.join(lib_dir, m)) and not os.path.islink(os.path.join(lib_dir, m)) and not m.endswith(".p")]
                 if matches:
                     target = matches[0]
                     os.remove(full)

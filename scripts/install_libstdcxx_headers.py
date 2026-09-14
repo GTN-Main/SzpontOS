@@ -303,6 +303,8 @@ static inline int __gthread_yield(void) {
 #define _GLIBCXX_HAVE_WCHAR_H 1
 #define _GLIBCXX_HAVE_WCTYPE_H 1
 #define _GLIBCXX_HAVE_PTHREAD_H 1
+#define _GLIBCXX_HAS_GTHREADS 1
+#define _GLIBCXX_HAVE_TLS 1
 #define _GLIBCXX_HAVE_FCNTL_H 1
 #define _GLIBCXX_HAVE_SYS_STAT_H 1
 #define _GLIBCXX_HAVE_SYS_TIME_H 1

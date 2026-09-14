@@ -292,6 +292,8 @@ LDFLAGS := \
 
 # Userland Compilation Flags
 USER_CFLAGS := \
+    -D__szpontos__ \
+    -D__unix__ \
     -ffreestanding \
     -fno-stack-protector \
     -fno-stack-check \
@@ -313,6 +315,8 @@ endif
 
 # Userland C++ Compilation Flags
 USER_CXXFLAGS := \
+    -D__szpontos__ \
+    -D__unix__ \
     -ffreestanding \
     -fno-stack-protector \
     -fno-stack-check \

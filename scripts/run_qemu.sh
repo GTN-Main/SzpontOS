@@ -128,7 +128,7 @@ exec $QEMU_CMD \
     -M "$MACHINE_OPT" \
     -cpu "$CPU_TYPE" \
     -smp "$SMP_CORES" \
-    -m 512M \
+    -m 1024M \
     "${VGA_FLAGS[@]}" \
     -display "$DISPLAY_OPT" \
     -cdrom "$ISO_PATH" \

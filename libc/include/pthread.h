@@ -52,6 +52,7 @@ typedef struct {
 
 typedef struct {
     int pshared;
+    clockid_t clock;
 } pthread_condattr_t;
 
 typedef struct {
@@ -94,6 +95,8 @@ pthread_t pthread_self(void);
 int pthread_equal(pthread_t t1, pthread_t t2);
 int pthread_yield(void);
 int pthread_once(pthread_once_t *once_control, void (*init_routine)(void));
+int pthread_setname_np(pthread_t thread, const char *name);
+int pthread_getname_np(pthread_t thread, char *name, size_t len);
 
 /* Attributes */
 int pthread_attr_init(pthread_attr_t *attr);
@@ -128,6 +131,8 @@ int pthread_cond_broadcast(pthread_cond_t *cond);
 
 int pthread_condattr_init(pthread_condattr_t *attr);
 int pthread_condattr_destroy(pthread_condattr_t *attr);
+int pthread_condattr_setclock(pthread_condattr_t *attr, clockid_t clock_id);
+int pthread_condattr_getclock(const pthread_condattr_t *attr, clockid_t *clock_id);
 
 /* Read-Write Locks */
 int pthread_rwlock_init(pthread_rwlock_t *rwlock, const pthread_rwlockattr_t *attr);
@@ -172,6 +177,13 @@ int pthread_setcancelstate(int state, int *oldstate);
 int pthread_setcanceltype(int type, int *oldtype);
 int pthread_cancel(pthread_t thread);
 void pthread_testcancel(void);
+
+static inline int pthread_getcpuclockid(pthread_t thread, clockid_t *clock_id) {
+    (void)thread;
+    if (clock_id)
+        *clock_id = CLOCK_THREAD_CPUTIME_ID;
+    return 0;
+}
 
 #include <signal.h>
 int pthread_sigmask(int how, const sigset_t *set, sigset_t *oldset);

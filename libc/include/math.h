@@ -32,6 +32,7 @@ extern "C" {
 #define FP_SUBNORMAL 3
 #define FP_NORMAL 4
 
+#define fpclassify(x) __builtin_fpclassify(FP_NAN, FP_INFINITE, FP_NORMAL, FP_SUBNORMAL, FP_ZERO, (x))
 #define isnan(x) __builtin_isnan(x)
 #define isinf(x) __builtin_isinf(x)
 #define isfinite(x) __builtin_isfinite(x)
@@ -148,6 +149,11 @@ long long llrintf(float x);
 float fmodf(float x, float y);
 float remainderf(float x, float y);
 float copysignf(float x, float y);
+float fdimf(float x, float y);
+float fmaxf(float x, float y);
+float fminf(float x, float y);
+float fmaf(float x, float y, float z);
+float nextafterf(float x, float y);
 float ldexpf(float x, int exp);
 float frexpf(float x, int *exp);
 float modff(float x, float *iptr);

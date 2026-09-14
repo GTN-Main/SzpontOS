@@ -5,6 +5,7 @@ include $(ROOT_DIR)/config.mk
 LIBC_C_SRCS := \
     $(ROOT_DIR)/libc/src/string/string.c \
     $(ROOT_DIR)/libc/src/stdlib/malloc.c \
+    $(ROOT_DIR)/libc/src/stdlib/random.c \
     $(ROOT_DIR)/libc/src/stdlib/env.c \
     $(ROOT_DIR)/libc/src/stdlib/atexit.c \
     $(ROOT_DIR)/libc/src/stdlib/init_array.c \

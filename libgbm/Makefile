@@ -33,6 +33,7 @@ $(LIBGBM_SO): $(LIBGBM_OBJS) | $(ROOTFS_DIR) $(SYSROOT_STAMP)
 
 install: $(LIBGBM_SO)
 	@mkdir -p $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib/pkgconfig $(SYSROOT_DIR)/usr/include
+	@rm -f $(ROOTFS_DIR)/lib/libgbm* $(SYSROOT_DIR)/usr/lib/libgbm*
 	@cp -f $(LIBGBM_SO) $(ROOTFS_DIR)/lib/libgbm.so
 	@ln -sf libgbm.so $(ROOTFS_DIR)/lib/libgbm.so.1
 	@cp -f $(LIBGBM_SO) $(SYSROOT_DIR)/usr/lib/libgbm.so
