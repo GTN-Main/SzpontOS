@@ -561,14 +561,22 @@ static int elf_apply_relocations(pagemap_t *map, elf_loaded_so_t *target, elf_lo
     return 0;
 }
 
-int elf_load_binary(vfs_node_t *file, pagemap_t *map, uintptr_t *out_entry, uintptr_t *out_user_stack,
-                    uintptr_t *out_brk_start) {
-    if (!file || file->flags != VFS_TYPE_FILE || !file->ops || !file->ops->read || !map)
+int elf_load_binary_info(vfs_node_t *file, pagemap_t *map, elf_exec_info_t *info) {
+    if (!file || file->flags != VFS_TYPE_FILE || !file->ops || !file->ops->read || !map || !info)
         return -1;
+
+    memset(info, 0, sizeof(*info));
 
     Elf64_Ehdr ehdr;
     if (file->ops->read(file, 0, sizeof(Elf64_Ehdr), &ehdr) != sizeof(Elf64_Ehdr)) {
         klog_error("ELF: Failed to read ELF header!");
+        return -1;
+    }
+
+    if (ehdr.e_ident[0] != 0x7F || ehdr.e_ident[1] != 'E' || ehdr.e_ident[2] != 'L' || ehdr.e_ident[3] != 'F') {
+        return -1;
+    }
+    if (ehdr.e_ident[4] != ELFCLASS64 || ehdr.e_machine != EM_X86_64) {
         return -1;
     }
 
@@ -577,6 +585,39 @@ int elf_load_binary(vfs_node_t *file, pagemap_t *map, uintptr_t *out_entry, uint
     uintptr_t exe_memsz = 0;
     Elf64_Phdr *exe_phdrs = NULL;
     size_t exe_phnum = 0;
+
+    /* Read program headers to check for PT_INTERP and PT_PHDR */
+    size_t phdr_size = ehdr.e_phnum * sizeof(Elf64_Phdr);
+    Elf64_Phdr *raw_phdrs = (Elf64_Phdr *)kmalloc(phdr_size);
+    if (!raw_phdrs || file->ops->read(file, ehdr.e_phoff, phdr_size, raw_phdrs) != (ssize_t)phdr_size) {
+        if (raw_phdrs)
+            kfree(raw_phdrs);
+        return -1;
+    }
+
+    uintptr_t phdr_vaddr = 0;
+    for (size_t i = 0; i < ehdr.e_phnum; i++) {
+        Elf64_Phdr *p = &raw_phdrs[i];
+        if (p->p_type == PT_INTERP) {
+            size_t path_len = p->p_filesz;
+            if (path_len > sizeof(info->interp_path) - 1)
+                path_len = sizeof(info->interp_path) - 1;
+            file->ops->read(file, p->p_offset, path_len, info->interp_path);
+            info->interp_path[path_len] = '\0';
+        } else if (p->p_type == PT_PHDR) {
+            phdr_vaddr = exe_base + p->p_vaddr;
+        }
+    }
+    kfree(raw_phdrs);
+
+    if (phdr_vaddr == 0) {
+        phdr_vaddr = exe_base + ehdr.e_phoff;
+    }
+    info->phdr_vaddr = phdr_vaddr;
+    info->phnum = ehdr.e_phnum;
+    info->phent = ehdr.e_phentsize ? ehdr.e_phentsize : sizeof(Elf64_Phdr);
+    info->base_vaddr = exe_base;
+    info->entry = exe_base + ehdr.e_entry;
 
     elf_loaded_so_t *loaded_sos = kmalloc(MAX_LOADED_SO * sizeof(elf_loaded_so_t));
     if (!loaded_sos) {
@@ -591,197 +632,240 @@ int elf_load_binary(vfs_node_t *file, pagemap_t *map, uintptr_t *out_entry, uint
         return -1;
     }
 
-    /* Register main executable in loaded_sos[0] */
-    strncpy(loaded_sos[0].name, "main", sizeof(loaded_sos[0].name) - 1);
-    loaded_sos[0].base_vaddr = exe_base;
-    loaded_sos[0].mem_size = exe_memsz;
-    loaded_sos[0].dyn_vaddr = dyn_vaddr;
-    elf_parse_dynamic(map, dyn_vaddr, exe_base, &loaded_sos[0]);
-    loaded_so_count = 1;
+    uintptr_t calculated_brk = exe_base + exe_memsz;
+    info->brk_start = (calculated_brk > 0x0000000000800000ULL) ? calculated_brk : 0x0000000000800000ULL;
 
-    /* Breadth-First-Search resolution for all DT_NEEDED dependencies */
-    uintptr_t cur_so_base = SO_BASE_START;
-    size_t so_scan_idx = 0;
+    /* If an interpreter (e.g. Alpine /lib/ld-musl-x86_64.so.1) is specified and exists, load it */
+    vfs_node_t *interp_file = NULL;
+    if (info->interp_path[0] != '\0') {
+        interp_file = vfs_lookup(info->interp_path);
+        if (!interp_file) {
+            /* Fallback: native SzpontOS binaries have linker-emitted dummy PT_INTERP, handled in-kernel */
+            info->interp_path[0] = '\0';
+        }
+    }
 
-    while (so_scan_idx < loaded_so_count) {
-        elf_loaded_so_t *cur_so = &loaded_sos[so_scan_idx++];
-        if (!cur_so->dyn_vaddr || !cur_so->strtab)
-            continue;
+    if (interp_file && interp_file->flags == VFS_TYPE_FILE) {
+        Elf64_Ehdr interp_ehdr;
+        if (interp_file->ops->read(interp_file, 0, sizeof(Elf64_Ehdr), &interp_ehdr) != sizeof(Elf64_Ehdr)) {
+            klog_error("ELF: Failed to read interpreter header!");
+            if (exe_phdrs)
+                kfree(exe_phdrs);
+            kfree(loaded_sos);
+            return -1;
+        }
 
-        Elf64_Dyn dyn;
-        uintptr_t cur = cur_so->dyn_vaddr;
+        uintptr_t interp_base = 0x0000710000000000ULL;
+        uintptr_t interp_memsz = 0;
+        if (elf_load_segments(interp_file, map, interp_base, &interp_memsz, NULL, NULL, NULL, NULL) != 0) {
+            klog_error("ELF: Failed to load interpreter segments!");
+            if (exe_phdrs)
+                kfree(exe_phdrs);
+            kfree(loaded_sos);
+            return -1;
+        }
 
-        while (1) {
-            elf_read_user_mem(map, cur, &dyn, sizeof(Elf64_Dyn));
-            if (dyn.d_tag == DT_NULL)
-                break;
+        /* For dynamic linker, AT_BASE is the interpreter's base address, and entry is interpreter entry */
+        info->base_vaddr = interp_base;
+        info->entry = interp_base + interp_ehdr.e_entry;
 
-            if (dyn.d_tag == DT_NEEDED && loaded_so_count < MAX_LOADED_SO) {
-                if (dyn.d_un.d_val < cur_so->str_size) {
-                    const char *so_name = cur_so->strtab + dyn.d_un.d_val;
+        if (exe_phdrs)
+            kfree(exe_phdrs);
+        kfree(loaded_sos);
+    } else {
+        /* Native dynamic loading for SzpontOS binaries */
+        /* Register main executable in loaded_sos[0] */
+        strncpy(loaded_sos[0].name, "main", sizeof(loaded_sos[0].name) - 1);
+        loaded_sos[0].base_vaddr = exe_base;
+        loaded_sos[0].mem_size = exe_memsz;
+        loaded_sos[0].dyn_vaddr = dyn_vaddr;
+        elf_parse_dynamic(map, dyn_vaddr, exe_base, &loaded_sos[0]);
+        loaded_so_count = 1;
 
-                    /* Check if already loaded */
-                    bool already_loaded = false;
-                    for (size_t k = 0; k < loaded_so_count; k++) {
-                        if (strcmp(loaded_sos[k].name, so_name) == 0) {
-                            already_loaded = true;
-                            break;
+        /* Breadth-First-Search resolution for all DT_NEEDED dependencies */
+        uintptr_t cur_so_base = SO_BASE_START;
+        size_t so_scan_idx = 0;
+
+        while (so_scan_idx < loaded_so_count) {
+            elf_loaded_so_t *cur_so = &loaded_sos[so_scan_idx++];
+            if (!cur_so->dyn_vaddr || !cur_so->strtab)
+                continue;
+
+            Elf64_Dyn dyn;
+            uintptr_t cur = cur_so->dyn_vaddr;
+
+            while (1) {
+                elf_read_user_mem(map, cur, &dyn, sizeof(Elf64_Dyn));
+                if (dyn.d_tag == DT_NULL)
+                    break;
+
+                if (dyn.d_tag == DT_NEEDED && loaded_so_count < MAX_LOADED_SO) {
+                    if (dyn.d_un.d_val < cur_so->str_size) {
+                        const char *so_name = cur_so->strtab + dyn.d_un.d_val;
+
+                        /* Check if already loaded */
+                        bool already_loaded = false;
+                        for (size_t k = 0; k < loaded_so_count; k++) {
+                            if (strcmp(loaded_sos[k].name, so_name) == 0) {
+                                already_loaded = true;
+                                break;
+                            }
                         }
-                    }
 
-                    if (!already_loaded) {
-                        char so_path[256];
-                        ksnprintf(so_path, sizeof(so_path), "/lib/%s", so_name);
-                        vfs_node_t *so_file = vfs_lookup(so_path);
-                        if (!so_file) {
-                            ksnprintf(so_path, sizeof(so_path), "/usr/lib/%s", so_name);
-                            so_file = vfs_lookup(so_path);
-                        }
-                        if (!so_file) {
-                            ksnprintf(so_path, sizeof(so_path), "/usr/lib/xorg/modules/%s", so_name);
-                            so_file = vfs_lookup(so_path);
-                        }
-                        if (!so_file) {
-                            ksnprintf(so_path, sizeof(so_path), "/usr/lib/xorg/modules/drivers/%s", so_name);
-                            so_file = vfs_lookup(so_path);
-                        }
-                        if (!so_file) {
-                            ksnprintf(so_path, sizeof(so_path), "/usr/lib/dri/%s", so_name);
-                            so_file = vfs_lookup(so_path);
-                        }
-                        if (!so_file) {
-                            ksnprintf(so_path, sizeof(so_path), "/lib/dri/%s", so_name);
-                            so_file = vfs_lookup(so_path);
-                        }
-                        /* Fallback: if so_name contains version suffix like .so.0, strip it */
-                        if (!so_file) {
-                            char base_name[128];
-                            strncpy(base_name, so_name, sizeof(base_name) - 1);
-                            base_name[sizeof(base_name) - 1] = '\0';
-                            char *so_pos = strstr(base_name, ".so.");
-                            if (so_pos) {
-                                *(so_pos + 3) = '\0'; /* Truncate to .so */
-                                ksnprintf(so_path, sizeof(so_path), "/lib/%s", base_name);
+                        if (!already_loaded) {
+                            char so_path[256];
+                            ksnprintf(so_path, sizeof(so_path), "/lib/%s", so_name);
+                            vfs_node_t *so_file = vfs_lookup(so_path);
+                            if (!so_file) {
+                                ksnprintf(so_path, sizeof(so_path), "/usr/lib/%s", so_name);
                                 so_file = vfs_lookup(so_path);
-                                if (!so_file) {
-                                    ksnprintf(so_path, sizeof(so_path), "/usr/lib/%s", base_name);
+                            }
+                            if (!so_file) {
+                                ksnprintf(so_path, sizeof(so_path), "/usr/lib/xorg/modules/%s", so_name);
+                                so_file = vfs_lookup(so_path);
+                            }
+                            if (!so_file) {
+                                ksnprintf(so_path, sizeof(so_path), "/usr/lib/xorg/modules/drivers/%s", so_name);
+                                so_file = vfs_lookup(so_path);
+                            }
+                            if (!so_file) {
+                                ksnprintf(so_path, sizeof(so_path), "/usr/lib/dri/%s", so_name);
+                                so_file = vfs_lookup(so_path);
+                            }
+                            if (!so_file) {
+                                ksnprintf(so_path, sizeof(so_path), "/lib/dri/%s", so_name);
+                                so_file = vfs_lookup(so_path);
+                            }
+                            /* Fallback: if so_name contains version suffix like .so.0, strip it */
+                            if (!so_file) {
+                                char base_name[128];
+                                strncpy(base_name, so_name, sizeof(base_name) - 1);
+                                base_name[sizeof(base_name) - 1] = '\0';
+                                char *so_pos = strstr(base_name, ".so.");
+                                if (so_pos) {
+                                    *(so_pos + 3) = '\0'; /* Truncate to .so */
+                                    ksnprintf(so_path, sizeof(so_path), "/lib/%s", base_name);
                                     so_file = vfs_lookup(so_path);
-                                }
-                                if (!so_file) {
-                                    ksnprintf(so_path, sizeof(so_path), "/usr/lib/xorg/modules/%s", base_name);
-                                    so_file = vfs_lookup(so_path);
-                                }
-                                if (!so_file) {
-                                    ksnprintf(so_path, sizeof(so_path), "/usr/lib/dri/%s", base_name);
-                                    so_file = vfs_lookup(so_path);
-                                }
-                                if (!so_file) {
-                                    ksnprintf(so_path, sizeof(so_path), "/lib/dri/%s", base_name);
-                                    so_file = vfs_lookup(so_path);
+                                    if (!so_file) {
+                                        ksnprintf(so_path, sizeof(so_path), "/usr/lib/%s", base_name);
+                                        so_file = vfs_lookup(so_path);
+                                    }
+                                    if (!so_file) {
+                                        ksnprintf(so_path, sizeof(so_path), "/usr/lib/xorg/modules/%s", base_name);
+                                        so_file = vfs_lookup(so_path);
+                                    }
+                                    if (!so_file) {
+                                        ksnprintf(so_path, sizeof(so_path), "/usr/lib/dri/%s", base_name);
+                                        so_file = vfs_lookup(so_path);
+                                    }
+                                    if (!so_file) {
+                                        ksnprintf(so_path, sizeof(so_path), "/lib/dri/%s", base_name);
+                                        so_file = vfs_lookup(so_path);
+                                    }
                                 }
                             }
-                        }
 
-                        if (so_file && so_file->flags == VFS_TYPE_FILE) {
-                            uintptr_t so_dyn_vaddr = 0;
-                            uintptr_t so_memsz = 0;
+                            if (so_file && so_file->flags == VFS_TYPE_FILE) {
+                                uintptr_t so_dyn_vaddr = 0;
+                                uintptr_t so_memsz = 0;
 
-                            elf_loaded_so_t *so_entry = &loaded_sos[loaded_so_count];
-                            if (elf_load_segments(so_file, map, cur_so_base, &so_memsz, NULL, NULL, &so_dyn_vaddr, &so_entry->tls) == 0) {
-                                loaded_so_count++;
-                                strncpy(so_entry->name, so_name, sizeof(so_entry->name) - 1);
-                                so_entry->base_vaddr = cur_so_base;
-                                so_entry->mem_size = so_memsz;
-                                so_entry->dyn_vaddr = so_dyn_vaddr;
+                                elf_loaded_so_t *so_entry = &loaded_sos[loaded_so_count];
+                                if (elf_load_segments(so_file, map, cur_so_base, &so_memsz, NULL, NULL, &so_dyn_vaddr, &so_entry->tls) == 0) {
+                                    loaded_so_count++;
+                                    strncpy(so_entry->name, so_name, sizeof(so_entry->name) - 1);
+                                    so_entry->base_vaddr = cur_so_base;
+                                    so_entry->mem_size = so_memsz;
+                                    so_entry->dyn_vaddr = so_dyn_vaddr;
 
-                                elf_parse_dynamic(map, so_dyn_vaddr, cur_so_base, so_entry);
-                                cur_so_base = ALIGN_UP(cur_so_base + so_memsz + PAGE_SIZE, 0x200000); /* 2MB alignment */
+                                    elf_parse_dynamic(map, so_dyn_vaddr, cur_so_base, so_entry);
+                                    cur_so_base = ALIGN_UP(cur_so_base + so_memsz + PAGE_SIZE, 0x200000); /* 2MB alignment */
+                                } else {
+                                    klog_error("ELF: Failed to load shared library '%s'!", so_path);
+                                }
                             } else {
-                                klog_error("ELF: Failed to load shared library '%s'!", so_path);
+                                klog_warn("ELF: Shared library '%s' not found in /lib or /usr/lib!", so_name);
                             }
-                        } else {
-                            klog_warn("ELF: Shared library '%s' not found in /lib or /usr/lib!", so_name);
                         }
                     }
                 }
+                cur += sizeof(Elf64_Dyn);
             }
-            cur += sizeof(Elf64_Dyn);
         }
-    }
 
-    /* Apply relocations to all loaded shared libraries in reverse order (dependencies first) */
-    for (int i = (int)loaded_so_count - 1; i >= 1; i--) {
-        elf_apply_relocations(map, &loaded_sos[i], loaded_sos, loaded_so_count);
-    }
-    /* Finally apply relocations to main executable */
-    elf_apply_relocations(map, &loaded_sos[0], loaded_sos, loaded_so_count);
-
-    /* Populate shared library constructors into libc */
-    uintptr_t so_inits[64];
-    size_t so_init_count = 0;
-
-    for (int i = (int)loaded_so_count - 1; i >= 1; i--) {
-        elf_loaded_so_t *cur_so = &loaded_sos[i];
-        if (cur_so->init_func && so_init_count < 64) {
-            so_inits[so_init_count++] = cur_so->init_func;
+        /* Apply relocations to all loaded shared libraries in reverse order (dependencies first) */
+        for (int i = (int)loaded_so_count - 1; i >= 1; i--) {
+            elf_apply_relocations(map, &loaded_sos[i], loaded_sos, loaded_so_count);
         }
-        if (cur_so->init_array && cur_so->init_array_sz > 0) {
-            size_t num_ptrs = cur_so->init_array_sz / sizeof(uintptr_t);
-            for (size_t p = 0; p < num_ptrs && so_init_count < 64; p++) {
-                uintptr_t fn_ptr = 0;
-                elf_read_user_mem(map, cur_so->init_array + p * sizeof(uintptr_t), &fn_ptr, sizeof(uintptr_t));
-                if (fn_ptr) {
-                    so_inits[so_init_count++] = fn_ptr;
+        /* Finally apply relocations to main executable */
+        elf_apply_relocations(map, &loaded_sos[0], loaded_sos, loaded_so_count);
+
+        /* Populate shared library constructors into libc */
+        uintptr_t so_inits[64];
+        size_t so_init_count = 0;
+
+        for (int i = (int)loaded_so_count - 1; i >= 1; i--) {
+            elf_loaded_so_t *cur_so = &loaded_sos[i];
+            if (cur_so->init_func && so_init_count < 64) {
+                so_inits[so_init_count++] = cur_so->init_func;
+            }
+            if (cur_so->init_array && cur_so->init_array_sz > 0) {
+                size_t num_ptrs = cur_so->init_array_sz / sizeof(uintptr_t);
+                for (size_t p = 0; p < num_ptrs && so_init_count < 64; p++) {
+                    uintptr_t fn_ptr = 0;
+                    elf_read_user_mem(map, cur_so->init_array + p * sizeof(uintptr_t), &fn_ptr, sizeof(uintptr_t));
+                    if (fn_ptr) {
+                        so_inits[so_init_count++] = fn_ptr;
+                    }
                 }
             }
         }
-    }
 
-    if (so_init_count > 0) {
-        size_t sym_sz = 0;
-        uintptr_t arr_vaddr = elf_resolve_symbol_ext("__szpont_so_init_array", loaded_sos, loaded_so_count, &sym_sz);
-        uintptr_t cnt_vaddr = elf_resolve_symbol_ext("__szpont_so_init_count", loaded_sos, loaded_so_count, &sym_sz);
-        if (arr_vaddr && cnt_vaddr) {
-            elf_write_user_mem(map, arr_vaddr, so_inits, so_init_count * sizeof(uintptr_t));
-            elf_write_user_mem(map, cnt_vaddr, &so_init_count, sizeof(size_t));
+        if (so_init_count > 0) {
+            size_t sym_sz = 0;
+            uintptr_t arr_vaddr = elf_resolve_symbol_ext("__szpont_so_init_array", loaded_sos, loaded_so_count, &sym_sz);
+            uintptr_t cnt_vaddr = elf_resolve_symbol_ext("__szpont_so_init_count", loaded_sos, loaded_so_count, &sym_sz);
+            if (arr_vaddr && cnt_vaddr) {
+                elf_write_user_mem(map, arr_vaddr, so_inits, so_init_count * sizeof(uintptr_t));
+                elf_write_user_mem(map, cnt_vaddr, &so_init_count, sizeof(size_t));
+            }
         }
-    }
 
-    /* Populate TLS module templates into libc */
-    szpont_tls_module_t tls_mods[64];
-    memset(tls_mods, 0, sizeof(tls_mods));
-    for (size_t i = 0; i < loaded_so_count && i < 63; i++) {
-        tls_mods[i + 1].image = loaded_sos[i].tls.image;
-        tls_mods[i + 1].filesz = loaded_sos[i].tls.filesz;
-        tls_mods[i + 1].memsz = loaded_sos[i].tls.memsz;
-        tls_mods[i + 1].align = loaded_sos[i].tls.align;
-    }
-    size_t tls_mod_count = loaded_so_count + 1;
+        /* Populate TLS module templates into libc */
+        szpont_tls_module_t tls_mods[64];
+        memset(tls_mods, 0, sizeof(tls_mods));
+        for (size_t i = 0; i < loaded_so_count && i < 63; i++) {
+            tls_mods[i + 1].image = loaded_sos[i].tls.image;
+            tls_mods[i + 1].filesz = loaded_sos[i].tls.filesz;
+            tls_mods[i + 1].memsz = loaded_sos[i].tls.memsz;
+            tls_mods[i + 1].align = loaded_sos[i].tls.align;
+        }
+        size_t tls_mod_count = loaded_so_count + 1;
 
-    size_t tls_sym_sz = 0;
-    uintptr_t tls_arr_vaddr = elf_resolve_symbol_ext("__szpont_tls_modules", loaded_sos, loaded_so_count, &tls_sym_sz);
-    uintptr_t tls_cnt_vaddr = elf_resolve_symbol_ext("__szpont_tls_mod_count", loaded_sos, loaded_so_count, &tls_sym_sz);
-    if (tls_arr_vaddr && tls_cnt_vaddr) {
-        elf_write_user_mem(map, tls_arr_vaddr, tls_mods, sizeof(tls_mods));
-        elf_write_user_mem(map, tls_cnt_vaddr, &tls_mod_count, sizeof(size_t));
-    }
+        size_t tls_sym_sz = 0;
+        uintptr_t tls_arr_vaddr = elf_resolve_symbol_ext("__szpont_tls_modules", loaded_sos, loaded_so_count, &tls_sym_sz);
+        uintptr_t tls_cnt_vaddr = elf_resolve_symbol_ext("__szpont_tls_mod_count", loaded_sos, loaded_so_count, &tls_sym_sz);
+        if (tls_arr_vaddr && tls_cnt_vaddr) {
+            elf_write_user_mem(map, tls_arr_vaddr, tls_mods, sizeof(tls_mods));
+            elf_write_user_mem(map, tls_cnt_vaddr, &tls_mod_count, sizeof(size_t));
+        }
 
-    /* Clean up temporary kernel heap buffers */
-    for (size_t i = 0; i < loaded_so_count; i++) {
-        if (loaded_sos[i].symtab)
-            kfree(loaded_sos[i].symtab);
-        if (loaded_sos[i].strtab)
-            kfree(loaded_sos[i].strtab);
-        if (loaded_sos[i].hashtab)
-            kfree(loaded_sos[i].hashtab);
-        if (loaded_sos[i].rela)
-            kfree(loaded_sos[i].rela);
-        if (loaded_sos[i].jmprel)
-            kfree(loaded_sos[i].jmprel);
+        /* Clean up temporary kernel heap buffers */
+        for (size_t i = 0; i < loaded_so_count; i++) {
+            if (loaded_sos[i].symtab)
+                kfree(loaded_sos[i].symtab);
+            if (loaded_sos[i].strtab)
+                kfree(loaded_sos[i].strtab);
+            if (loaded_sos[i].hashtab)
+                kfree(loaded_sos[i].hashtab);
+            if (loaded_sos[i].rela)
+                kfree(loaded_sos[i].rela);
+            if (loaded_sos[i].jmprel)
+                kfree(loaded_sos[i].jmprel);
+        }
+        kfree(loaded_sos);
+        if (exe_phdrs)
+            kfree(exe_phdrs);
     }
-    kfree(loaded_sos);
-    if (exe_phdrs)
-        kfree(exe_phdrs);
 
     /* Allocate and map User Stack */
     size_t stack_pages = USER_STACK_SIZE / PAGE_SIZE;
@@ -796,12 +880,23 @@ int elf_load_binary(vfs_node_t *file, pagemap_t *map, uintptr_t *out_entry, uint
         vmm_map_page(map, vpage, ppage, VMM_FLAG_USER | VMM_FLAG_WRITABLE | VMM_FLAG_PRESENT);
     }
 
-    *out_entry = exe_base + ehdr.e_entry;
-    *out_user_stack = USER_STACK_BASE + USER_STACK_SIZE - 16; /* 16-byte aligned */
-    if (out_brk_start) {
-        uintptr_t calculated_brk = exe_base + exe_memsz;
-        *out_brk_start = (calculated_brk > 0x0000000000800000ULL) ? calculated_brk : 0x0000000000800000ULL;
-    }
+    info->user_stack = USER_STACK_BASE + USER_STACK_SIZE - 16; /* 16-byte aligned */
+    return 0;
+}
+
+int elf_load_binary(vfs_node_t *file, pagemap_t *map, uintptr_t *out_entry, uintptr_t *out_user_stack,
+                    uintptr_t *out_brk_start) {
+    elf_exec_info_t info;
+    int ret = elf_load_binary_info(file, map, &info);
+    if (ret != 0)
+        return ret;
+
+    if (out_entry)
+        *out_entry = info.entry;
+    if (out_user_stack)
+        *out_user_stack = info.user_stack;
+    if (out_brk_start)
+        *out_brk_start = info.brk_start;
     return 0;
 }
 

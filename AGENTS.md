@@ -14,12 +14,13 @@
 - **Symmetric Multiprocessing (SMP):** Native multi-core scheduling (up to 64 CPUs), LAPIC timers, ACPI MADT parsing, and Inter-Processor Interrupts (IPIs).
 - **Fast Hardware Syscalls:** Hardware-assisted `syscall` / `sysretq` with per-CPU GS kernel stack switching and full System V AMD64 ABI compliance.
 - **Virtual Memory Management:** 4-level x86_64 paging with userland Ring 3 isolation, copy-on-write `fork()`, dynamic heap expansion (`brk()`), and anonymous/file `mmap()`.
-- **DRM/KMS Graphics Subsystem:** Native Direct Rendering Manager kernel driver (`/dev/dri/card0`, `/dev/dri/renderD128`), PRIME dma-buf sharing, Syncobj handles, dumb buffers, modesetting, and Virtio-VGA acceleration.
-- **Complete X11 Graphical Desktop:** Official X.Org X11 server port with modesetting and XKB, `szpontdesktop` reparenting window manager (glassmorphic TopBar, traffic light controls, cyber titlebars), `szponterm` terminal emulator, and standard X11 libraries (`libX11`, `libxcb`, `libXext`, `libpixman-1`, `libdrm`, `libgbm`).
-- **Freestanding C Standard Library & C++ Runtime:** LP64 POSIX C library (`libc.a`, `libc.so`, `libm.so`, `libdl.a`), full C++ runtime (`libstdc++.so`, `libstdc++.a`) with RTTI and exception handling.
-- **In-Kernel Dynamic ELF Loader:** Automatic `DT_NEEDED` dependency resolution, shared object mapping at `0x0000700000000000`, and runtime ELF relocations.
-- **Modular VFS:** Virtual File System with DevFS, ProcFS, TmpFS, Ext2 filesystem driver, Buffer Cache (`bcache`), and USTAR Initramfs.
-- **Networking Stack & Daemons:** BSD sockets (TCP/IP, UDP, ICMP, ARP, DHCP, DNS), Intel E1000 and Realtek RTL8139 NIC drivers, native OpenSSH suite (`sshd`, `ssh`), and embedded HTTP server (`httpd`).
+- **DRM/KMS Graphics Subsystem & Mesa 3D:** Native Direct Rendering Manager kernel driver (`/dev/dri/card0`, `/dev/dri/renderD128`), PRIME dma-buf sharing, Syncobj explicit GPU handles, dumb buffers, modesetting, and Virtio-VGA acceleration. Full **Mesa 3D (25.x)** Gallium driver stack (`softpipe`, `llvmpipe`, `virtio-gpu`), EGL (`libEGL.so`), OpenGL ES 2.0 (`libGLESv2.so`), and DRI3 zero-copy buffer sharing.
+- **Complete X11 Graphical Desktop & Szpont Experience:** Official X.Org X11 server port with modesetting and XKB, **Szpont Experience** super-lightweight desktop environment and reparenting window manager (`szpontdesktop` with hardware-accelerated rounded window borders via `XShape`, glassmorphic TopBar, dynamic taskbar, traffic light controls, cyber titlebars, desktop gradient), `szponterm` terminal emulator with ANSI color and PTY support, and standard X11 libraries (`libX11`, `libxcb`, `libXext`, `libpixman-1`, `libdrm`, `libgbm`).
+- **Linux Compatibility & Advanced IPC Subsystems:** Complete `epoll(7)` (Level-Triggered, Edge-Triggered, `EPOLLONESHOT`, `EPOLLEXCLUSIVE`), `kqueue(2)` event notification, `eventfd(2)` 64-bit atomic counter and semaphore, `timerfd(2)` file-descriptor-driven timers, `signalfd(4)` asynchronous signal capture, `inotify(7)` filesystem watch subsystem integrated into VFS, virtual `sysfs` (`/sys`), atomic `pipe2(2)` and `dup3(2)`, directory descriptor navigation via `fchdir(2)`, and POSIX process group / session isolation (`setsid`, `setpgid`, `TIOCSPGRP`).
+- **Freestanding C Standard Library & C++ Runtime:** LP64 POSIX C library (`libc.a`, `libc.so`, `libm.so`, `libdl.a`), full C++ runtime (**GNU libstdc++-v3**: `libstdc++.so`, `libstdc++.a`) with RTTI and exception handling.
+- **In-Kernel Dynamic ELF Loader:** Automatic `DT_NEEDED` dependency resolution, shared object mapping at `0x0000700000000000`, System V AMD64 auxiliary vector (`auxv`), and runtime ELF relocations.
+- **Modular VFS & Storage:** Virtual File System with DevFS, ProcFS, SysFS, TmpFS, Ext2 filesystem driver, Buffer Cache (`bcache` with 256 hash buckets and doubly-linked LRU eviction), and USTAR Initramfs.
+- **Networking Stack & Daemons:** BSD sockets (TCP/IP, UDP, ICMP, ARP, DHCP, DNS), Intel E1000 and Realtek RTL8139 NIC drivers, native OpenSSH suite (`sshd`, `ssh`, `ssh-keygen`), OpenSSL/LibreSSL, cURL (`libcurl`), Git, and embedded HTTP server (`httpd`).
 - **Hardware & Input Subsystem:** xHCI (USB 3.0) and EHCI (USB 2.0) controllers with USB HID keyboard/mouse driver, i8042 PS/2 controller, evdev subsystem (`/dev/input/event*`, `/dev/input/mice`), CMOS RTC, and TSC precision timing.
 
 ---
@@ -40,28 +41,30 @@ SzpontOS/
 │   ├── include/                 # Kernel internal headers
 │   │   ├── arch/x86_64/         # GDT, IDT, PIC, PIT, IO port primitives, CPU registers
 │   │   ├── drivers/             # DRM, FB console, UART, keyboard, RTC, ATA, AHCI, E1000, PCI, IOAPIC, ACPI, PTY, Evdev
-│   │   ├── fs/                  # VFS, DevFS, ProcFS, Ext2, TmpFS, Buffer Cache, Initramfs, ELF-64 loader
+│   │   ├── fs/                  # VFS, DevFS, ProcFS, SysFS, Ext2, TmpFS, Buffer Cache, Initramfs, ELF-64, Epoll, Eventfd, Inotify
 │   │   ├── mm/                  # PMM (bitmap), VMM (4-level paging), Heap (slab/buddy), Usercopy
 │   │   ├── mod/                 # Loadable Kernel Modules (.sko) subsystem
 │   │   ├── net/                 # Ethernet, ARP, IPv4, ICMP, UDP, TCP, Netdev, Sockets
 │   │   ├── sched/               # process_t, thread_t, futex, waitqueues, SMP scheduler
 │   │   ├── syscall/             # POSIX syscall dispatcher and prototypes
 │   │   ├── kernel/              # Types, kprint, panic, spinlocks, SMP (cpu_t), string utilities
+│   │   ├── uapi/                # Linux User-Space API headers exported to sysroot (asm/, linux/)
 │   │   └── limine.h             # Limine bootloader protocol specification
 │   ├── src/                     # Kernel core implementation
 │   │   ├── main.c               # Kernel entry point (_start) and subsystem initialization
 │   │   ├── string.c / kprint.c  # Kernel string library, kprintf, ksnprintf, klog
 │   │   ├── panic.c              # Kernel panic handler and register dump
-│   │   ├── kernel/              # smp.c (multi-core bootstrap, IPI, LAPIC timer)
+│   │   ├── kernel/              # smp.c (multi-core bootstrap, IPI, LAPIC timer), kqueue.c
 │   │   ├── drivers/             # drm.c, framebuffer.c, serial.c, keyboard.c, mouse.c, ps2_mouse.c,
 │   │   │                        # rtc.c, ata.c, ahci.c, pci.c, e1000.c, rtl8139.c, ioapic.c, acpi.c,
 │   │   │                        # pty.c, evdev.c, random.c, power.c, usb/ (ehci.c, xhci.c, hid.c)
-│   │   ├── fs/                  # vfs.c, devfs.c, procfs.c, tmpfs.c, ext2.c, bcache.c, initramfs.c, elf.c
+│   │   ├── fs/                  # vfs.c, devfs.c, procfs.c, sysfs.c, tmpfs.c, ext2.c, bcache.c, initramfs.c,
+│   │   │                        # elf.c, epoll.c, eventfd.c, inotify.c, timerfd.c, signalfd.c
 │   │   ├── mm/                  # pmm.c, vmm.c, heap.c, usercopy.c
 │   │   ├── mod/                 # module.c (ELF module loader, symbol resolution, relocations)
 │   │   ├── net/                 # netif.c, ethernet.c, arp.c, ipv4.c, icmp.c, udp.c, tcp.c, socket.c
 │   │   ├── sched/               # process.c, sched.c, futex.c, waitqueue.c
-│   │   └── syscall/             # syscall.c (100+ POSIX system call handlers)
+│   │   └── syscall/             # syscall.c (120+ POSIX / Linux system call handlers)
 │   └── linker.ld                # Higher-half linker script (0xFFFFFFFF80000000)
 │
 ├── libc/                        # Freestanding C Standard Library (builds libc.a, libc.so, libm.so, libdl.a)
@@ -69,18 +72,20 @@ SzpontOS/
 │   │   ├── stdio.h, stdlib.h, string.h, unistd.h, fcntl.h, dirent.h, errno.h, time.h
 │   │   ├── pthread.h, semaphore.h, dlfcn.h, math.h, termios.h, poll.h, signal.h
 │   │   ├── stdint.h, stddef.h, stdbool.h, stdarg.h (LP64 self-contained headers)
-│   │   └── sys/ (stat.h, types.h, socket.h, mman.h, poll.h, utsname.h, wait.h, time.h, ioctl.h, shm.h)
+│   │   └── sys/ (stat.h, types.h, socket.h, mman.h, poll.h, utsname.h, wait.h, time.h, ioctl.h, shm.h, epoll.h, eventfd.h, inotify.h)
 │   └── src/
 │       ├── arch/x86_64/         # crt0.asm, syscall.asm, setjmp.asm
 │       ├── stdio/               # printf.c, snprintf.c, puts, putchar, getchar, file ops
 │       ├── stdlib/              # malloc.c (sbrk/mmap heap allocator), strtol, atoi, env
 │       ├── string/              # Standard string and memory manipulation routines
-│       ├── time/                # time.c (clock_gettime, gettimeofday, time, nanosleep)
+│       ├── time/                # time.c (clock_gettime, gettimeofday, time, nanosleep), timerfd.c
+│       ├── signal/              # signalfd.c, sigaction, sigprocmask
+│       ├── poll/                # poll.c, epoll.c
 │       ├── pthread/             # POSIX threads, mutexes, condvars, barriers, semaphores, TLS
 │       ├── socket/              # Berkeley Sockets API (socket, connect, bind, listen, recv, send, SCM_RIGHTS)
 │       ├── dlfcn/               # Dynamic linker routines (dlopen, dlsym, dlclose, dlerror)
 │       ├── netdb/               # getaddrinfo, gethostbyname, DNS resolver
-│       └── unistd/              # POSIX syscall wrappers (fork, execve, read, write, sleep, etc.)
+│       └── unistd/              # POSIX syscall wrappers (fork, execve, read, write, sleep, fchdir, etc.)
 │
 ├── libdrm/                      # Native Direct Rendering Manager Library (builds libdrm.so)
 │   ├── include/                 # xf86drm.h, xf86drmMode.h, drm/*
@@ -92,6 +97,7 @@ SzpontOS/
 │
 ├── third_party/                 # Ported open-source packages cross-compiled against libc sysroot
 │   ├── xorg/                    # Official X.Org X11 Server (Xorg binary with native DRM/KMS modesetting)
+│   ├── mesa/                    # Mesa 3D (25.x): Gallium drivers, EGL, OpenGL ES 2.0, DRI3
 │   ├── libX11/, libxcb/, ...    # Core X11 client libraries (libX11, libXext, libXau, libXdmcp, libxkbfile, etc.)
 │   ├── pixman/                  # Low-level pixel manipulation library (libpixman-1.so)
 │   ├── libstdc++/               # GNU C++ Standard Library runtime (libstdc++.so, libstdc++.a)
@@ -107,15 +113,16 @@ SzpontOS/
 ├── userland/                    # User space programs and root filesystem
 │   ├── init/main.c              # PID 1 init process (spawns /bin/sh or graphical session)
 │   ├── sh/main.c                # Interactive Unix shell with built-ins & history
-│   ├── bin/                     # Core utilities: cat, chmod, chown, clock, cpptest, curltest, date, df,
-│   │                            # dltest, dmesg, donut, drmtest, find, free, gittest, grep, groupadd,
-│   │                            # head, hello, host, hostname, httpd, httpget, id, ifconfig, insmod,
-│   │                            # kill, killall, kqueuetest, ls, lsmod, lspci, lsusb, makaljer, mathtest,
-│   │                            # mesadrmtest, mkdir, modinfo, mount, mousetest, nc, ping, poweroff, ps,
-│   │                            # ptytest, randtest, reboot, rm, rmmod, shmtest, shutdown, sleep, startx,
-│   │                            # su, sync, sysctl, szpontdesktop, szpontdetected, szponterm, tail,
-│   │                            # threadtest, tmpfstest, top, touch, tuitest, uname, unixtest, uptime,
-│   │                            # useradd, userdel, wc, whoami
+│   ├── bin/                     # Core utilities: cat, chmod, chown, clear, clock, cpptest, curltest, date, df,
+│   │                            # dltest, dmesg, donut, drmtest, env, epolltest, eventfdtest, find, free,
+│   │                            # gittest, gltriangle, glxgears, grep, groupadd, head, hello, host, hostname,
+│   │                            # httpd, httpget, id, ifconfig, inotifytest, insmod, kill, killall, kqueuetest,
+│   │                            # ls, lsmod, lspci, lsusb, makaljer, mathtest, mesadrmtest, mkdir, modinfo,
+│   │                            # mount, mousetest, nc, ping, poweroff, ps, ptytest, randtest, reboot, rm,
+│   │                            # rmmod, shmtest, shutdown, signalfdtest, sleep, startx, su, sync, sysctl,
+│   │                            # sysfstest, szpontdesktop, szpontdetected, szponterm, szpontlogin, tail,
+│   │                            # threadtest, timerfdtest, tmpfstest, top, touch, tuitest, uname, unixtest,
+│   │                            # uptime, useradd, userdel, wc, whoami
 │   └── skeleton/                # Static rootfs skeleton templates (/etc/passwd, /etc/magic, /etc/ssh, etc.)
 │
 ├── mk/                          # Modular Build System Makefiles
@@ -239,6 +246,43 @@ SzpontOS/
   - `/dev/input/mice`: Emulates standard 3-byte / 4-byte Explorer PS/2 packets for legacy X11 mouse drivers.
   - `/dev/input/event0` .. `/dev/input/eventN`: Linux-compatible `struct input_event` streams for modern event handling.
 
+### 3.13 Linux Compatibility Event Subsystems (`epoll`, `timerfd`, `signalfd`, `eventfd`, `inotify`)
+- **epoll(7):** Implemented in [kernel/src/fs/epoll.c](kernel/src/fs/epoll.c). Maintains interest list of monitored file descriptors with `epitem` structures. Supports `EPOLL_CTL_ADD`, `EPOLL_CTL_MOD`, `EPOLL_CTL_DEL`, Edge-Triggered (`EPOLLET`), Level-Triggered (default), `EPOLLONESHOT`, and `EPOLLEXCLUSIVE`. Directly integrated with VFS poll callbacks (`vfs_poll()`).
+- **eventfd(2):** Implemented in [kernel/src/fs/eventfd.c](kernel/src/fs/eventfd.c). In-kernel 64-bit unsigned integer counter used as an event wait/notify mechanism. Supports `EFD_SEMAPHORE` (reads decrement counter by 1) and `EFD_NONBLOCK`.
+- **timerfd(2):** Implemented in [kernel/src/fs/timerfd.c](kernel/src/fs/timerfd.c). Delivers timer expiration notifications via file descriptors. Configured via `timerfd_settime` for one-shot or periodic intervals; reads return the number of expirations since the last read.
+- **signalfd(4):** Implemented in [kernel/src/fs/signalfd.c](kernel/src/fs/signalfd.c). Accepts signals synchronous with application event loops via file descriptors without requiring asynchronous signal handlers, returning structured `struct signalfd_siginfo`.
+- **inotify(7):** Implemented in [kernel/src/fs/inotify.c](kernel/src/fs/inotify.c). Integrated directly into VFS entry points (`vfs_notify`), queueing filesystem events (`IN_CREATE`, `IN_DELETE`, `IN_MODIFY`, `IN_ATTRIB`, `IN_MOVE`) on watched directory and file nodes.
+
+### 3.14 Process Group Isolation & TTY Foreground Signal Routing (`TIOCSPGRP`, `TIOCGPGRP`)
+- **POSIX Sessions & Process Groups:** Implemented via `setsid()`, `setpgid()`, `getpgrp()`, and `getpgid()`.
+- **Controlling Terminal & Signal Routing Invariant:**
+  - In [kernel/src/drivers/pty.c](kernel/src/drivers/pty.c) and TTY drivers, keyboard-generated interrupt signals (`SIGINT` on Ctrl+C, `SIGQUIT` on Ctrl+\, `SIGTSTP` on Ctrl+Z) **must only be dispatched to the active foreground process group** (`tty->pgrp`), configured via `ioctl(fd, TIOCSPGRP, &pgrp)`.
+  - Never broadcast keyboard signals to the entire session or background processes. This prevents background services (e.g., X11 server, window manager, init, network daemons) from dying when Ctrl+C is pressed in an interactive shell.
+
+### 3.15 Mesa 3D, Gallium, DRI3 & Hardware-Accelerated Graphics Architecture
+- **Mesa 3D Integration:** Official Mesa 3D (25.x) port cross-compiled against SzpontOS libc and UAPI sysroot headers.
+- **Drivers & Libraries:** Gallium architectural drivers (`softpipe`, `llvmpipe`, `virtio-gpu`), EGL (`libEGL.so`), OpenGL ES 2.0 (`libGLESv2.so`), and core Mesa gallium runtime (`libgallium-25.0.5.so`).
+- **DRI3 Protocol & PRIME dma-buf:** Zero-copy buffer exchange between X11 clients and the Xorg server is achieved using PRIME dma-buf file descriptors (`DRM_IOCTL_PRIME_HANDLE_TO_FD` / `DRM_IOCTL_PRIME_FD_TO_HANDLE`) passed through UNIX domain sockets using `sendmsg`/`recvmsg` with `SCM_RIGHTS`.
+- **Generic Buffer Management (GBM):** Native `libgbm.so` provides buffer allocation and surface creation for KMS modesetting without X11.
+
+### 3.16 Buffer Cache (`bcache`) with 256 Hash Buckets & LRU Eviction
+- Located in [kernel/src/fs/bcache.c](kernel/src/fs/bcache.c), the buffer cache caches underlying block storage (Ext2, SATA/AHCI, IDE) in 1024-byte block units.
+- **Hash Table:** 256 hash buckets keyed by `(device_id, block_no)` provide $O(1)$ block lookup.
+- **Eviction Policy:** Doubly-linked Least Recently Used (LRU) list with reference counting. Dirty buffers are written back to storage on `bcache_sync()`, invoked by `sync(2)`, `fsync(2)`, and during clean system shutdown.
+
+### 3.17 System V AMD64 Auxiliary Vector (`auxv`) & Execution Context
+- In [kernel/src/fs/elf.c](kernel/src/fs/elf.c), when spawning ELF binaries via `execve()`, the kernel sets up the initial process user stack conforming to the System V AMD64 ABI:
+  1. `argc` (`uint64_t`)
+  2. `argv[0] ... argv[argc-1]`, `NULL`
+  3. `envp[0] ... envp[N]`, `NULL`
+  4. Auxiliary vector entries `Elf64_auxv_t[]` terminated by `AT_NULL (0)`
+- **Supplied Vectors:** `AT_PHDR`, `AT_PHENT`, `AT_PHNUM`, `AT_PAGESZ` (4096), `AT_BASE` (0 for static or shared object load base), `AT_FLAGS`, `AT_ENTRY`, `AT_UID`, `AT_EUID`, `AT_GID`, `AT_EGID`, `AT_CLKTCK` (1000 Hz), `AT_RANDOM` (16 bytes of CSPRNG entropy).
+
+### 3.18 Virtual Device Filesystem (`SysFS`)
+- Mounted at `/sys` ([kernel/src/fs/sysfs.c](kernel/src/fs/sysfs.c)), SysFS exposes standard Linux-compatible device hierarchies:
+  - `/sys/bus/pci/devices/`: Exposes connected PCI devices with device/vendor attributes and resource memory maps.
+  - `/sys/class/drm/`: Exposes graphics card (`card0`) and render node (`renderD128`) presence and state.
+
 ---
 
 ## 4. Syscall Reference Table
@@ -309,6 +353,7 @@ The kernel implements over 100 POSIX system calls in [kernel/src/syscall/syscall
 | 78 | `SYS_getdents` | Read directory entries into buffer |
 | 79 | `SYS_getcwd` | Get current working directory pathname |
 | 80 | `SYS_chdir` | Change current working directory |
+| 81 | `SYS_fchdir` | Change current working directory by descriptor |
 | 82 | `SYS_rename` | Change name or location of file |
 | 83 | `SYS_mkdir` | Create directory |
 | 84 | `SYS_rmdir` | Remove directory |
@@ -354,12 +399,15 @@ The kernel implements over 100 POSIX system calls in [kernel/src/syscall/syscall
 | 127 | `SYS_rt_sigpending` | Examine pending signals |
 | 137 | `SYS_statfs` | Get filesystem statistics |
 | 138 | `SYS_fstatfs` | Get filesystem statistics by descriptor |
+| 140 | `SYS_getpriority` | Get program scheduling priority |
+| 141 | `SYS_setpriority` | Set program scheduling priority |
 | 156 | `SYS_sysctl` | Read or write system control parameters |
 | 158 | `SYS_arch_prctl` | Set architecture-specific thread state (`FS_BASE` / `GS_BASE`) |
 | 160 | `SYS_setrlimit` | Set process resource limits |
 | 162 | `SYS_sync` | Synchronize cached filesystem buffers to disk |
 | 169 | `SYS_reboot` | Reboot or power off system |
 | 172 | `SYS_iopl` | Change I/O privilege level |
+| 173 | `SYS_ioperm` | Set port I/O permissions |
 | 175 | `SYS_init_module` | Load kernel module (`.sko`) |
 | 176 | `SYS_delete_module`| Unload kernel module |
 | 178 | `SYS_getprocs` | Retrieve process table snapshot |
@@ -371,8 +419,14 @@ The kernel implements over 100 POSIX system calls in [kernel/src/syscall/syscall
 | 227 | `SYS_clock_settime`| Set clock time |
 | 228 | `SYS_clock_gettime`| Retrieve clock time (`CLOCK_REALTIME`, `CLOCK_MONOTONIC`) |
 | 229 | `SYS_clock_getres` | Retrieve clock resolution |
+| 230 | `SYS_clock_nanosleep`| High-precision clock sleep with flags |
 | 231 | `SYS_exit_group` | Exit all threads in process |
+| 232 | `SYS_epoll_wait` | Wait for I/O events on an epoll file descriptor |
+| 233 | `SYS_epoll_ctl` | Control interface for an epoll file descriptor |
 | 235 | `SYS_utimes` | Change file timestamps |
+| 253 | `SYS_inotify_init` | Initialize inotify instance |
+| 254 | `SYS_inotify_add_watch`| Add watch to an initialized inotify instance |
+| 255 | `SYS_inotify_rm_watch` | Remove watch from an inotify instance |
 | 257 | `SYS_openat` | Open file relative to directory descriptor |
 | 258 | `SYS_mkdirat` | Create directory relative to directory descriptor |
 | 260 | `SYS_fchownat` | Change ownership relative to directory descriptor |
@@ -384,6 +438,18 @@ The kernel implements over 100 POSIX system calls in [kernel/src/syscall/syscall
 | 268 | `SYS_fchmodat` | Change permissions relative to directory descriptor |
 | 269 | `SYS_faccessat` | Check access relative to directory descriptor |
 | 280 | `SYS_utimensat` | Update timestamps with nanosecond precision |
+| 281 | `SYS_epoll_pwait` | Wait for events on an epoll descriptor with signal mask |
+| 282 | `SYS_signalfd` | Create file descriptor for accepting signals |
+| 283 | `SYS_timerfd_create`| Create timer notification file descriptor |
+| 284 | `SYS_eventfd` | Create file descriptor for event notification |
+| 286 | `SYS_timerfd_settime`| Arm or disarm timer referred to by descriptor |
+| 287 | `SYS_timerfd_gettime`| Retrieve current timer setting by descriptor |
+| 289 | `SYS_signalfd4` | Create signalfd descriptor with specific flags |
+| 290 | `SYS_eventfd2` | Create eventfd descriptor with specific flags |
+| 291 | `SYS_epoll_create1`| Create an epoll file descriptor with flags |
+| 292 | `SYS_dup3` | Duplicate file descriptor with atomic flags (`O_CLOEXEC`) |
+| 293 | `SYS_pipe2` | Create unidirectional IPC pipe with atomic flags |
+| 294 | `SYS_inotify_init1`| Initialize inotify instance with flags |
 | 318 | `SYS_getrandom` | Obtain random bytes from kernel CSPRNG |
 | 319 | `SYS_memfd_create` | Create anonymous in-memory file descriptor |
 | 362 | `SYS_kqueue` | Allocate kernel event notification queue |
@@ -397,6 +463,8 @@ All build workflows are managed through the central [Makefile](Makefile) and mod
 
 ### Architecture of the Build DAG
 ```
+[kernel/include/uapi] ──┐
+                        ▼
 [libc sources] ────> [libc.a / libc.so] ────> [SYSROOT (/usr/include & /usr/lib)]
                                                      │
                ┌─────────────────────────────────────┼─────────────────────────────┐
@@ -405,8 +473,8 @@ All build workflows are managed through the central [Makefile](Makefile) and mod
                │                                     │                             │
                └──────────────────┬──────────────────┘                             │
                                   ▼                                                │
-                 [Third-Party Ecosystem & X11] <───────────────────────────────────┘
-               (Xorg, libX11, libxcb, OpenSSH, curl, zlib, ncurses, etc.)
+                 [Third-Party Ecosystem, X11 & Mesa 3D] <──────────────────────────┘
+               (Xorg, Mesa 3D Gallium, libX11, OpenSSH, curl, zlib, ncurses, etc.)
                                   │
                                   ▼
                            [Userland Binaries]
@@ -419,7 +487,7 @@ All build workflows are managed through the central [Makefile](Makefile) and mod
                                                       (via xorriso & Limine)
 ```
 
-### Toolchain Dependencies
+### Toolchain Dependencies & Helper Scripts
 - **Compiler:** `x86_64-elf-gcc` (Freestanding cross-compiler)
 - **Assembler:** `nasm`
 - **Linker:** `x86_64-elf-ld`
@@ -427,6 +495,8 @@ All build workflows are managed through the central [Makefile](Makefile) and mod
 - **ISO Generator:** `xorriso`
 - **Emulator:** `qemu-system-x86_64`
 - **Compilation DB Tool:** `bear`
+- **Sysroot Cross-Compilers:** `scripts/szpontos-gcc` and `scripts/szpontos-g++` (target sysroot wrapper scripts for ports and userland)
+- **C++ Runtime Builder:** `scripts/build_libstdcxx.py` (automates out-of-tree cross-compilation of GNU libstdc++-v3)
 
 ### Standard Build & Run Commands
 ```bash
@@ -455,7 +525,7 @@ make run-stress
 make debug
 
 # Regenerate compile_commands.json for clangd and IDE IntelliSense
-make compile-commands
+make compile-commands # or make bear
 
 # Clean all build artifacts, objects, and rootfs
 make clean
@@ -502,7 +572,7 @@ When launched with QEMU, the user-mode SLIRP network forwarders are active:
 7. **Dynamic Linking & Shared Libraries (No Static Linking):**
    - Userland binaries and ported packages must be dynamically linked against shared libraries (`.so`).
    - Avoid static linking for userland programs whenever possible.
-   - All shared libraries must reside in `/lib` (in `build/rootfs/lib/`) with valid ELF `DT_SONAME` tags (e.g. `libc.so`, `libm.so`, `libz.so`, `libX11.so`, `libpixman-1.so`, `libdrm.so`, `libgbm.so`, `libstdc++.so`).
+   - All shared libraries must reside in `/lib` (in `build/rootfs/lib/`) with valid ELF `DT_SONAME` tags (e.g. `libc.so`, `libm.so`, `libz.so`, `libX11.so`, `libpixman-1.so`, `libdrm.so`, `libgbm.so`, `libstdc++.so`, `libgallium-25.0.5.so`).
    - When introducing a new shared library, add it to `ALL_ROOTFS_SOS` in [mk/third_party.mk](mk/third_party.mk).
 
 8. **C++ Runtime & Modern Language Support:**
@@ -526,3 +596,34 @@ When launched with QEMU, the user-mode SLIRP network forwarders are active:
       - In shell/python scripts: compute locations dynamically relative to the script file (e.g. `$(cd "$(dirname "$0")/.." && pwd)` or `Path(__file__).resolve().parent`).
       - For host tools and compilers: locate them via dynamic `PATH` lookups (`command -v <tool>`, `which <tool>`, or `pkg-config`) instead of hardcoding absolute binary paths.
     - The repository and build pipeline must remain completely portable, relocatable, and buildable across different developer machines, operating systems, and CI/CD environments.
+
+12. **UAPI Headers Separation & Sysroot Cleanliness:**
+    - Kernel-facing and Linux-compatible ioctl definitions, hardware constants, and system types belong strictly in [kernel/include/uapi/](kernel/include/uapi/) (under `linux/` or `asm/`).
+    - The C standard library ([libc/include/](libc/include/)) must remain a clean, freestanding POSIX/C17/BSD implementation. Never pollute `libc/include/` with kernel-internal or Linux-specific driver definitions.
+    - The root build system exports `kernel/include/uapi/` directly into `$(SYSROOT_DIR)/usr/include/` so that userland binaries and ported packages (such as Mesa 3D, Xorg, libdrm) can include `<linux/...>` or `<asm/...>` headers cleanly.
+
+13. **Process Group Isolation & TTY Signal Routing Invariants:**
+    - When modifying process scheduling, session creation (`setsid`), process group manipulation (`setpgid`), or PTY/TTY drivers, always enforce strict process group isolation.
+    - Keyboard interrupt signals (`SIGINT`, `SIGQUIT`, `SIGTSTP`) generated by the line discipline must **exclusively** be delivered to the active foreground process group (`tty->pgrp`) via `kill_pgrp()`.
+    - Never broadcast terminal signals across the entire session or to background process groups. Background daemons, parent init processes, the X11 server, and window managers must remain immune to terminal Ctrl+C interrupts.
+
+14. **Non-Blocking I/O & Multiplexing Compliance (`poll` / `epoll` / `kqueue`):**
+    - Every newly implemented character device, pseudo-filesystem node, IPC primitive (pipes, eventfd, timerfd, signalfd), or network socket that can block on read/write **must** implement a corresponding `poll` callback in its `vfs_node_ops_t`.
+    - Drivers must correctly indicate readability (`POLLIN | POLLRDNORM`) and writability (`POLLOUT | POLLWRNORM`) based on immediate buffer state without sleeping.
+    - State transitions (e.g., incoming network frame, pipe buffer write, timer expiration) must reliably notify all registered waitqueues so that `epoll_wait()`, `kevent()`, and `select()` wake up immediately.
+
+15. **Virtual Memory Safety, Page Alignment & COW Integrity:**
+    - All virtual memory mappings (`mmap`), protection modifications (`mprotect`), and page unmappings (`munmap`) must strictly enforce page-alignment boundaries (`PAGE_SIZE = 4096`).
+    - Anonymous memory must be zero-filled on demand to prevent kernel or previous-process data leaks.
+    - Copy-On-Write (COW) page forks must mark page table entries in both parent and child as read-only. The page fault handler must allocate a fresh physical frame, copy the 4096 bytes via HHDM, and update the faulting process's page table before resuming execution.
+    - Never permit userland address mappings to extend beyond canonical user limits (`USER_ADDR_MAX = 0x00007FFFFFFFFFFFULL`) or overlap with higher-half kernel space.
+
+16. **Device Driver Hardware Sequencing & Idle Thread Non-Starvation:**
+    - In interrupt-driven device drivers (NICs, USB host controllers, disk controllers, timers), interrupt handlers must acknowledge hardware status registers **before** sending End-Of-Interrupt (EOI) to the local APIC or PIC, preventing interrupt storms and dropped events on real hardware.
+    - Kernel syscall routines and driver wait-loops must never spin in tight busy-waiting loops. Always use waitqueues or `thread_sleep()` so the scheduler can yield CPU cores to `g_idle_thread` to halt (`hlt`) and allow hardware timer ticks to advance.
+
+17. **GUI & Window Manager Protocol Hygiene (Szpont Experience):**
+    - When developing or modifying graphical applications, desktop components, or window manager code (`szpontdesktop`, `szponterm`, `szpontlogin`), strictly adhere to X11 client-server protocol specifications:
+      - Window managers must properly intercept and manage client windows using `SubstructureRedirectMask` and `SubstructureNotifyMask`.
+      - Applications must support the `WM_DELETE_WINDOW` protocol message for clean exit handling instead of abrupt disconnects.
+      - Free all allocated X server resources (GContexts, Pixmaps, Colormaps, XShape masks) upon window destruction to prevent memory and handle exhaustion across long-running sessions.

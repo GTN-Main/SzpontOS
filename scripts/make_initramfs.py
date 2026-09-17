@@ -111,6 +111,17 @@ def create_initramfs(source_dir, output_file):
         os.makedirs(os.path.join(source_dir, "dev"), exist_ok=True)
         os.makedirs(os.path.join(source_dir, "proc"), exist_ok=True)
 
+    # 0. Weryfikacja integralności rootfs przed rozpoczęciem
+    try:
+        from verify_rootfs import verify_rootfs
+    except ImportError:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from verify_rootfs import verify_rootfs
+
+    if verify_rootfs(source_dir) != 0:
+        print("[!] BŁĄD: Walidacja integralności rootfs nie powiodła się! Przerywanie.")
+        sys.exit(1)
+
     # Optymalizacja zawartości przed pakowaniem
     optimize_rootfs(source_dir)
 
@@ -124,7 +135,7 @@ def create_initramfs(source_dir, output_file):
             tarinfo.gname = "szpont" if "szpont" in arcname else "user"
             if tarinfo.isdir():
                 tarinfo.mode = 0o755
-        elif arcname == "tmp" or arcname == "var/tmp":
+        elif arcname in ("tmp", "var/tmp", "tmp/.X11-unix"):
             tarinfo.uid = 0
             tarinfo.gid = 0
             tarinfo.uname = "root"
@@ -137,12 +148,16 @@ def create_initramfs(source_dir, output_file):
             tarinfo.gname = "root"
             if tarinfo.isdir():
                 tarinfo.mode = 0o755
+            elif arcname in ("bin/sudo", "usr/bin/sudo", "bin/su", "usr/bin/su"):
+                tarinfo.mode = 0o4755
             elif (arcname.startswith("bin/") or arcname.startswith("usr/sbin/") or
                   arcname.startswith("usr/bin/") or arcname.startswith("usr/libexec/") or
                   arcname.startswith("etc/rc") or arcname.startswith("etc/rc.d/")):
                 tarinfo.mode = 0o755
             elif arcname == "root/.ssh" or arcname.startswith("root/.ssh/"):
                 tarinfo.mode = 0o700 if tarinfo.isdir() else 0o600
+            elif arcname == "etc/sudoers":
+                tarinfo.mode = 0o440
             elif (arcname.startswith("etc/ssh/") and arcname.endswith("_key")) or arcname in ("etc/shadow", "etc/master.passwd"):
                 tarinfo.mode = 0o600
         return tarinfo

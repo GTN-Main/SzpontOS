@@ -86,6 +86,7 @@ ssize_t readlink(const char *pathname, char *buf, size_t bufsiz);
 
 int dup(int oldfd);
 int dup2(int oldfd, int newfd);
+int dup3(int oldfd, int newfd, int flags);
 int pipe(int pipefd[2]);
 int pipe2(int pipefd[2], int flags);
 int isatty(int fd);
@@ -145,6 +146,7 @@ void *sbrk(intptr_t increment);
 
 char *getcwd(char *buf, size_t size);
 int chdir(const char *path);
+int fchdir(int fd);
 int chroot(const char *path);
 int gethostname(char *name, size_t len);
 int sethostname(const char *name, size_t len);
@@ -161,6 +163,9 @@ int tcsetpgrp(int fd, pid_t pgrp);
 int revoke(const char *path);
 int daemon(int nochdir, int noclose);
 char *crypt(const char *key, const char *salt);
+char *getusershell(void);
+void setusershell(void);
+void endusershell(void);
 
 int link(const char *oldpath, const char *newpath);
 int symlink(const char *target, const char *linkpath);

@@ -149,22 +149,25 @@ ssize_t tty_read(void *buffer, size_t count) {
         while (nread < count) {
             char c = tty_get_raw_key();
 
-            /* Check Signals if ISIG enabled */
-            if (g_tty_termios.c_lflag & TTY_LFLAG_ISIG) {
+            /* Check Signals if ISIG enabled (suppressed in graphics mode) */
+            if ((g_tty_termios.c_lflag & TTY_LFLAG_ISIG) && !fb_is_graphics_mode()) {
+                int sig = 0;
                 if (c == (char)g_tty_termios.c_cc[TTY_VINTR]) {
-                    process_t *fg = process_get_foreground();
-                    if (fg)
-                        process_send_signal(fg, SIGINT);
-                    continue;
+                    sig = SIGINT;
                 } else if (c == (char)g_tty_termios.c_cc[TTY_VSUSP]) {
-                    process_t *fg = process_get_foreground();
-                    if (fg)
-                        process_send_signal(fg, SIGTSTP);
-                    continue;
+                    sig = SIGTSTP;
                 } else if (c == (char)g_tty_termios.c_cc[TTY_VQUIT]) {
-                    process_t *fg = process_get_foreground();
-                    if (fg)
-                        process_send_signal(fg, SIGQUIT);
+                    sig = SIGQUIT;
+                }
+
+                if (sig != 0) {
+                    if (g_tty_fg_pgrp > 1) {
+                        process_signal_pgrp(g_tty_fg_pgrp, sig);
+                    } else {
+                        process_t *fg = process_get_foreground();
+                        if (fg)
+                            process_send_signal(fg, sig);
+                    }
                     continue;
                 }
             }
@@ -199,32 +202,34 @@ ssize_t tty_read(void *buffer, size_t count) {
     while (!g_line_ready) {
         char c = tty_get_raw_key();
 
-        /* Signal checks */
-        if (g_tty_termios.c_lflag & TTY_LFLAG_ISIG) {
+        /* Signal checks (suppressed in graphics mode) */
+        if ((g_tty_termios.c_lflag & TTY_LFLAG_ISIG) && !fb_is_graphics_mode()) {
+            int sig = 0;
+            const char *echo_str = NULL;
             if (c == (char)g_tty_termios.c_cc[TTY_VINTR]) { /* Ctrl+C */
-                process_t *fg = process_get_foreground();
-                if (fg)
-                    process_send_signal(fg, SIGINT);
-                if (g_tty_termios.c_lflag & TTY_LFLAG_ECHO)
-                    tty_echo_str("^C\n");
+                sig = SIGINT;
+                echo_str = "^C\n";
                 g_canon_len = 0;
                 g_canon_pos = 0;
-                continue;
+            } else if (c == (char)g_tty_termios.c_cc[TTY_VSUSP]) { /* Ctrl+Z */
+                sig = SIGTSTP;
+                echo_str = "^Z\n";
+            } else if (c == (char)g_tty_termios.c_cc[TTY_VQUIT]) { /* Ctrl+\ */
+                sig = SIGQUIT;
+                echo_str = "^\\\n";
             }
-            if (c == (char)g_tty_termios.c_cc[TTY_VSUSP]) { /* Ctrl+Z */
-                process_t *fg = process_get_foreground();
-                if (fg)
-                    process_send_signal(fg, SIGTSTP);
-                if (g_tty_termios.c_lflag & TTY_LFLAG_ECHO)
-                    tty_echo_str("^Z\n");
-                continue;
-            }
-            if (c == (char)g_tty_termios.c_cc[TTY_VQUIT]) { /* Ctrl+\ */
-                process_t *fg = process_get_foreground();
-                if (fg)
-                    process_send_signal(fg, SIGQUIT);
-                if (g_tty_termios.c_lflag & TTY_LFLAG_ECHO)
-                    tty_echo_str("^\\\n");
+
+            if (sig != 0) {
+                if (g_tty_fg_pgrp > 1) {
+                    process_signal_pgrp(g_tty_fg_pgrp, sig);
+                } else {
+                    process_t *fg = process_get_foreground();
+                    if (fg)
+                        process_send_signal(fg, sig);
+                }
+                if (echo_str && (g_tty_termios.c_lflag & TTY_LFLAG_ECHO)) {
+                    tty_echo_str(echo_str);
+                }
                 continue;
             }
         }
@@ -394,7 +399,8 @@ int tty_ioctl(uint64_t request, void *arg) {
         pid_t pgrp = 1;
         if (!tty_get_user(&pgrp, arg, sizeof(pid_t)))
             return -14; /* -EFAULT */
-        g_tty_fg_pgrp = pgrp;
+        if (pgrp > 0)
+            g_tty_fg_pgrp = pgrp;
         return 0;
     }
 
@@ -404,6 +410,9 @@ int tty_ioctl(uint64_t request, void *arg) {
             curr->has_ctty = true;
             if (!curr->ctty) {
                 curr->ctty = vfs_lookup("/dev/console");
+            }
+            if (curr->pgid > 1) {
+                g_tty_fg_pgrp = curr->pgid;
             }
         }
         return 0;

@@ -14,7 +14,7 @@ include $(ROOT_DIR)/mk/qemu.mk
         third-party clean distclean compile_commands.json compile-commands bear
 
 # Default target: build bootable ISO image
-all: $(ISO_IMAGE)
+all: build $(ISO_IMAGE)
 
 # Display detected toolchain information
 toolchain-info:
@@ -68,7 +68,7 @@ $(MODULES_STAMP): $(MODULES_SRCS) | $(SYSROOT_STAMP)
 modules: $(MODULES_STAMP)
 
 USERLAND_SRCS := $(shell find $(ROOT_DIR)/userland -type f 2>/dev/null)
-$(USERLAND_STAMP): $(USERLAND_SRCS) | $(SYSROOT_STAMP) $(ALL_ROOTFS_SOS)
+$(USERLAND_STAMP): $(USERLAND_SRCS) $(SYSROOT_STAMP) $(ALL_ROOTFS_SOS)
 	@$(MAKE) -j$(JOBS) -C $(ROOT_DIR)/userland
 	@mkdir -p $(dir $@) && touch $@
 

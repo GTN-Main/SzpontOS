@@ -1,0 +1,35 @@
+! SzpontOS XTerm Application Defaults
+! (C) Copyright by Szpont Industries. All rights reserved.
+
+*background: #000000
+*foreground: #f8fafc
+*cursorColor: #38bdf8
+*reverseVideo: false
+*openIm: false
+*retryInputMethod: 0
+
+*VT100*background: #000000
+*VT100*foreground: #f8fafc
+*VT100*cursorColor: #38bdf8
+*VT100*font: fixed
+*VT100*saveLines: 2000
+*VT100*scrollBar: false
+*VT100*colorMode: on
+
+! ANSI Colors
+*VT100*color0: #000000
+*VT100*color1: #ef4444
+*VT100*color2: #22c55e
+*VT100*color3: #eab308
+*VT100*color4: #3b82f6
+*VT100*color5: #a855f7
+*VT100*color6: #06b6d4
+*VT100*color7: #e2e8f0
+*VT100*color8: #64748b
+*VT100*color9: #f87171
+*VT100*color10: #4ade80
+*VT100*color11: #facc15
+*VT100*color12: #60a5fa
+*VT100*color13: #c084fc
+*VT100*color14: #22d3ee
+*VT100*color15: #ffffff

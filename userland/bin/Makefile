@@ -12,6 +12,7 @@ CORE_PROGS := \
     $(ROOTFS_DIR)/bin/userdel \
     $(ROOTFS_DIR)/bin/groupadd \
     $(ROOTFS_DIR)/bin/su \
+    $(ROOTFS_DIR)/bin/sudo \
     $(ROOTFS_DIR)/bin/chmod \
     $(ROOTFS_DIR)/bin/chown \
     $(ROOTFS_DIR)/bin/df \
@@ -27,9 +28,6 @@ CORE_PROGS := \
     $(ROOTFS_DIR)/bin/wc \
     $(ROOTFS_DIR)/bin/clear \
     $(ROOTFS_DIR)/bin/mount \
-    $(ROOTFS_DIR)/bin/dltest \
-    $(ROOTFS_DIR)/bin/mathtest \
-    $(ROOTFS_DIR)/bin/threadtest \
     $(ROOTFS_DIR)/bin/insmod \
     $(ROOTFS_DIR)/bin/rmmod \
     $(ROOTFS_DIR)/bin/lsmod \
@@ -37,8 +35,6 @@ CORE_PROGS := \
     $(ROOTFS_DIR)/bin/rm \
     $(ROOTFS_DIR)/bin/hostname \
     $(ROOTFS_DIR)/bin/uname \
-    $(ROOTFS_DIR)/bin/tuitest \
-    $(ROOTFS_DIR)/bin/drmtest \
     $(ROOTFS_DIR)/bin/ifconfig \
     $(ROOTFS_DIR)/bin/ping \
     $(ROOTFS_DIR)/bin/sleep \
@@ -48,11 +44,6 @@ CORE_PROGS := \
     $(ROOTFS_DIR)/bin/kill \
     $(ROOTFS_DIR)/bin/killall \
     $(ROOTFS_DIR)/bin/dmesg \
-    $(ROOTFS_DIR)/bin/randtest \
-    $(ROOTFS_DIR)/bin/tmpfstest \
-    $(ROOTFS_DIR)/bin/shmtest \
-    $(ROOTFS_DIR)/bin/ptytest \
-    $(ROOTFS_DIR)/bin/kqueuetest \
     $(ROOTFS_DIR)/bin/grep \
     $(ROOTFS_DIR)/bin/find \
     $(ROOTFS_DIR)/bin/top \
@@ -66,26 +57,52 @@ CORE_PROGS := \
     $(ROOTFS_DIR)/bin/lspci \
     $(ROOTFS_DIR)/bin/lsusb \
     $(ROOTFS_DIR)/bin/donut \
-    $(ROOTFS_DIR)/bin/mousetest \
-    $(ROOTFS_DIR)/bin/unixtest \
-    $(ROOTFS_DIR)/bin/gittest \
     $(ROOTFS_DIR)/bin/startx \
     $(ROOTFS_DIR)/bin/szpontlogin \
     $(ROOTFS_DIR)/bin/szpontdesktop \
     $(ROOTFS_DIR)/bin/szponterm \
     $(ROOTFS_DIR)/bin/makaljer \
-    $(ROOTFS_DIR)/bin/szpontdetected \
-    $(ROOTFS_DIR)/bin/curltest \
-    $(ROOTFS_DIR)/bin/mesadrmtest \
-    $(ROOTFS_DIR)/bin/cpptest \
-    $(ROOTFS_DIR)/bin/gltriangle \
-    $(ROOTFS_DIR)/bin/glxgears
+    $(ROOTFS_DIR)/bin/szpontdetected
 
-.PHONY: all progs
+TEST_PROGS := \
+    $(ROOTFS_DIR)/usr/tbin/dltest \
+    $(ROOTFS_DIR)/usr/tbin/mathtest \
+    $(ROOTFS_DIR)/usr/tbin/threadtest \
+    $(ROOTFS_DIR)/usr/tbin/tuitest \
+    $(ROOTFS_DIR)/usr/tbin/drmtest \
+    $(ROOTFS_DIR)/usr/tbin/randtest \
+    $(ROOTFS_DIR)/usr/tbin/tmpfstest \
+    $(ROOTFS_DIR)/usr/tbin/shmtest \
+    $(ROOTFS_DIR)/usr/tbin/ptytest \
+    $(ROOTFS_DIR)/usr/tbin/kqueuetest \
+    $(ROOTFS_DIR)/usr/tbin/mousetest \
+    $(ROOTFS_DIR)/usr/tbin/unixtest \
+    $(ROOTFS_DIR)/usr/tbin/gittest \
+    $(ROOTFS_DIR)/usr/tbin/curltest \
+    $(ROOTFS_DIR)/usr/tbin/mesadrmtest \
+    $(ROOTFS_DIR)/usr/tbin/cpptest \
+    $(ROOTFS_DIR)/usr/tbin/gltriangle \
+    $(ROOTFS_DIR)/usr/tbin/glxgears \
+    $(ROOTFS_DIR)/usr/tbin/epolltest \
+    $(ROOTFS_DIR)/usr/tbin/eventfdtest \
+    $(ROOTFS_DIR)/usr/tbin/inotifytest \
+    $(ROOTFS_DIR)/usr/tbin/timerfdtest \
+    $(ROOTFS_DIR)/usr/tbin/signalfdtest \
+    $(ROOTFS_DIR)/usr/tbin/sysfstest
 
-all: progs
+.PHONY: all progs symlinks
 
-progs: $(CORE_PROGS)
+all: progs symlinks
+
+progs: $(CORE_PROGS) $(TEST_PROGS)
+
+symlinks: $(CORE_PROGS)
+	@mkdir -p $(ROOTFS_DIR)/usr/bin
+	@ln -sf /bin/killall $(ROOTFS_DIR)/usr/bin/killall
+	@ln -sf /bin/kill $(ROOTFS_DIR)/usr/bin/kill
+	@ln -sf /bin/sudo $(ROOTFS_DIR)/usr/bin/sudo
+	@ln -sf /bin/su $(ROOTFS_DIR)/usr/bin/su
+	@chmod 4755 $(ROOTFS_DIR)/bin/sudo $(ROOTFS_DIR)/bin/su 2>/dev/null || true
 
 # Compile standard utility objects
 $(BUILD_DIR)/userland/bin/%.o: $(ROOT_DIR)/userland/bin/%.c | $(SYSROOT_STAMP) $(BUILD_DIR)/userland/bin
@@ -93,9 +110,19 @@ $(BUILD_DIR)/userland/bin/%.o: $(ROOT_DIR)/userland/bin/%.c | $(SYSROOT_STAMP) $
 	@echo "  [CC]  $<"
 	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/$*.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -c $< -o $@
 
+$(ROOTFS_DIR)/bin $(ROOTFS_DIR)/usr/tbin:
+	@mkdir -p $@
+
 # Link standard dynamic binaries
 $(ROOTFS_DIR)/bin/%: $(BUILD_DIR)/userland/bin/%.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/bin $(LIBC_SO) $(LIBM_SO)
 	@mkdir -p $(ROOTFS_DIR)/bin
+	@echo "  [LD]  $@"
+	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $< -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lm -lc -o $@
+	@chmod +x $@
+
+# Link standard test binaries
+$(ROOTFS_DIR)/usr/tbin/%: $(BUILD_DIR)/userland/bin/%.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/usr/tbin $(LIBC_SO) $(LIBM_SO)
+	@mkdir -p $(ROOTFS_DIR)/usr/tbin
 	@echo "  [LD]  $@"
 	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $< -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lm -lc -o $@
 	@chmod +x $@
@@ -189,8 +216,8 @@ $(BUILD_DIR)/userland/bin/curltest.o: $(ROOT_DIR)/userland/bin/curltest.c | $(SY
 	@echo "  [CC-CURLTEST] $<"
 	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/curltest.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -c $< -o $@
 
-$(ROOTFS_DIR)/bin/curltest: $(BUILD_DIR)/userland/bin/curltest.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/bin $(LIBC_SO) $(ROOTFS_DIR)/lib/libcurl.so $(ROOTFS_DIR)/lib/libz.so
-	@mkdir -p $(ROOTFS_DIR)/bin
+$(ROOTFS_DIR)/usr/tbin/curltest: $(BUILD_DIR)/userland/bin/curltest.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/usr/tbin $(LIBC_SO) $(ROOTFS_DIR)/lib/libcurl.so $(ROOTFS_DIR)/lib/libz.so
+	@mkdir -p $(ROOTFS_DIR)/usr/tbin
 	@echo "  [LD-CURLTEST] $@"
 	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $< -L$(ROOTFS_DIR)/lib -Wl,-rpath-link=$(ROOTFS_DIR)/lib -lcurl -lssl -lcrypto -lz -lm -lc -o $@
 	@chmod +x $@
@@ -201,8 +228,8 @@ $(BUILD_DIR)/userland/bin/drmtest.o: $(ROOT_DIR)/userland/bin/drmtest.c | $(SYSR
 	@echo "  [CC]  $<"
 	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/drmtest.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include/libdrm -c $< -o $@
 
-$(ROOTFS_DIR)/bin/drmtest: $(BUILD_DIR)/userland/bin/drmtest.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/bin $(LIBC_SO) $(LIBM_SO) $(ROOTFS_DIR)/lib/libdrm.so
-	@mkdir -p $(ROOTFS_DIR)/bin
+$(ROOTFS_DIR)/usr/tbin/drmtest: $(BUILD_DIR)/userland/bin/drmtest.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/usr/tbin $(LIBC_SO) $(LIBM_SO) $(ROOTFS_DIR)/lib/libdrm.so
+	@mkdir -p $(ROOTFS_DIR)/usr/tbin
 	@echo "  [LD]  $@"
 	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $< -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -ldrm -lm -lc -o $@
 	@chmod +x $@
@@ -212,8 +239,8 @@ $(BUILD_DIR)/userland/bin/mesadrmtest.o: $(ROOT_DIR)/userland/bin/mesadrmtest.c 
 	@echo "  [CC]  $<"
 	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/mesadrmtest.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include/libdrm -c $< -o $@
 
-$(ROOTFS_DIR)/bin/mesadrmtest: $(BUILD_DIR)/userland/bin/mesadrmtest.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/bin $(LIBC_SO) $(LIBM_SO) $(ROOTFS_DIR)/lib/libdrm.so
-	@mkdir -p $(ROOTFS_DIR)/bin
+$(ROOTFS_DIR)/usr/tbin/mesadrmtest: $(BUILD_DIR)/userland/bin/mesadrmtest.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/usr/tbin $(LIBC_SO) $(LIBM_SO) $(ROOTFS_DIR)/lib/libdrm.so
+	@mkdir -p $(ROOTFS_DIR)/usr/tbin
 	@echo "  [LD]  $@"
 	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $< -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -ldrm -lm -lc -o $@
 	@chmod +x $@
@@ -224,8 +251,8 @@ $(BUILD_DIR)/userland/bin/cpptest.o: $(ROOT_DIR)/userland/bin/cpptest.cpp | $(SY
 	@echo "  [CXX] $<"
 	@$(CXX) $(USER_CXXFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/cpptest.d -c $< -o $@
 
-$(ROOTFS_DIR)/bin/cpptest: $(BUILD_DIR)/userland/bin/cpptest.o $(CRT0_O) $(CRTI_O) $(CRTN_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/bin $(LIBC_SO) $(LIBM_SO) $(LIBSTDCXX_SO)
-	@mkdir -p $(ROOTFS_DIR)/bin
+$(ROOTFS_DIR)/usr/tbin/cpptest: $(BUILD_DIR)/userland/bin/cpptest.o $(CRT0_O) $(CRTI_O) $(CRTN_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/usr/tbin $(LIBC_SO) $(LIBM_SO) $(LIBSTDCXX_SO)
+	@mkdir -p $(ROOTFS_DIR)/usr/tbin
 	@echo "  [LD]  $@"
 	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $(CRTI_O) $$($(CC) -print-file-name=crtbegin.o) $< $$($(CC) -print-file-name=crtend.o) $(CRTN_O) -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lstdc++ -lm -lc -o $@
 	@chmod +x $@
@@ -236,8 +263,8 @@ $(BUILD_DIR)/userland/bin/gltriangle.o: $(ROOT_DIR)/userland/bin/gltriangle.c | 
 	@echo "  [CC]  $<"
 	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/gltriangle.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -c $< -o $@
 
-$(ROOTFS_DIR)/bin/gltriangle: $(BUILD_DIR)/userland/bin/gltriangle.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/bin $(LIBC_SO) $(LIBM_SO)
-	@mkdir -p $(ROOTFS_DIR)/bin
+$(ROOTFS_DIR)/usr/tbin/gltriangle: $(BUILD_DIR)/userland/bin/gltriangle.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/usr/tbin $(LIBC_SO) $(LIBM_SO)
+	@mkdir -p $(ROOTFS_DIR)/usr/tbin
 	@echo "  [LD]  $@"
 	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $< -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lEGL -lGLESv2 -lm -lc -Wl,--allow-shlib-undefined -o $@
 	@chmod +x $@
@@ -248,8 +275,8 @@ $(BUILD_DIR)/userland/bin/glxgears.o: $(ROOT_DIR)/userland/bin/glxgears.c | $(SY
 	@echo "  [CC]  $<"
 	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/glxgears.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -c $< -o $@
 
-$(ROOTFS_DIR)/bin/glxgears: $(BUILD_DIR)/userland/bin/glxgears.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/bin $(LIBC_SO) $(LIBM_SO) $(ROOTFS_DIR)/lib/libGL.so $(ROOTFS_DIR)/lib/libX11.so
-	@mkdir -p $(ROOTFS_DIR)/bin
+$(ROOTFS_DIR)/usr/tbin/glxgears: $(BUILD_DIR)/userland/bin/glxgears.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/usr/tbin $(LIBC_SO) $(LIBM_SO) $(ROOTFS_DIR)/lib/libGL.so $(ROOTFS_DIR)/lib/libX11.so
+	@mkdir -p $(ROOTFS_DIR)/usr/tbin
 	@echo "  [LD]  $@"
 	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $< -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lGL -lX11 -lxcb -lm -lc -Wl,--allow-shlib-undefined -o $@
 	@chmod +x $@

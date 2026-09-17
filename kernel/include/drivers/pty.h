@@ -10,7 +10,7 @@
 #include <fs/vfs.h>
 #include <kernel/types.h>
 
-#define MAX_PTS 32
+#define MAX_PTS 256
 
 /* POSIX / Linux PTY ioctls */
 #ifndef TIOCGPTN
@@ -39,5 +39,7 @@ struct winsize {
 void pty_init(void);
 bool pty_node_has_pollin(vfs_node_t *node);
 bool pty_node_has_pollout(vfs_node_t *node);
+bool pty_node_is_hungup(vfs_node_t *node);
+bool pty_is_slave_node(vfs_node_t *node);
 
 #endif /* SZPONTOS_DRIVERS_PTY_H */

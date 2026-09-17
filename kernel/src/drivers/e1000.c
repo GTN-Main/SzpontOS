@@ -10,13 +10,17 @@
 #include <mm/heap.h>
 #include <kernel/kprint.h>
 #include <kernel/string.h>
+#include <kernel/spinlock.h>
 
 static pci_device_t *g_e1000_pci = NULL;
 static uintptr_t g_e1000_mmio_base = 0;
 static netif_t g_e1000_netif;
 
-static e1000_rx_desc_t *g_rx_descs = NULL;
-static e1000_tx_desc_t *g_tx_descs = NULL;
+static spinlock_t g_e1000_rx_lock = SPINLOCK_INIT;
+static spinlock_t g_e1000_tx_lock = SPINLOCK_INIT;
+
+static volatile e1000_rx_desc_t *g_rx_descs = NULL;
+static volatile e1000_tx_desc_t *g_tx_descs = NULL;
 static uint8_t *g_rx_buffers[E1000_NUM_RX_DESC];
 static uint8_t *g_tx_buffers[E1000_NUM_TX_DESC];
 
@@ -80,8 +84,8 @@ static void e1000_read_mac(uint8_t *mac) {
 
 static void e1000_rx_init(void) {
     uintptr_t rx_phys = pmm_alloc_page();
-    g_rx_descs = (e1000_rx_desc_t *)PHYS_TO_VIRT(rx_phys);
-    memset(g_rx_descs, 0, PAGE_SIZE);
+    g_rx_descs = (volatile e1000_rx_desc_t *)PHYS_TO_VIRT(rx_phys);
+    memset((void *)g_rx_descs, 0, PAGE_SIZE);
 
     for (int i = 0; i < E1000_NUM_RX_DESC; i++) {
         uintptr_t buf_phys = pmm_alloc_page();
@@ -103,8 +107,8 @@ static void e1000_rx_init(void) {
 
 static void e1000_tx_init(void) {
     uintptr_t tx_phys = pmm_alloc_page();
-    g_tx_descs = (e1000_tx_desc_t *)PHYS_TO_VIRT(tx_phys);
-    memset(g_tx_descs, 0, PAGE_SIZE);
+    g_tx_descs = (volatile e1000_tx_desc_t *)PHYS_TO_VIRT(tx_phys);
+    memset((void *)g_tx_descs, 0, PAGE_SIZE);
 
     for (int i = 0; i < E1000_NUM_TX_DESC; i++) {
         uintptr_t buf_phys = pmm_alloc_page();
@@ -130,6 +134,7 @@ int e1000_send(netif_t *netif, net_buf_t *buf) {
         return -1;
     (void)netif;
 
+    spinlock_acquire(&g_e1000_tx_lock);
     uint16_t cur = g_tx_cur;
     memcpy(g_tx_buffers[cur], buf->data + buf->offset, buf->len);
 
@@ -144,6 +149,7 @@ int e1000_send(netif_t *netif, net_buf_t *buf) {
         netif->tx_packets++;
         netif->tx_bytes += buf->len;
     }
+    spinlock_release(&g_e1000_tx_lock);
 
     return 0;
 }
@@ -152,6 +158,7 @@ void e1000_poll(void) {
     if (!g_rx_descs)
         return;
 
+    spinlock_acquire(&g_e1000_rx_lock);
     while (g_rx_descs[g_rx_cur].status & 0x01) { /* DD - Descriptor Done */
         uint8_t *pkt_data = g_rx_buffers[g_rx_cur];
         uint16_t pkt_len = g_rx_descs[g_rx_cur].length;
@@ -175,6 +182,7 @@ void e1000_poll(void) {
         g_rx_cur = (g_rx_cur + 1) % E1000_NUM_RX_DESC;
         write_cmd(REG_RDT, old_cur);
     }
+    spinlock_release(&g_e1000_rx_lock);
 }
 
 bool e1000_init(pci_device_t *pci_dev) {

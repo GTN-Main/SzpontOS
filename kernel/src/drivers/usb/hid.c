@@ -240,30 +240,6 @@ static void emit_hid_key(uint8_t key, uint8_t modifiers) {
         char lower = (ch >= 'A' && ch <= 'Z') ? (char)(ch + 32) : ch;
         if (lower >= 'a' && lower <= 'z') {
             char ctrl_char = (char)(lower - 'a' + 1);
-
-            if (ctrl_char == 0x03) { /* Ctrl+C -> SIGINT */
-                process_t *fg = process_get_foreground();
-                if (fg)
-                    process_send_signal(fg, SIGINT);
-                keyboard_push_char(0x03);
-                return;
-            } else if (ctrl_char == 0x1A) { /* Ctrl+Z -> SIGTSTP */
-                process_t *fg = process_get_foreground();
-                if (fg)
-                    process_send_signal(fg, SIGTSTP);
-                keyboard_push_char(0x1A);
-                return;
-            } else if (ctrl_char == 0x1C) { /* Ctrl+\ -> SIGQUIT */
-                process_t *fg = process_get_foreground();
-                if (fg)
-                    process_send_signal(fg, SIGQUIT);
-                keyboard_push_char(0x1C);
-                return;
-            } else if (ctrl_char == 0x04) { /* Ctrl+D -> EOF */
-                keyboard_push_char(0x04);
-                return;
-            }
-
             keyboard_push_char(ctrl_char);
             return;
         }
@@ -277,9 +253,6 @@ static void emit_hid_key(uint8_t key, uint8_t modifiers) {
             return;
         }
         if (ch == '\\') {
-            process_t *fg = process_get_foreground();
-            if (fg)
-                process_send_signal(fg, SIGQUIT);
             keyboard_push_char(0x1C);
             return;
         }

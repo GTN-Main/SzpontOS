@@ -23,6 +23,7 @@
 #include <fs/vfs.h>
 #include <fs/devfs.h>
 #include <fs/procfs.h>
+#include <fs/sysfs.h>
 #include <fs/tmpfs.h>
 #include <fs/bcache.h>
 #include <fs/ext2.h>
@@ -210,6 +211,12 @@ void _start(void) {
     ahci_init();
     usb_init();
     net_init();
+
+    /* Mount SysFS at /sys */
+    vfs_node_t *sys_fs = sysfs_init();
+    if (sys_fs) {
+        vfs_mount("/sys", sys_fs);
+    }
 
     /* Mount primary hard disk (/dev/sda or /dev/hda) at /mnt */
     block_device_t *root_disk = block_device_get("sda");

@@ -8,6 +8,7 @@
 #include <mm/shm.h>
 #include <fs/vfs.h>
 #include <fs/pipe.h>
+#include <fs/signalfd.h>
 #include <kernel/string.h>
 #include <kernel/kprint.h>
 #include <kernel/spinlock.h>
@@ -35,21 +36,9 @@ void process_init(void) {
 process_t *process_get_foreground(void) {
     spinlock_acquire(&g_process_lock);
     process_t *p = g_foreground_proc;
-    if (!p || p->status != PROCESS_ACTIVE) {
-        /* Fall back to current running process if active */
-        process_t *curr = sched_get_current_process();
-        if (curr && curr->pid > 0 && curr->status == PROCESS_ACTIVE) {
-            p = curr;
-        } else {
-            /* Find latest active user process */
-            list_node_t *pos;
-            list_for_each(pos, &g_process_list) {
-                process_t *item = container_of(pos, process_t, proc_list_node);
-                if (item->status == PROCESS_ACTIVE && item->pid > 1) {
-                    p = item;
-                }
-            }
-        }
+    if (p && p->status != PROCESS_ACTIVE) {
+        p = NULL;
+        g_foreground_proc = NULL;
     }
     spinlock_release(&g_process_lock);
     return p;
@@ -82,6 +71,33 @@ void process_signal_ctty(vfs_node_t *ctty_node, int sig) {
 
     for (size_t i = 0; i < count; i++) {
         process_send_signal(targets[i], sig);
+    }
+}
+
+void process_signal_pgrp(pid_t pgid, int sig) {
+    if (pgid <= 1 || sig <= 0 || sig >= 32)
+        return;
+
+    pid_t targets[128];
+    int target_count = 0;
+
+    spinlock_acquire(&g_process_lock);
+    list_node_t *pos;
+    list_for_each(pos, &g_process_list) {
+        process_t *p = container_of(pos, process_t, proc_list_node);
+        if (p->status == PROCESS_ACTIVE && p->pgid == pgid) {
+            if (target_count < 128) {
+                targets[target_count++] = p->pid;
+            }
+        }
+    }
+    spinlock_release(&g_process_lock);
+
+    for (int i = 0; i < target_count; i++) {
+        process_t *p = process_get_by_pid(targets[i]);
+        if (p && p->status == PROCESS_ACTIVE) {
+            process_send_signal(p, sig);
+        }
     }
 }
 
@@ -368,6 +384,7 @@ int process_send_signal(process_t *proc, int sig) {
     }
 
     proc->pending_signals |= (1U << sig);
+    signalfd_notify(proc, sig);
     uintptr_t handler = proc->signal_handlers[sig];
 
     if (handler == SIG_IGN ||
@@ -377,10 +394,17 @@ int process_send_signal(process_t *proc, int sig) {
         return 0;
     }
 
+    if ((proc->blocked_signals & (1U << sig)) && sig != SIGKILL && sig != SIGSTOP) {
+        /* Signal is blocked by process; keep in pending_signals for sigwait/signalfd */
+        spinlock_release(&g_process_lock);
+        return 0;
+    }
+
     if (handler == SIG_DFL || (handler > 3 && (sig == SIGHUP || sig == SIGINT || sig == SIGQUIT || sig == SIGKILL || sig == SIGTERM || sig == SIGSEGV || sig == SIGILL))) {
         /* Terminating signals */
         if (sig == SIGHUP || sig == SIGINT || sig == SIGQUIT || sig == SIGKILL || sig == SIGTERM || sig == SIGSEGV ||
             sig == SIGILL) {
+            proc->term_sig = sig;
             if (proc == sched_get_current_process()) {
                 spinlock_release(&g_process_lock);
                 process_exit(128 + sig);
@@ -853,7 +877,7 @@ int process_kill(pid_t pid, int sig) {
             target = true;
         } else if (pid == -1 && p->pid > 1 && p != curr) {
             target = true;
-        } else if (pid < -1 && (p->pgid == -pid || p->sid == -pid)) {
+        } else if (pid < -1 && p->pgid == -pid) {
             target = true;
         }
 
@@ -873,12 +897,8 @@ int process_kill(pid_t pid, int sig) {
     }
 
     if (sent_count == 0 && pid == 0) {
-        /* Fall back to foreground process if no group found */
-        process_t *fg = process_get_foreground();
-        if (fg) {
-            return process_send_signal(fg, sig);
-        }
-        return -1;
+        /* Fall back to current process if no other group members */
+        return process_send_signal(curr, sig);
     }
 
     if (pid == -1) {
@@ -920,8 +940,13 @@ pid_t process_waitpid(pid_t pid, int *status, int options) {
                         }
                     } else if (p->status == PROCESS_ZOMBIE) {
                         pid_t found_pid = p->pid;
-                        if (status)
-                            *status = ((p->exit_code & 0xFF) << 8);
+                        if (status) {
+                            if (p->term_sig > 0) {
+                                *status = (p->term_sig & 0x7F);
+                            } else {
+                                *status = ((p->exit_code & 0xFF) << 8);
+                            }
+                        }
 
                         if (g_foreground_proc == p) {
                             g_foreground_proc = NULL;

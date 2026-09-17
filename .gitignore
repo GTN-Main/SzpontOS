@@ -16,3 +16,7 @@ limine-bin
 # Compilation database (optional, can be generated anytime via make compile-commands)
 # compile_commands.json
 compile_commands.json
+
+# Python bytecode
+__pycache__/
+*.pyc

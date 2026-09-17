@@ -61,6 +61,20 @@ static ssize_t socket_vfs_read(vfs_node_t *node, off_t offset, size_t size, void
             }
             thread_sleep(1);
         }
+    } else if (sock->type == SOCK_DGRAM || sock->type == SOCK_RAW) {
+        if (is_nonblock && sock->dgram_count == 0) {
+            if (sock->state == SS_CLOSED) {
+                return 0; /* EOF */
+            }
+            return -11; /* -EAGAIN */
+        }
+        while (sock->dgram_count == 0) {
+            if (sock->state == SS_CLOSED) {
+                return 0; /* EOF */
+            }
+            netif_poll_all();
+            thread_sleep(1);
+        }
     } else {
         if (is_nonblock && sock->rx_len == 0) {
             if (sock->state == SS_CLOSED || (sock->type == SOCK_STREAM && (sock->tcp_state == TCP_STATE_CLOSE_WAIT || sock->tcp_state == TCP_STATE_CLOSED))) {
@@ -78,6 +92,36 @@ static ssize_t socket_vfs_read(vfs_node_t *node, off_t offset, size_t size, void
     }
 
     spinlock_acquire(&sock->lock);
+    if (sock->type == SOCK_DGRAM || sock->type == SOCK_RAW) {
+        if (sock->dgram_count == 0) {
+            spinlock_release(&sock->lock);
+            return is_nonblock ? -11 : 0;
+        }
+
+        dgram_meta_t meta = sock->dgram_queue[sock->dgram_head];
+        sock->dgram_head = (sock->dgram_head + 1) % SOCK_DGRAM_QUEUE_LEN;
+        sock->dgram_count--;
+
+        size_t pkt_len = meta.len;
+        size_t to_read = size < pkt_len ? size : pkt_len;
+        uint8_t *dst = (uint8_t *)buffer;
+
+        for (size_t i = 0; i < to_read; i++) {
+            dst[i] = sock->rx_buf[sock->rx_head];
+            sock->rx_head = (sock->rx_head + 1) % SOCK_RX_BUF_SIZE;
+        }
+        if (pkt_len > to_read) {
+            sock->rx_head = (sock->rx_head + (pkt_len - to_read)) % SOCK_RX_BUF_SIZE;
+        }
+        if (sock->rx_len >= pkt_len)
+            sock->rx_len -= pkt_len;
+        else
+            sock->rx_len = 0;
+
+        spinlock_release(&sock->lock);
+        return (ssize_t)to_read;
+    }
+
     size_t to_read = size < sock->rx_len ? size : sock->rx_len;
     uint8_t *dst = (uint8_t *)buffer;
     for (size_t i = 0; i < to_read; i++) {
@@ -364,6 +408,19 @@ int socket_enqueue_data(socket_t *sock, const void *data, size_t len, uint32_t f
         sock->remote_ip = from_ip;
         sock->remote_port = from_port;
     }
+
+    if (sock->type == SOCK_DGRAM || sock->type == SOCK_RAW) {
+        if (sock->dgram_count >= SOCK_DGRAM_QUEUE_LEN || (sock->rx_len + len) > SOCK_RX_BUF_SIZE) {
+            spinlock_release(&sock->lock);
+            return 0; /* Drop datagram if queue or buffer full */
+        }
+        sock->dgram_queue[sock->dgram_tail].len = len;
+        sock->dgram_queue[sock->dgram_tail].from_ip = from_ip;
+        sock->dgram_queue[sock->dgram_tail].from_port = from_port;
+        sock->dgram_tail = (sock->dgram_tail + 1) % SOCK_DGRAM_QUEUE_LEN;
+        sock->dgram_count++;
+    }
+
     const uint8_t *src = (const uint8_t *)data;
     size_t written = 0;
 
@@ -829,6 +886,20 @@ ssize_t sys_recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr *
             }
             thread_sleep(1);
         }
+    } else if (sock->type == SOCK_DGRAM || sock->type == SOCK_RAW) {
+        if (is_nonblock && sock->dgram_count == 0) {
+            if (sock->state == SS_CLOSED) {
+                return 0; /* EOF */
+            }
+            return -11; /* -EAGAIN */
+        }
+        while (sock->dgram_count == 0) {
+            if (sock->state == SS_CLOSED) {
+                return 0; /* EOF */
+            }
+            netif_poll_all();
+            thread_sleep(1);
+        }
     } else {
         if (is_nonblock && sock->rx_len == 0) {
             if (sock->state == SS_CLOSED || (sock->type == SOCK_STREAM && (sock->tcp_state == TCP_STATE_CLOSE_WAIT || sock->tcp_state == TCP_STATE_CLOSED))) {
@@ -846,6 +917,45 @@ ssize_t sys_recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr *
     }
 
     spinlock_acquire(&sock->lock);
+    if (sock->type == SOCK_DGRAM || sock->type == SOCK_RAW) {
+        if (sock->dgram_count == 0) {
+            spinlock_release(&sock->lock);
+            return is_nonblock ? -11 : 0;
+        }
+
+        dgram_meta_t meta = sock->dgram_queue[sock->dgram_head];
+        sock->dgram_head = (sock->dgram_head + 1) % SOCK_DGRAM_QUEUE_LEN;
+        sock->dgram_count--;
+
+        size_t pkt_len = meta.len;
+        size_t to_read = len < pkt_len ? len : pkt_len;
+        uint8_t *dst = (uint8_t *)buf;
+
+        for (size_t i = 0; i < to_read; i++) {
+            dst[i] = sock->rx_buf[sock->rx_head];
+            sock->rx_head = (sock->rx_head + 1) % SOCK_RX_BUF_SIZE;
+        }
+        if (pkt_len > to_read) {
+            sock->rx_head = (sock->rx_head + (pkt_len - to_read)) % SOCK_RX_BUF_SIZE;
+        }
+        if (sock->rx_len >= pkt_len)
+            sock->rx_len -= pkt_len;
+        else
+            sock->rx_len = 0;
+
+        spinlock_release(&sock->lock);
+
+        if (src_addr && addrlen && *addrlen >= sizeof(struct sockaddr_in)) {
+            struct sockaddr_in *in = (struct sockaddr_in *)src_addr;
+            in->sin_family = AF_INET;
+            in->sin_addr.s_addr = meta.from_ip;
+            in->sin_port = htons(meta.from_port);
+            *addrlen = sizeof(struct sockaddr_in);
+        }
+
+        return (ssize_t)to_read;
+    }
+
     size_t to_read = len < sock->rx_len ? len : sock->rx_len;
     uint8_t *dst = (uint8_t *)buf;
 

@@ -15,6 +15,25 @@
 #include <kernel/signal.h>
 #include <kernel/string.h>
 #include <kernel/kprint.h>
+#include <mm/usercopy.h>
+
+static inline bool pty_put_user(void *dst, const void *src, size_t len) {
+    if (!dst || len == 0) return true;
+    if ((uintptr_t)dst <= USER_ADDR_MAX) {
+        return copy_to_user((uintptr_t)dst, src, len);
+    }
+    memcpy(dst, src, len);
+    return true;
+}
+
+static inline bool pty_get_user(void *dst, const void *src, size_t len) {
+    if (!src || len == 0) return true;
+    if ((uintptr_t)src <= USER_ADDR_MAX) {
+        return copy_from_user(dst, (uintptr_t)src, len);
+    }
+    memcpy(dst, src, len);
+    return true;
+}
 
 #define PTY_BUFFER_SIZE 4096
 
@@ -41,6 +60,8 @@ typedef struct pty_pair {
     pid_t fg_pgrp;
     vfs_node_t *master_node;
     vfs_node_t *slave_node;
+    int slave_open_count;
+    bool slave_hung_up;
 } pty_pair_t;
 
 static pty_pair_t g_ptys[MAX_PTS];
@@ -69,9 +90,13 @@ static ssize_t pty_master_read(vfs_node_t *node, off_t offset, size_t size, void
         pty->s2m_tail = (pty->s2m_tail + 1) % PTY_BUFFER_SIZE;
         pty->s2m_count--;
     }
+    bool hung_up = pty->slave_hung_up;
     spinlock_release(&pty->lock);
 
     if (read_bytes == 0) {
+        if (hung_up) {
+            return -5; /* -EIO when slave closed (Linux standard for pty master EOF) */
+        }
         return -11; /* -EAGAIN */
     }
 
@@ -90,16 +115,23 @@ static ssize_t pty_master_write(vfs_node_t *node, off_t offset, size_t size, con
     while (written < size) {
         char c = src[written++];
 
-        /* Signal handling if ISIG is enabled */
+        /* Signal handling if ISIG is enabled: route strictly to foreground process group */
         if (pty->term.c_lflag & TTY_LFLAG_ISIG) {
+            int sig = 0;
             if (c == (char)pty->term.c_cc[TTY_VINTR]) {
-                process_signal_ctty(pty->slave_node, SIGINT);
-                continue;
+                sig = SIGINT;
             } else if (c == (char)pty->term.c_cc[TTY_VQUIT]) {
-                process_signal_ctty(pty->slave_node, SIGQUIT);
-                continue;
+                sig = SIGQUIT;
             } else if (c == (char)pty->term.c_cc[TTY_VSUSP]) {
-                process_signal_ctty(pty->slave_node, SIGTSTP);
+                sig = SIGTSTP;
+            }
+
+            if (sig != 0) {
+                if (pty->fg_pgrp > 1) {
+                    process_signal_pgrp(pty->fg_pgrp, sig);
+                } else {
+                    process_signal_ctty(pty->slave_node, sig);
+                }
                 continue;
             }
         }
@@ -137,44 +169,74 @@ static int pty_master_ioctl(vfs_node_t *node, uint64_t request, uintptr_t arg) {
 
     switch (request) {
     case TIOCGPTN:
-        if (arg) {
-            *(int *)arg = pty->index;
-            return 0;
-        }
-        return -22;
-    case TIOCSPTLCK:
-        if (arg) {
-            pty->locked = (*(int *)arg != 0);
-            return 0;
-        }
-        return -22;
+        if (!arg)
+            return -22;
+        if (!pty_put_user((void *)arg, &pty->index, sizeof(int)))
+            return -14; /* -EFAULT */
+        return 0;
+    case TIOCSPTLCK: {
+        if (!arg)
+            return -22;
+        int lck = 0;
+        if (!pty_get_user(&lck, (const void *)arg, sizeof(int)))
+            return -14; /* -EFAULT */
+        pty->locked = (lck != 0);
+        return 0;
+    }
     case TIOCGWINSZ:
-        if (arg) {
-            memcpy((void *)arg, &pty->ws, sizeof(struct winsize));
-            return 0;
-        }
-        return -22;
+        if (!arg)
+            return -22;
+        if (!pty_put_user((void *)arg, &pty->ws, sizeof(struct winsize)))
+            return -14; /* -EFAULT */
+        return 0;
     case TIOCSWINSZ:
-        if (arg) {
-            memcpy(&pty->ws, (void *)arg, sizeof(struct winsize));
+        if (!arg)
+            return -22;
+        if (!pty_get_user(&pty->ws, (const void *)arg, sizeof(struct winsize)))
+            return -14; /* -EFAULT */
+        if (pty->fg_pgrp > 1) {
+            process_signal_pgrp(pty->fg_pgrp, SIGWINCH);
+        } else {
             process_signal_ctty(pty->slave_node, SIGWINCH);
-            return 0;
         }
-        return -22;
+        return 0;
     case 0x5401: /* TCGETS */
-        if (arg) {
-            memcpy((void *)arg, &pty->term, sizeof(termios_t));
-            return 0;
-        }
-        return -22;
+        if (!arg)
+            return -22;
+        if (!pty_put_user((void *)arg, &pty->term, sizeof(termios_t)))
+            return -14; /* -EFAULT */
+        return 0;
     case 0x5402: /* TCSETS */
     case 0x5403: /* TCSETSW */
     case 0x5404: /* TCSETSF */
-        if (arg) {
-            memcpy(&pty->term, (const void *)arg, sizeof(termios_t));
-            return 0;
+        if (!arg)
+            return -22;
+        if (!pty_get_user(&pty->term, (const void *)arg, sizeof(termios_t)))
+            return -14; /* -EFAULT */
+        return 0;
+    case 0x540F: /* TIOCGPGRP */ {
+        if (!arg)
+            return -22;
+        pid_t pgrp = pty->fg_pgrp;
+        if (pgrp <= 1) {
+            process_t *curr = sched_get_current_process();
+            pgrp = (curr && curr->pgid > 1) ? curr->pgid : 0;
         }
-        return -22;
+        if (!pty_put_user((void *)arg, &pgrp, sizeof(pid_t)))
+            return -14; /* -EFAULT */
+        return 0;
+    }
+    case 0x5410: /* TIOCSPGRP */ {
+        if (!arg)
+            return -22;
+        pid_t pgrp = 0;
+        if (!pty_get_user(&pgrp, (const void *)arg, sizeof(pid_t)))
+            return -14; /* -EFAULT */
+        if (pgrp > 1) {
+            pty->fg_pgrp = pgrp;
+        }
+        return 0;
+    }
     case 0x5421: /* FIONBIO */
         return 0;
     default:
@@ -309,43 +371,50 @@ static int pty_slave_ioctl(vfs_node_t *node, uint64_t request, uintptr_t arg) {
 
     switch (request) {
     case TIOCGPTN:
-        if (arg) {
-            *(int *)arg = pty->index;
-            return 0;
-        }
-        return -22;
+        if (!arg)
+            return -22;
+        if (!pty_put_user((void *)arg, &pty->index, sizeof(int)))
+            return -14;
+        return 0;
     case TIOCGWINSZ:
-        if (arg) {
-            memcpy((void *)arg, &pty->ws, sizeof(struct winsize));
-            return 0;
-        }
-        return -22;
+        if (!arg)
+            return -22;
+        if (!pty_put_user((void *)arg, &pty->ws, sizeof(struct winsize)))
+            return -14;
+        return 0;
     case TIOCSWINSZ:
-        if (arg) {
-            memcpy(&pty->ws, (void *)arg, sizeof(struct winsize));
+        if (!arg)
+            return -22;
+        if (!pty_get_user(&pty->ws, (const void *)arg, sizeof(struct winsize)))
+            return -14;
+        if (pty->fg_pgrp > 1) {
+            process_signal_pgrp(pty->fg_pgrp, SIGWINCH);
+        } else {
             process_signal_ctty(pty->slave_node, SIGWINCH);
-            return 0;
         }
-        return -22;
+        return 0;
     case 0x5401: /* TCGETS */
-        if (arg) {
-            memcpy((void *)arg, &pty->term, sizeof(termios_t));
-            return 0;
-        }
-        return -22;
+        if (!arg)
+            return -22;
+        if (!pty_put_user((void *)arg, &pty->term, sizeof(termios_t)))
+            return -14;
+        return 0;
     case 0x5402: /* TCSETS */
     case 0x5403: /* TCSETSW */
     case 0x5404: /* TCSETSF */
-        if (arg) {
-            memcpy(&pty->term, (const void *)arg, sizeof(termios_t));
-            return 0;
-        }
-        return -22;
+        if (!arg)
+            return -22;
+        if (!pty_get_user(&pty->term, (const void *)arg, sizeof(termios_t)))
+            return -14;
+        return 0;
     case 0x540E: /* TIOCSCTTY */ {
         process_t *curr = sched_get_current_process();
         if (curr) {
             curr->has_ctty = true;
             curr->ctty = node;
+            if (pty->fg_pgrp <= 1 && curr->pgid > 1) {
+                pty->fg_pgrp = curr->pgid;
+            }
         }
         return 0;
     }
@@ -357,31 +426,59 @@ static int pty_slave_ioctl(vfs_node_t *node, uint64_t request, uintptr_t arg) {
         }
         return 0;
     }
-    case 0x540F: /* TIOCGPGRP */
-        if (arg) {
-            pid_t pgrp = pty->fg_pgrp;
-            if (pgrp <= 1) {
-                process_t *curr = sched_get_current_process();
-                pgrp = (curr && curr->pgid > 1) ? curr->pgid : 0;
-            }
-            *(pid_t *)arg = pgrp;
-            return 0;
+    case 0x540F: /* TIOCGPGRP */ {
+        if (!arg)
+            return -22;
+        pid_t pgrp = pty->fg_pgrp;
+        if (pgrp <= 1) {
+            process_t *curr = sched_get_current_process();
+            pgrp = (curr && curr->pgid > 1) ? curr->pgid : 0;
         }
-        return -22;
-    case 0x5410: /* TIOCSPGRP */
-        if (arg) {
-            pid_t pgrp = *(pid_t *)arg;
-            if (pgrp > 1) {
-                pty->fg_pgrp = pgrp;
-            }
-            return 0;
+        if (!pty_put_user((void *)arg, &pgrp, sizeof(pid_t)))
+            return -14;
+        return 0;
+    }
+    case 0x5410: /* TIOCSPGRP */ {
+        if (!arg)
+            return -22;
+        pid_t pgrp = 0;
+        if (!pty_get_user(&pgrp, (const void *)arg, sizeof(pid_t)))
+            return -14;
+        if (pgrp > 1) {
+            pty->fg_pgrp = pgrp;
         }
-        return -22;
+        return 0;
+    }
     case 0x5421: /* FIONBIO */
         return 0;
     default:
         return 0;
     }
+}
+
+static int pty_slave_open(vfs_node_t *node, uint32_t flags) {
+    (void)flags;
+    pty_pair_t *pty = node ? (pty_pair_t *)node->device_data : NULL;
+    if (!pty) return -19; /* -ENODEV */
+    spinlock_acquire(&pty->lock);
+    pty->slave_open_count++;
+    pty->slave_hung_up = false;
+    spinlock_release(&pty->lock);
+    return 0;
+}
+
+static int pty_slave_close(vfs_node_t *node) {
+    pty_pair_t *pty = node ? (pty_pair_t *)node->device_data : NULL;
+    if (!pty) return 0;
+    spinlock_acquire(&pty->lock);
+    if (pty->slave_open_count > 0) {
+        pty->slave_open_count--;
+    }
+    if (pty->slave_open_count == 0) {
+        pty->slave_hung_up = true;
+    }
+    spinlock_release(&pty->lock);
+    return 0;
 }
 
 /* =========================================================================
@@ -402,7 +499,7 @@ static int ptmx_open(vfs_node_t *node, uint32_t flags) {
 
     if (idx < 0) {
         spinlock_release(&g_pty_global_lock);
-        return -1; /* EMFILE */
+        return -24; /* -EMFILE */
     }
 
     pty_pair_t *pty = &g_ptys[idx];
@@ -448,6 +545,7 @@ static int ptmx_open(vfs_node_t *node, uint32_t flags) {
     char slave_dir_name[32];
     ksnprintf(slave_dir_name, sizeof(slave_dir_name), "pts/%d", idx);
     devfs_register_device_path(slave_dir_name, slave);
+    ksnprintf(slave->name, sizeof(slave->name), "pts%d", idx);
 
     pty->slave_node = slave;
 
@@ -458,6 +556,7 @@ static int ptmx_open(vfs_node_t *node, uint32_t flags) {
 static int pty_master_close(vfs_node_t *node) {
     pty_pair_t *pty = node ? (pty_pair_t *)node->device_data : NULL;
     if (pty) {
+        int idx = pty->index;
         spinlock_acquire(&pty->lock);
         pty->allocated = false;
         vfs_node_t *slave = pty->slave_node;
@@ -480,6 +579,15 @@ static int pty_master_close(vfs_node_t *node) {
         if (slave) {
             process_signal_ctty(slave, SIGHUP);
         }
+
+        /* Unregister and clean up slave devices in DevFS */
+        char slave_dir_name[32];
+        ksnprintf(slave_dir_name, sizeof(slave_dir_name), "pts/%d", idx);
+        devfs_unregister_device_path(slave_dir_name);
+
+        char slave_name[32];
+        ksnprintf(slave_name, sizeof(slave_name), "pts%d", idx);
+        devfs_unregister_device(slave_name);
     }
     return 0;
 }
@@ -494,6 +602,8 @@ static vfs_ops_t g_pty_master_ops = {
 };
 
 static vfs_ops_t g_pty_slave_ops = {
+    .open = pty_slave_open,
+    .close = pty_slave_close,
     .read = pty_slave_read,
     .write = pty_slave_write,
     .ioctl = pty_slave_ioctl,
@@ -514,9 +624,9 @@ bool pty_node_has_pollin(vfs_node_t *node) {
         return false;
     pty_pair_t *pty = (pty_pair_t *)node->device_data;
     if (strncmp(node->name, "ptmx", 4) == 0) {
-        return pty->s2m_count > 0;
+        return pty->s2m_count > 0 || pty->slave_hung_up;
     }
-    if (strncmp(node->name, "pts", 3) == 0) {
+    if (strncmp(node->name, "pts", 3) == 0 || (node->ops && node->ops->read == pty_slave_read)) {
         return pty->m2s_count > 0;
     }
     return false;
@@ -529,8 +639,28 @@ bool pty_node_has_pollout(vfs_node_t *node) {
     if (strncmp(node->name, "ptmx", 4) == 0) {
         return pty->m2s_count < PTY_BUFFER_SIZE;
     }
-    if (strncmp(node->name, "pts", 3) == 0) {
+    if (strncmp(node->name, "pts", 3) == 0 || (node->ops && node->ops->read == pty_slave_read)) {
         return pty->s2m_count < PTY_BUFFER_SIZE;
     }
     return true;
+}
+
+bool pty_node_is_hungup(vfs_node_t *node) {
+    if (!node || !node->device_data)
+        return false;
+    pty_pair_t *pty = (pty_pair_t *)node->device_data;
+    if (strncmp(node->name, "ptmx", 4) == 0) {
+        return pty->slave_hung_up;
+    }
+    return false;
+}
+
+bool pty_is_slave_node(vfs_node_t *node) {
+    if (!node)
+        return false;
+    if (node->ops == &g_pty_slave_ops)
+        return true;
+    if (strncmp(node->name, "pts", 3) == 0)
+        return true;
+    return false;
 }

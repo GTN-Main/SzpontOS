@@ -177,7 +177,7 @@ static pid_t start_session(session_t *sp) {
         snprintf(term_env, sizeof(term_env), "TERM=%s", sp->type[0] ? sp->type : "xterm-256color");
 
         char *envp[] = {
-            "PATH=/bin:/usr/bin:/usr/local/bin:/usr/sbin:/sbin",
+            "PATH=/bin:/usr/bin:/usr/tbin:/usr/local/bin:/usr/sbin:/sbin",
             "USER=root",
             "LOGNAME=root",
             "HOME=/root",
@@ -361,7 +361,7 @@ static init_state_t state_single_user(void) {
         }
         char *argv[] = {PATH_BSHELL, NULL};
         char *envp[] = {
-            "PATH=/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin",
+            "PATH=/bin:/usr/bin:/usr/tbin:/usr/local/bin:/sbin:/usr/sbin",
             "USER=root",
             "LOGNAME=root",
             "HOME=/root",
@@ -404,7 +404,7 @@ static init_state_t state_runcom(void) {
         }
         char *argv[] = {PATH_BSHELL, PATH_RC, g_fastboot ? "fastboot" : "autoboot", NULL};
         char *envp[] = {
-            "PATH=/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin",
+            "PATH=/bin:/usr/bin:/usr/tbin:/usr/local/bin:/sbin:/usr/sbin",
             "USER=root",
             "LOGNAME=root",
             "HOME=/root",
@@ -638,7 +638,7 @@ static init_state_t state_death(void) {
         if (pid == 0) {
             setsid();
             char *argv[] = {PATH_BSHELL, PATH_SHUTDOWN, NULL};
-            char *envp[] = {"PATH=/bin:/usr/bin", "USER=root", "HOME=/root", "TERM=xterm-256color", NULL};
+            char *envp[] = {"PATH=/bin:/usr/bin:/usr/tbin", "USER=root", "HOME=/root", "TERM=xterm-256color", NULL};
             execve(argv[0], argv, envp);
             _exit(0);
         }

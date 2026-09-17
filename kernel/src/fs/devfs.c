@@ -16,8 +16,8 @@
 #include <kernel/string.h>
 #include <kernel/kprint.h>
 
-#define MAX_DEVFS_ENTRIES 128
-#define MAX_DIR_ENTRIES 32
+#define MAX_DEVFS_ENTRIES 1024
+#define MAX_DIR_ENTRIES 512
 
 typedef struct devfs_entry {
     char name[32];
@@ -413,15 +413,59 @@ int devfs_register_device_path(const char *path, vfs_node_t *node) {
     return devfs_register_device_in_dir(dir, file_name, node);
 }
 
+int devfs_unregister_device_in_dir(vfs_node_t *dir, const char *name, bool free_node) {
+    if (!dir || !name)
+        return -1;
+    devfs_dir_data_t *data = (devfs_dir_data_t *)dir->device_data;
+    if (!data)
+        return -1;
+    for (size_t i = 0; i < data->count; i++) {
+        if (strcmp(data->entries[i].name, name) == 0 ||
+            (data->entries[i].node && strcmp(data->entries[i].node->name, name) == 0)) {
+            vfs_node_t *node = data->entries[i].node;
+            data->entries[i] = data->entries[data->count - 1];
+            data->count--;
+            if (free_node && node) {
+                kfree(node);
+            }
+            return 0;
+        }
+    }
+    return -1;
+}
+
+int devfs_unregister_device_path(const char *path) {
+    if (!path)
+        return -1;
+    const char *slash = strchr(path, '/');
+    if (!slash) {
+        return devfs_unregister_device(path);
+    }
+    char dir_name[32];
+    size_t dlen = (size_t)(slash - path);
+    if (dlen >= sizeof(dir_name))
+        dlen = sizeof(dir_name) - 1;
+    memcpy(dir_name, path, dlen);
+    dir_name[dlen] = '\0';
+    const char *file_name = slash + 1;
+    vfs_node_t *dir = devfs_finddir(g_devfs_root, dir_name);
+    if (!dir)
+        return -1;
+    return devfs_unregister_device_in_dir(dir, file_name, false);
+}
+
 int devfs_unregister_device(const char *name) {
     if (!name)
         return -1;
     for (size_t i = 0; i < g_device_count; i++) {
-        if (g_devices[i].node && strcmp(g_devices[i].node->name, name) == 0) {
+        if (strcmp(g_devices[i].name, name) == 0 ||
+            (g_devices[i].node && strcmp(g_devices[i].node->name, name) == 0)) {
             vfs_node_t *node = g_devices[i].node;
             g_devices[i] = g_devices[g_device_count - 1];
             g_device_count--;
-            kfree(node);
+            if (node) {
+                kfree(node);
+            }
             return 0;
         }
     }
@@ -456,6 +500,8 @@ void devfs_init(void) {
 
     g_serial_ops.read = devfs_serial_read;
     g_serial_ops.write = devfs_serial_write;
+    g_serial_ops.open = devfs_tty_open;
+    g_serial_ops.ioctl = devfs_tty_ioctl;
 
     g_tty_ops.read = devfs_tty_read;
     g_tty_ops.write = devfs_tty_write;

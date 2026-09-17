@@ -113,6 +113,11 @@
 #define AT_EUID 12
 #define AT_GID 13
 #define AT_EGID 14
+#define AT_CLKTCK 17
+#define AT_HWCAP 16
+#define AT_SECURE 23
+#define AT_RANDOM 25
+#define AT_HWCAP2 26
 #define AT_EXECFN 31
 
 typedef struct {
@@ -227,8 +232,20 @@ typedef struct elf_loaded_so {
     elf_tls_info_t tls;
 } elf_loaded_so_t;
 
+typedef struct elf_exec_info {
+    uintptr_t entry;
+    uintptr_t user_stack;
+    uintptr_t brk_start;
+    uintptr_t base_vaddr;
+    uintptr_t phdr_vaddr;
+    uint16_t phnum;
+    uint16_t phent;
+    char interp_path[256];
+} elf_exec_info_t;
+
 int elf_load_binary(vfs_node_t *file, pagemap_t *map, uintptr_t *out_entry, uintptr_t *out_user_stack,
                     uintptr_t *out_brk_start);
+int elf_load_binary_info(vfs_node_t *file, pagemap_t *map, elf_exec_info_t *info);
 process_t *elf_spawn(const char *path, const char *name);
 
 #endif /* SZPONTOS_FS_ELF_H */

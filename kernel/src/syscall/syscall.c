@@ -14,6 +14,11 @@
 #include <fs/bcache.h>
 #include <fs/elf.h>
 #include <fs/pipe.h>
+#include <fs/eventfd.h>
+#include <fs/epoll.h>
+#include <fs/inotify.h>
+#include <fs/timerfd.h>
+#include <fs/signalfd.h>
 #include <drivers/serial.h>
 #include <drivers/framebuffer.h>
 #include <drivers/keyboard.h>
@@ -215,9 +220,11 @@ static int64_t sys_read(int fd, void *buf, size_t count) {
 
                 /* Ctrl+C */
                 if (c == 0x03) {
-                    process_t *fg = process_get_foreground();
-                    if (fg) {
-                        process_send_signal(fg, SIGINT);
+                    if (proc && proc->pid > 1) {
+                        if (proc->pgid > 1)
+                            process_signal_pgrp(proc->pgid, SIGINT);
+                        else
+                            process_send_signal(proc, SIGINT);
                     }
                     p[0] = 0x03;
                     return 1;
@@ -366,6 +373,7 @@ static int64_t sys_open(const char *path, int flags, mode_t mode) {
             if (!node)
                 return -2;
             newly_created = true;
+            inotify_emit(parent_path, file_name, IN_CREATE, 0);
         } else {
             return -2; /* ENOENT: File not found */
         }
@@ -441,7 +449,9 @@ static int64_t sys_open(const char *path, int flags, mode_t mode) {
             if (open_node->flags == VFS_TYPE_CHARDEVICE &&
                 (strncmp(open_node->name, "console", 7) == 0 ||
                  strncmp(open_node->name, "serial", 6) == 0 ||
-                 strncmp(open_node->name, "pts", 3) == 0)) {
+                 strncmp(open_node->name, "pts", 3) == 0 ||
+                 strncmp(full_path, "/dev/pts", 8) == 0 ||
+                 pty_is_slave_node(open_node))) {
                 proc->has_ctty = true;
                 proc->ctty = node;
             }
@@ -561,9 +571,12 @@ static vfs_ops_t g_pipe_write_ops = {.read = NULL,
                                      .chown = NULL,
                                      .unlink = NULL};
 
-static int64_t sys_pipe(int *pipefd) {
+static int64_t sys_pipe2(int *pipefd, int flags) {
     if (!pipefd)
-        return -1;
+        return -22; /* -EINVAL */
+    if (flags & ~(0x00080000 /* O_CLOEXEC */ | 0x0800 /* O_NONBLOCK */))
+        return -22; /* -EINVAL */
+
     process_t *proc = sched_get_current_process();
     if (!proc)
         return -1;
@@ -580,41 +593,72 @@ static int64_t sys_pipe(int *pipefd) {
         }
     }
     if (fd0 == -1 || fd1 == -1)
-        return -1;
+        return -24; /* -EMFILE */
 
     pipe_chan_t *p = (pipe_chan_t *)kzalloc(sizeof(pipe_chan_t));
+    if (!p)
+        return -12; /* -ENOMEM */
     p->readers = 1;
     p->writers = 1;
 
     vfs_node_t *rnode = (vfs_node_t *)kzalloc(sizeof(vfs_node_t));
+    if (!rnode) {
+        kfree(p);
+        return -12;
+    }
     strcpy(rnode->name, "pipe_read");
     rnode->flags = VFS_TYPE_PIPE;
     rnode->device_data = p;
     rnode->ops = &g_pipe_read_ops;
 
     vfs_node_t *wnode = (vfs_node_t *)kzalloc(sizeof(vfs_node_t));
+    if (!wnode) {
+        kfree(rnode);
+        kfree(p);
+        return -12;
+    }
     strcpy(wnode->name, "pipe_write");
     wnode->flags = VFS_TYPE_PIPE;
     wnode->device_data = p;
     wnode->ops = &g_pipe_write_ops;
 
     file_descriptor_t *f0 = (file_descriptor_t *)kzalloc(sizeof(file_descriptor_t));
+    if (!f0) {
+        kfree(wnode);
+        kfree(rnode);
+        kfree(p);
+        return -12;
+    }
     f0->node = rnode;
-    f0->flags = O_RDONLY;
+    f0->flags = O_RDONLY | (flags & 0x0800 /* O_NONBLOCK */);
     f0->refcount = 1;
 
     file_descriptor_t *f1 = (file_descriptor_t *)kzalloc(sizeof(file_descriptor_t));
+    if (!f1) {
+        kfree(f0);
+        kfree(wnode);
+        kfree(rnode);
+        kfree(p);
+        return -12;
+    }
     f1->node = wnode;
-    f1->flags = O_WRONLY;
+    f1->flags = O_WRONLY | (flags & 0x0800 /* O_NONBLOCK */);
     f1->refcount = 1;
 
     proc->fds[fd0] = f0;
     proc->fds[fd1] = f1;
 
+    if (flags & 0x00080000 /* O_CLOEXEC */) {
+        proc->fd_cloexec[fd0] = true;
+        proc->fd_cloexec[fd1] = true;
+    }
+
     int kfds[2] = {fd0, fd1};
     if (!put_user_buffer(pipefd, kfds, sizeof(kfds))) {
         proc->fds[fd0] = NULL;
         proc->fds[fd1] = NULL;
+        proc->fd_cloexec[fd0] = false;
+        proc->fd_cloexec[fd1] = false;
         kfree(f0);
         kfree(f1);
         kfree(rnode);
@@ -625,10 +669,16 @@ static int64_t sys_pipe(int *pipefd) {
     return 0;
 }
 
+static int64_t sys_pipe(int *pipefd) {
+    return sys_pipe2(pipefd, 0);
+}
+
 static int64_t sys_close(int fd) {
     process_t *proc = sched_get_current_process();
     if (!proc || fd < 0 || fd >= MAX_FD || !proc->fds[fd])
         return -1;
+
+    epoll_on_fd_close(proc, fd);
 
     file_descriptor_t *f = proc->fds[fd];
     proc->fds[fd] = NULL;
@@ -668,6 +718,26 @@ static int64_t sys_dup2(int oldfd, int newfd) {
     proc->fds[newfd] = proc->fds[oldfd];
     proc->fds[newfd]->refcount++;
     proc->fd_cloexec[newfd] = false; /* dup2 clears cloexec per POSIX */
+    return newfd;
+}
+
+static int64_t sys_dup3(int oldfd, int newfd, int flags) {
+    if (oldfd == newfd)
+        return -22; /* -EINVAL */
+    if (flags & ~0x00080000 /* O_CLOEXEC */)
+        return -22; /* -EINVAL */
+
+    process_t *proc = sched_get_current_process();
+    if (!proc || oldfd < 0 || oldfd >= MAX_FD || newfd < 0 || newfd >= MAX_FD || !proc->fds[oldfd])
+        return -9; /* -EBADF */
+
+    if (proc->fds[newfd]) {
+        sys_close(newfd);
+    }
+
+    proc->fds[newfd] = proc->fds[oldfd];
+    proc->fds[newfd]->refcount++;
+    proc->fd_cloexec[newfd] = (flags & 0x00080000 /* O_CLOEXEC */) ? true : false;
     return newfd;
 }
 
@@ -994,6 +1064,33 @@ static int64_t sys_chdir(const char *path) {
     if (vfs_check_permission(node, VFS_EXEC) != 0) {
         return -1; /* EACCES */
     }
+
+    char norm_cwd[256];
+    vfs_normalize_path(full_path, norm_cwd, sizeof(norm_cwd));
+    strncpy(proc->cwd, norm_cwd, sizeof(proc->cwd) - 1);
+    proc->cwd[sizeof(proc->cwd) - 1] = '\0';
+    return 0;
+}
+
+static int64_t sys_fchdir(int fd) {
+    process_t *proc = sched_get_current_process();
+    if (!proc || fd < 0 || fd >= MAX_FD || !proc->fds[fd] || !proc->fds[fd]->node)
+        return -9; /* -EBADF */
+
+    vfs_node_t *node = proc->fds[fd]->node;
+    if (node->flags != VFS_TYPE_DIRECTORY)
+        return -20; /* -ENOTDIR */
+
+    if (vfs_check_permission(node, VFS_EXEC) != 0)
+        return -13; /* -EACCES */
+
+    char full_path[256];
+    if (node->name[0] == '/') {
+        strncpy(full_path, node->name, sizeof(full_path) - 1);
+    } else {
+        ksnprintf(full_path, sizeof(full_path), "/%s", node->name);
+    }
+    full_path[sizeof(full_path) - 1] = '\0';
 
     char norm_cwd[256];
     vfs_normalize_path(full_path, norm_cwd, sizeof(norm_cwd));
@@ -1808,7 +1905,7 @@ static int64_t sys_execve(const char *pathname, char *const argv[], char *const 
     /* If no environment was provided, supply standard minimal defaults */
     if (envc == 0) {
         const char *def_envs[] = {
-            "PATH=/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin",
+            "PATH=/bin:/usr/bin:/usr/tbin:/usr/local/bin:/sbin:/usr/sbin",
             "USER=root",
             "HOME=/root",
             "SHELL=/bin/sh",
@@ -1827,11 +1924,9 @@ static int64_t sys_execve(const char *pathname, char *const argv[], char *const 
     }
 
     pagemap_t *new_map = vmm_create_address_space();
-    uintptr_t entry = 0;
-    uintptr_t user_stack = 0;
-    uintptr_t brk_start = 0x0000000000800000ULL;
+    elf_exec_info_t elf_info;
 
-    if (elf_load_binary(file, new_map, &entry, &user_stack, &brk_start) != 0) {
+    if (elf_load_binary_info(file, new_map, &elf_info) != 0) {
         vmm_destroy_address_space(new_map);
         for (int i = 0; i < argc; i++) kfree(k_argv[i]);
         kfree(k_argv);
@@ -1842,7 +1937,7 @@ static int64_t sys_execve(const char *pathname, char *const argv[], char *const 
 
     pagemap_t *old_map = proc->pagemap;
     proc->pagemap = new_map;
-    proc->brk_start = brk_start;
+    proc->brk_start = elf_info.brk_start;
     proc->brk_current = proc->brk_start;
     proc->mmap_current = 0x0000600000000000ULL;
     strncpy(proc->name, resolved_path, sizeof(proc->name) - 1);
@@ -1856,8 +1951,18 @@ static int64_t sys_execve(const char *pathname, char *const argv[], char *const 
         }
     }
 
-    /* Setup user stack with environment strings, argument strings, and pointer arrays */
-    uintptr_t sp = user_stack;
+    /* Handle SUID and SGID execution bits */
+    if (file->permissions & 04000) {
+        proc->euid = file->uid;
+        proc->suid = file->uid;
+    }
+    if (file->permissions & 02000) {
+        proc->egid = file->gid;
+        proc->sgid = file->gid;
+    }
+
+    /* Setup user stack with environment strings, argument strings, auxv, and pointer arrays */
+    uintptr_t sp = elf_info.user_stack;
     uintptr_t envp_ptrs[MAX_EXEC_ENVS];
     uintptr_t argv_ptrs[MAX_EXEC_ARGS];
 
@@ -1883,8 +1988,36 @@ static int64_t sys_execve(const char *pathname, char *const argv[], char *const 
     for (int i = 0; i < envc; i++) kfree(k_envp[i]);
     kfree(k_envp);
 
-    /* Align stack to 8 bytes */
-    sp &= ~7ULL;
+    /* 3. 16 random bytes for AT_RANDOM */
+    sp &= ~15ULL; /* 16-byte align */
+    sp -= 16;
+    uintptr_t random_ptr = sp;
+    random_get_bytes((void *)random_ptr, 16);
+
+    /* 4. Prepare Auxiliary Vector (System V AMD64 ABI) */
+    struct {
+        uint64_t a_type;
+        uint64_t a_val;
+    } auxv[] = {
+        { AT_SECURE, 0 },
+        { AT_HWCAP2, 0 },
+        { AT_HWCAP, 0 },
+        { AT_RANDOM, random_ptr },
+        { AT_PAGESZ, PAGE_SIZE },
+        { AT_CLKTCK, 100 },
+        { AT_UID, (uint64_t)proc->uid },
+        { AT_EUID, (uint64_t)proc->euid },
+        { AT_GID, (uint64_t)proc->gid },
+        { AT_EGID, (uint64_t)proc->egid },
+        { AT_ENTRY, (uint64_t)elf_info.entry },
+        { AT_PHDR, (uint64_t)elf_info.phdr_vaddr },
+        { AT_PHENT, (uint64_t)elf_info.phent },
+        { AT_PHNUM, (uint64_t)elf_info.phnum },
+        { AT_BASE, (elf_info.interp_path[0] != '\0') ? (uint64_t)elf_info.base_vaddr : 0 },
+        { AT_EXECFN, (argc > 0) ? argv_ptrs[0] : 0 },
+        { AT_NULL, 0 }
+    };
+    size_t auxv_count = sizeof(auxv) / sizeof(auxv[0]);
 
     /*
      * System V AMD64 ABI layout on entry to _start:
@@ -1893,15 +2026,25 @@ static int64_t sys_execve(const char *pathname, char *const argv[], char *const 
      *   [rsp + 8*(argc+1)]             = NULL
      *   [rsp + 8*(argc+2) ..]          = envp[0] .. envp[envc-1]
      *   [rsp + 8*(argc+2+envc)]        = NULL
+     *   [rsp + 8*(argc+3+envc) ..]     = auxv[0] .. auxv[N]
      *
-     * Total pointers pushed = 1 (argc) + argc + 1 (NULL) + envc + 1 (NULL) = argc + envc + 3 words.
+     * Total 64-bit words pushed = 1 (argc) + argc + 1 (NULL) + envc + 1 (NULL) + (auxv_count * 2).
+     * Since (auxv_count * 2) is even, total_words % 2 == (argc + envc + 3) % 2.
      * To ensure (sp % 16 == 0) when sp points to argc:
-     * if (total_words % 2 != 0), pad with 8 bytes first.
+     * if (total_words % 2 != 0), pad with 8 bytes before pushing auxv.
      */
-    size_t total_words = (size_t)argc + (size_t)envc + 3;
+    size_t total_words = 1 + (size_t)argc + 1 + (size_t)envc + 1 + (auxv_count * 2);
     if ((total_words % 2) != 0) {
         sp -= 8;
         *(uint64_t *)sp = 0;
+    }
+
+    /* Push auxv in reverse order */
+    for (int i = (int)auxv_count - 1; i >= 0; i--) {
+        sp -= 8;
+        *(uint64_t *)sp = auxv[i].a_val;
+        sp -= 8;
+        *(uint64_t *)sp = auxv[i].a_type;
     }
 
     /* Push envp NULL terminator */
@@ -1928,11 +2071,11 @@ static int64_t sys_execve(const char *pathname, char *const argv[], char *const 
     sp -= 8;
     *(uint64_t *)sp = (uint64_t)argc;
 
-    t->user_entry = entry;
+    t->user_entry = elf_info.entry;
     t->user_stack = sp;
 
     /* Jump directly into new executable in Ring 3 */
-    arch_enter_user_mode(entry, sp);
+    arch_enter_user_mode(elf_info.entry, sp);
     return 0;
 }
 
@@ -2568,6 +2711,155 @@ static int sys_munmap(void *addr, size_t length) {
     return 0;
 }
 
+short vfs_poll_node(file_descriptor_t *fdesc, short events) {
+    if (!fdesc || !fdesc->node)
+        return 0;
+
+    vfs_node_t *node = fdesc->node;
+    short revents = 0;
+
+    if (node->flags == VFS_TYPE_SOCKET) {
+        socket_t *sock = (socket_t *)node->device_data;
+        if (sock) {
+            if (sock->domain == AF_UNIX) {
+                if (sock->state == SS_LISTENING) {
+                    if ((events & (0x0001 /* POLLIN */ | 0x0040 /* POLLRDNORM */ | 0x0080 /* POLLRDBAND */)) &&
+                        sock->accept_count > 0) {
+                        revents |= (events & (0x0001 | 0x0040 | 0x0080));
+                    }
+                    if (sock->state == SS_CLOSED) {
+                        revents |= (POLLERR | 0x0010 /* POLLHUP */);
+                    }
+                } else {
+                    if ((events & (0x0001 /* POLLIN */ | 0x0040 /* POLLRDNORM */ | 0x0080 /* POLLRDBAND */)) &&
+                        (sock->rx_len > 0 || sock->state == SS_CLOSED ||
+                         (sock->state == SS_CONNECTED && (!sock->peer || sock->peer->state == SS_CLOSED)))) {
+                        revents |= (events & (0x0001 | 0x0040 | 0x0080));
+                    }
+                    if (sock->state == SS_CLOSED ||
+                        (sock->state == SS_CONNECTED && (!sock->peer || sock->peer->state == SS_CLOSED))) {
+                        revents |= 0x0010 /* POLLHUP */;
+                    }
+                    if ((events & (0x0004 /* POLLOUT */ | 0x0100 /* POLLWRNORM */ | 0x0200 /* POLLWRBAND */)) &&
+                        sock->state == SS_CONNECTED && sock->peer && sock->peer->state != SS_CLOSED &&
+                        sock->peer->rx_len < SOCK_RX_BUF_SIZE) {
+                        revents |= (events & (0x0004 | 0x0100 | 0x0200));
+                    }
+                }
+            } else if (sock->type == SOCK_DGRAM || sock->type == SOCK_RAW) {
+                if ((events & (0x0001 /* POLLIN */ | 0x0040 /* POLLRDNORM */ | 0x0080 /* POLLRDBAND */)) &&
+                    (sock->dgram_count > 0 || sock->rx_len > 0)) {
+                    revents |= (events & (0x0001 | 0x0040 | 0x0080));
+                }
+                if (events & (0x0004 /* POLLOUT */ | 0x0100 /* POLLWRNORM */ | 0x0200 /* POLLWRBAND */)) {
+                    revents |= (events & (0x0004 | 0x0100 | 0x0200));
+                }
+            } else if (sock->type == SOCK_STREAM) {
+                if ((events & (0x0001 /* POLLIN */ | 0x0040 /* POLLRDNORM */ | 0x0080 /* POLLRDBAND */)) &&
+                    (sock->rx_len > 0 || sock->accept_count > 0 || sock->state == SS_CLOSED ||
+                     sock->tcp_state == TCP_STATE_CLOSE_WAIT || sock->tcp_state == TCP_STATE_CLOSED)) {
+                    revents |= (events & (0x0001 | 0x0040 | 0x0080));
+                }
+                if ((events & (0x0004 /* POLLOUT */ | 0x0100 /* POLLWRNORM */ | 0x0200 /* POLLWRBAND */)) &&
+                    (sock->state == SS_CONNECTED || sock->tcp_state == TCP_STATE_ESTABLISHED)) {
+                    revents |= (events & (0x0004 | 0x0100 | 0x0200));
+                }
+                if (sock->tcp_state == TCP_STATE_CLOSED && sock->state == SS_CONNECTING) {
+                    revents |= (POLLERR | POLLHUP);
+                }
+            }
+        }
+    } else if (strcmp(node->name, "event0") == 0) {
+        if ((events & POLLIN) && evdev_mouse_has_events())
+            revents |= POLLIN;
+    } else if (strcmp(node->name, "event1") == 0) {
+        if ((events & POLLIN) && evdev_kbd_has_events())
+            revents |= POLLIN;
+    } else if (strcmp(node->name, "mice") == 0) {
+        keyboard_poll_hardware();
+        xhci_poll();
+        ehci_poll();
+        if ((events & POLLIN) && evdev_mice_has_data())
+            revents |= POLLIN;
+    } else if (strcmp(node->name, "psaux") == 0) {
+        keyboard_poll_hardware();
+        xhci_poll();
+        ehci_poll();
+        if ((events & POLLIN) && (ps2_mouse_has_packet() || evdev_mice_has_data()))
+            revents |= POLLIN;
+    } else if (strcmp(node->name, "mouse") == 0) {
+        keyboard_poll_hardware();
+        xhci_poll();
+        ehci_poll();
+        if ((events & POLLIN) && (mouse_has_event() || evdev_mouse_has_events()))
+            revents |= POLLIN;
+    } else if (strncmp(node->name, "ptmx", 4) == 0 || strncmp(node->name, "pts", 3) == 0 || pty_is_slave_node(node)) {
+        if (strncmp(node->name, "ptmx", 4) == 0 && pty_node_is_hungup(node)) {
+            revents |= (0x0010 /* POLLHUP */ | POLLIN);
+        }
+        if ((events & POLLIN) && pty_node_has_pollin(node))
+            revents |= POLLIN;
+        if ((events & POLLOUT) && pty_node_has_pollout(node))
+            revents |= POLLOUT;
+    } else if (node->flags == VFS_TYPE_PIPE && node->device_data) {
+        pipe_chan_t *p = (pipe_chan_t *)node->device_data;
+        if (fdesc->flags & O_WRONLY) {
+            if ((events & (0x0004 /* POLLOUT */ | 0x0100 /* POLLWRNORM */)) &&
+                p->count < PIPE_BUF_SIZE && p->readers > 0) {
+                revents |= (events & (0x0004 | 0x0100));
+            }
+            if (p->readers <= 0) {
+                revents |= (POLLERR | 0x0010 /* POLLHUP */);
+            }
+        } else {
+            if ((events & (0x0001 /* POLLIN */ | 0x0040 /* POLLRDNORM */)) &&
+                (p->count > 0 || p->writers == 0)) {
+                revents |= (events & (0x0001 | 0x0040));
+            }
+            if (p->writers == 0) {
+                revents |= 0x0010 /* POLLHUP */;
+            }
+        }
+    } else if (strncmp(node->name, "eventfd:", 8) == 0) {
+        if ((events & POLLIN) && eventfd_has_pollin(node))
+            revents |= POLLIN;
+        if ((events & POLLOUT) && eventfd_has_pollout(node))
+            revents |= POLLOUT;
+    } else if (strncmp(node->name, "epoll:", 6) == 0) {
+        if ((events & POLLIN) && epoll_has_pollin(node))
+            revents |= POLLIN;
+    } else if (strncmp(node->name, "inotify:", 8) == 0) {
+        if ((events & POLLIN) && inotify_has_pollin(node))
+            revents |= POLLIN;
+    } else if (strncmp(node->name, "timerfd:", 8) == 0) {
+        if ((events & POLLIN) && timerfd_has_pollin(node))
+            revents |= POLLIN;
+    } else if (strncmp(node->name, "signalfd:", 9) == 0) {
+        if ((events & POLLIN) && signalfd_has_pollin(node))
+            revents |= POLLIN;
+    } else if (strncmp(node->name, "tty", 3) == 0 || strcmp(node->name, "console") == 0 || strcmp(node->name, "serial") == 0) {
+        if ((events & POLLIN) && tty_has_input())
+            revents |= POLLIN;
+        if (events & POLLOUT)
+            revents |= POLLOUT;
+    } else if (strcmp(node->name, "card0") == 0 || strcmp(node->name, "renderD128") == 0 || strncmp(node->name, "dri/", 4) == 0) {
+        if ((events & POLLIN) && drm_has_events())
+            revents |= POLLIN;
+        if (events & POLLOUT)
+            revents |= POLLOUT;
+    } else if (node->flags == VFS_TYPE_FILE) {
+        if ((events & POLLIN) && (fdesc->offset < (off_t)node->length))
+            revents |= POLLIN;
+        if (events & POLLOUT)
+            revents |= POLLOUT;
+    } else {
+        if (events & POLLOUT)
+            revents |= POLLOUT;
+    }
+
+    return revents;
+}
+
 static int kernel_sys_poll(struct pollfd *fds, unsigned int nfds, int timeout) {
     if (!fds || nfds == 0)
         return 0;
@@ -2591,131 +2883,7 @@ static int kernel_sys_poll(struct pollfd *fds, unsigned int nfds, int timeout) {
                 continue;
             }
 
-            file_descriptor_t *fdesc = proc->fds[fd];
-            vfs_node_t *node = fdesc->node;
-            if (!node)
-                continue;
-
-            if (node->flags == VFS_TYPE_SOCKET) {
-                socket_t *sock = (socket_t *)node->device_data;
-                if (sock) {
-                    if (sock->domain == AF_UNIX) {
-                        if (sock->state == SS_LISTENING) {
-                            if ((fds[i].events & (0x0001 /* POLLIN */ | 0x0040 /* POLLRDNORM */ | 0x0080 /* POLLRDBAND */)) &&
-                                sock->accept_count > 0) {
-                                fds[i].revents |= (fds[i].events & (0x0001 | 0x0040 | 0x0080));
-                            }
-                            if (sock->state == SS_CLOSED) {
-                                fds[i].revents |= (POLLERR | 0x0010 /* POLLHUP */);
-                            }
-                        } else {
-                            if ((fds[i].events & (0x0001 /* POLLIN */ | 0x0040 /* POLLRDNORM */ | 0x0080 /* POLLRDBAND */)) &&
-                                (sock->rx_len > 0 || sock->state == SS_CLOSED ||
-                                 (sock->state == SS_CONNECTED && (!sock->peer || sock->peer->state == SS_CLOSED)))) {
-                                fds[i].revents |= (fds[i].events & (0x0001 | 0x0040 | 0x0080));
-                            }
-                            if (sock->state == SS_CLOSED ||
-                                (sock->state == SS_CONNECTED && (!sock->peer || sock->peer->state == SS_CLOSED))) {
-                                fds[i].revents |= 0x0010 /* POLLHUP */;
-                            }
-                            if ((fds[i].events & (0x0004 /* POLLOUT */ | 0x0100 /* POLLWRNORM */ | 0x0200 /* POLLWRBAND */)) &&
-                                sock->state == SS_CONNECTED && sock->peer && sock->peer->state != SS_CLOSED &&
-                                sock->peer->rx_len < SOCK_RX_BUF_SIZE) {
-                                fds[i].revents |= (fds[i].events & (0x0004 | 0x0100 | 0x0200));
-                            }
-                        }
-                    } else if (sock->type == SOCK_DGRAM) {
-                        if ((fds[i].events & (0x0001 /* POLLIN */ | 0x0040 /* POLLRDNORM */ | 0x0080 /* POLLRDBAND */)) &&
-                            sock->rx_len > 0) {
-                            fds[i].revents |= (fds[i].events & (0x0001 | 0x0040 | 0x0080));
-                        }
-                        if (fds[i].events & (0x0004 /* POLLOUT */ | 0x0100 /* POLLWRNORM */ | 0x0200 /* POLLWRBAND */)) {
-                            fds[i].revents |= (fds[i].events & (0x0004 | 0x0100 | 0x0200));
-                        }
-                    } else if (sock->type == SOCK_STREAM) {
-                        if ((fds[i].events & (0x0001 /* POLLIN */ | 0x0040 /* POLLRDNORM */ | 0x0080 /* POLLRDBAND */)) &&
-                            (sock->rx_len > 0 || sock->accept_count > 0 || sock->state == SS_CLOSED ||
-                             sock->tcp_state == TCP_STATE_CLOSE_WAIT || sock->tcp_state == TCP_STATE_CLOSED)) {
-                            fds[i].revents |= (fds[i].events & (0x0001 | 0x0040 | 0x0080));
-                        }
-                        if ((fds[i].events & (0x0004 /* POLLOUT */ | 0x0100 /* POLLWRNORM */ | 0x0200 /* POLLWRBAND */)) &&
-                            (sock->state == SS_CONNECTED || sock->tcp_state == TCP_STATE_ESTABLISHED)) {
-                            fds[i].revents |= (fds[i].events & (0x0004 | 0x0100 | 0x0200));
-                        }
-                        if (sock->tcp_state == TCP_STATE_CLOSED && sock->state == SS_CONNECTING) {
-                            fds[i].revents |= (POLLERR | POLLHUP);
-                        }
-                    }
-                }
-            } else if (strcmp(node->name, "event0") == 0) {
-                if ((fds[i].events & POLLIN) && evdev_mouse_has_events())
-                    fds[i].revents |= POLLIN;
-            } else if (strcmp(node->name, "event1") == 0) {
-                if ((fds[i].events & POLLIN) && evdev_kbd_has_events())
-                    fds[i].revents |= POLLIN;
-            } else if (strcmp(node->name, "mice") == 0) {
-                keyboard_poll_hardware();
-                xhci_poll();
-                ehci_poll();
-                if ((fds[i].events & POLLIN) && evdev_mice_has_data())
-                    fds[i].revents |= POLLIN;
-            } else if (strcmp(node->name, "psaux") == 0) {
-                keyboard_poll_hardware();
-                xhci_poll();
-                ehci_poll();
-                if ((fds[i].events & POLLIN) && (ps2_mouse_has_packet() || evdev_mice_has_data()))
-                    fds[i].revents |= POLLIN;
-            } else if (strcmp(node->name, "mouse") == 0) {
-                keyboard_poll_hardware();
-                xhci_poll();
-                ehci_poll();
-                if ((fds[i].events & POLLIN) && (mouse_has_event() || evdev_mouse_has_events()))
-                    fds[i].revents |= POLLIN;
-            } else if (strncmp(node->name, "ptmx", 4) == 0 || strncmp(node->name, "pts", 3) == 0) {
-                if ((fds[i].events & POLLIN) && pty_node_has_pollin(node))
-                    fds[i].revents |= POLLIN;
-                if ((fds[i].events & POLLOUT) && pty_node_has_pollout(node))
-                    fds[i].revents |= POLLOUT;
-            } else if (node->flags == VFS_TYPE_PIPE && node->device_data) {
-                pipe_chan_t *p = (pipe_chan_t *)node->device_data;
-                if (fdesc->flags & O_WRONLY) {
-                    if ((fds[i].events & (0x0004 /* POLLOUT */ | 0x0100 /* POLLWRNORM */)) &&
-                        p->count < PIPE_BUF_SIZE && p->readers > 0) {
-                        fds[i].revents |= (fds[i].events & (0x0004 | 0x0100));
-                    }
-                    if (p->readers <= 0) {
-                        fds[i].revents |= (POLLERR | 0x0010 /* POLLHUP */);
-                    }
-                } else {
-                    if ((fds[i].events & (0x0001 /* POLLIN */ | 0x0040 /* POLLRDNORM */)) &&
-                        (p->count > 0 || p->writers == 0)) {
-                        fds[i].revents |= (fds[i].events & (0x0001 | 0x0040));
-                    }
-                    if (p->writers == 0) {
-                        fds[i].revents |= 0x0010 /* POLLHUP */;
-                    }
-                }
-            } else if (strncmp(node->name, "tty", 3) == 0 || strcmp(node->name, "console") == 0 || strcmp(node->name, "serial") == 0) {
-                if ((fds[i].events & POLLIN) && tty_has_input())
-                    fds[i].revents |= POLLIN;
-                if (fds[i].events & POLLOUT)
-                    fds[i].revents |= POLLOUT;
-            } else if (strcmp(node->name, "card0") == 0 || strcmp(node->name, "renderD128") == 0 || strncmp(node->name, "dri/", 4) == 0) {
-                if ((fds[i].events & POLLIN) && drm_has_events())
-                    fds[i].revents |= POLLIN;
-                if (fds[i].events & POLLOUT)
-                    fds[i].revents |= POLLOUT;
-            } else if (node->flags == VFS_TYPE_FILE) {
-                if ((fds[i].events & POLLIN) && (fdesc->offset < (off_t)node->length))
-                    fds[i].revents |= POLLIN;
-                if (fds[i].events & POLLOUT)
-                    fds[i].revents |= POLLOUT;
-            } else {
-                /* Unknown/unsupported device nodes: only write is ready by default */
-                if (fds[i].events & POLLOUT)
-                    fds[i].revents |= POLLOUT;
-            }
-
+            fds[i].revents = vfs_poll_node(proc->fds[fd], fds[i].events);
             if (fds[i].revents)
                 ready++;
         }
@@ -2885,6 +3053,52 @@ static int64_t sys_nanosleep(const struct timespec_kernel *req, struct timespec_
     if (rem) {
         struct timespec_kernel krem = {0, 0};
         put_user_buffer(rem, &krem, sizeof(struct timespec_kernel));
+    }
+    return 0;
+}
+
+static int64_t sys_clock_nanosleep(int clock_id, int flags, const struct timespec_kernel *request, struct timespec_kernel *remain) {
+    if (!request)
+        return -14; /* -EFAULT */
+
+    struct timespec_kernel kreq;
+    if (!get_user_buffer(&kreq, request, sizeof(struct timespec_kernel)))
+        return -14; /* -EFAULT */
+
+    if (kreq.tv_nsec < 0 || kreq.tv_nsec >= 1000000000LL || kreq.tv_sec < 0)
+        return -22; /* -EINVAL */
+
+    if (clock_id != 0 && clock_id != 1 && clock_id != 7)
+        return -22; /* -EINVAL */
+
+    uint64_t sleep_ms = 0;
+    if (flags & 1 /* TIMER_ABSTIME */) {
+        uint64_t target_ns = (uint64_t)kreq.tv_sec * 1000000000ULL + (uint64_t)kreq.tv_nsec;
+        uint64_t now_ns = 0;
+        if (clock_id == 0) {
+            struct timespec_kernel ts_real;
+            rtc_get_timespec(&ts_real);
+            now_ns = (uint64_t)ts_real.tv_sec * 1000000000ULL + (uint64_t)ts_real.tv_nsec;
+        } else {
+            now_ns = rtc_get_monotonic_ns();
+        }
+
+        if (target_ns <= now_ns) {
+            return 0;
+        }
+        sleep_ms = (target_ns - now_ns) / 1000000ULL;
+        if (sleep_ms == 0) sleep_ms = 1;
+    } else {
+        sleep_ms = (uint64_t)kreq.tv_sec * 1000ULL + (uint64_t)(kreq.tv_nsec / 1000000ULL);
+        if (sleep_ms == 0 && kreq.tv_nsec > 0)
+            sleep_ms = 1;
+    }
+
+    thread_sleep((uint32_t)sleep_ms);
+
+    if (remain && !(flags & 1)) {
+        struct timespec_kernel krem = {0, 0};
+        put_user_buffer(remain, &krem, sizeof(struct timespec_kernel));
     }
     return 0;
 }
@@ -3252,6 +3466,44 @@ static uint64_t syscall_dispatch_inner(uint64_t sys_no, uint64_t a1, uint64_t a2
     case SYS_yield:
         sched_yield();
         return 0;
+    case SYS_pipe2:
+        return sys_pipe2((int *)a1, (int)a2);
+    case SYS_dup3:
+        return sys_dup3((int)a1, (int)a2, (int)a3);
+    case SYS_epoll_create1:
+        return sys_epoll_create1((int)a1);
+    case SYS_epoll_ctl:
+        return sys_epoll_ctl((int)a1, (int)a2, (int)a3, (struct epoll_event *)a4);
+    case SYS_epoll_wait:
+        return sys_epoll_wait((int)a1, (struct epoll_event *)a2, (int)a3, (int)a4);
+    case SYS_epoll_pwait:
+        return sys_epoll_pwait((int)a1, (struct epoll_event *)a2, (int)a3, (int)a4, (const void *)a5, (size_t)a6);
+    case SYS_eventfd:
+        return sys_eventfd2((unsigned int)a1, 0);
+    case SYS_eventfd2:
+        return sys_eventfd2((unsigned int)a1, (int)a2);
+    case SYS_inotify_init:
+        return sys_inotify_init();
+    case SYS_inotify_init1:
+        return sys_inotify_init1((int)a1);
+    case SYS_inotify_add_watch:
+        return sys_inotify_add_watch((int)a1, (const char *)a2, (uint32_t)a3);
+    case SYS_inotify_rm_watch:
+        return sys_inotify_rm_watch((int)a1, (int)a2);
+    case SYS_fchdir:
+        return sys_fchdir((int)a1);
+    case SYS_clock_nanosleep:
+        return sys_clock_nanosleep((int)a1, (int)a2, (const struct timespec_kernel *)a3, (struct timespec_kernel *)a4);
+    case SYS_signalfd:
+        return sys_signalfd((int)a1, (const sigset_t *)a2, (size_t)a3);
+    case SYS_signalfd4:
+        return sys_signalfd4((int)a1, (const sigset_t *)a2, (size_t)a3, (int)a4);
+    case SYS_timerfd_create:
+        return sys_timerfd_create((int)a1, (int)a2);
+    case SYS_timerfd_settime:
+        return sys_timerfd_settime((int)a1, (int)a2, (const struct itimerspec_kernel *)a3, (struct itimerspec_kernel *)a4);
+    case SYS_timerfd_gettime:
+        return sys_timerfd_gettime((int)a1, (struct itimerspec_kernel *)a2);
     default:
         klog_warn("Syscall: Unknown syscall #%lu called!", sys_no);
         return (uint64_t)-1;

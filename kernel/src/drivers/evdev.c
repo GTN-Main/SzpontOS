@@ -68,6 +68,13 @@ static ssize_t devfs_evdev_mice_read(vfs_node_t *node, off_t offset, size_t size
     return evdev_mice_read(buffer, size);
 }
 
+static ssize_t devfs_evdev_mice_write(vfs_node_t *node, off_t offset, size_t size, const void *buffer) {
+    UNUSED(node);
+    UNUSED(offset);
+    UNUSED(buffer);
+    return (ssize_t)size;
+}
+
 static ssize_t devfs_evdev_mouse_read(vfs_node_t *node, off_t offset, size_t size, void *buffer) {
     UNUSED(node);
     UNUSED(offset);
@@ -102,6 +109,7 @@ void evdev_init(void) {
 
     /* Register DevFS input nodes */
     g_mice_ops.read = devfs_evdev_mice_read;
+    g_mice_ops.write = devfs_evdev_mice_write;
     vfs_node_t *mice_dev = (vfs_node_t *)kzalloc(sizeof(vfs_node_t));
     mice_dev->flags = VFS_TYPE_CHARDEVICE;
     mice_dev->permissions = 0666;

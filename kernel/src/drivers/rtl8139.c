@@ -12,6 +12,7 @@
 #include <arch/x86_64/io.h>
 #include <kernel/kprint.h>
 #include <kernel/string.h>
+#include <kernel/spinlock.h>
 
 #define RTL8139_VENDOR_ID 0x10EC
 #define RTL8139_DEVICE_ID 0x8139
@@ -59,6 +60,8 @@ static uint16_t g_rx_offset = 0;
 
 static netif_t g_rtl8139_netif;
 static bool g_rtl8139_active = false;
+static spinlock_t g_rtl8139_rx_lock = SPINLOCK_INIT;
+static spinlock_t g_rtl8139_tx_lock = SPINLOCK_INIT;
 
 static void *alloc_dma_zero(size_t bytes, uintptr_t *out_phys) {
     size_t pages = (bytes + PAGE_SIZE - 1) / PAGE_SIZE;
@@ -77,6 +80,7 @@ static int rtl8139_send(netif_t *netif, net_buf_t *buf) {
     if (!buf || buf->len == 0 || !g_rtl8139_active || buf->len > TX_BUFFER_SIZE)
         return -1;
 
+    spinlock_acquire(&g_rtl8139_tx_lock);
     uint8_t tx_idx = g_tx_cur;
     g_tx_cur = (g_tx_cur + 1) % NUM_TX_DESCRIPTORS;
 
@@ -92,6 +96,7 @@ static int rtl8139_send(netif_t *netif, net_buf_t *buf) {
         netif->tx_packets++;
         netif->tx_bytes += buf->len;
     }
+    spinlock_release(&g_rtl8139_tx_lock);
 
     return 0;
 }
@@ -100,6 +105,7 @@ void rtl8139_poll(void) {
     if (!g_rtl8139_active)
         return;
 
+    spinlock_acquire(&g_rtl8139_rx_lock);
     /* Check if receive buffer has data */
     while (!(inb(g_rtl_io_base + RTL_REG_CMD) & RTL_CMD_BUFFER_EMPTY)) {
         uint8_t *rx_ptr = g_rx_buffer + g_rx_offset;
@@ -140,6 +146,7 @@ void rtl8139_poll(void) {
 
     /* Acknowledge interrupts in ISR */
     outw(g_rtl_io_base + RTL_REG_ISR, inw(g_rtl_io_base + RTL_REG_ISR));
+    spinlock_release(&g_rtl8139_rx_lock);
 }
 
 void rtl8139_init(void) {

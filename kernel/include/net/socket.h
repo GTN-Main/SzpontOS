@@ -193,6 +193,13 @@ struct cmsghdr {
 
 #define SOCK_RX_BUF_SIZE 65536
 #define SOCK_TX_BUF_SIZE 65536
+#define SOCK_DGRAM_QUEUE_LEN 32
+
+typedef struct {
+    size_t len;
+    uint32_t from_ip;
+    uint16_t from_port;
+} dgram_meta_t;
 
 typedef struct socket {
     int domain;
@@ -223,6 +230,12 @@ typedef struct socket {
     size_t rx_head;
     size_t rx_tail;
     size_t rx_len;
+
+    /* Datagram queue metadata for SOCK_DGRAM / SOCK_RAW */
+    dgram_meta_t dgram_queue[SOCK_DGRAM_QUEUE_LEN];
+    size_t dgram_head;
+    size_t dgram_tail;
+    size_t dgram_count;
 
     /* Listen backlog */
     int backlog;

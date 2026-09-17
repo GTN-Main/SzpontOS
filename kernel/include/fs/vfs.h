@@ -114,5 +114,20 @@ int vfs_chmod(const char *path, mode_t mode);
 int vfs_chown(const char *path, uid_t uid, gid_t gid);
 /* File descriptor lifecycle */
 void fd_release(file_descriptor_t *f);
+short vfs_poll_node(file_descriptor_t *fdesc, short events);
+
+/* Standard poll(2) / epoll event mask flags */
+#ifndef POLLIN
+#define POLLIN      0x0001
+#define POLLPRI     0x0002
+#define POLLOUT     0x0004
+#define POLLERR     0x0008
+#define POLLHUP     0x0010
+#define POLLNVAL    0x0020
+#define POLLRDNORM  0x0040
+#define POLLRDBAND  0x0080
+#define POLLWRNORM  0x0100
+#define POLLWRBAND  0x0200
+#endif
 
 #endif /* SZPONTOS_FS_VFS_H */

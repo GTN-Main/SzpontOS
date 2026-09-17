@@ -24,13 +24,42 @@ limine: limine-bin/limine-bios.sys limine-bin/limine
 # Build initramfs archive
 # ==============================================================================
 SKELETON_FILES := $(shell find $(ROOTFS_SKELETON_DIR) -type f 2>/dev/null)
-$(BUILD_DIR)/initramfs.tar: $(USERLAND_STAMP) $(MODULES_STAMP) $(THIRDPARTY_STAMP) $(SKELETON_FILES) | $(ROOTFS_DIR)
+$(BUILD_DIR)/initramfs.tar: $(USERLAND_STAMP) $(MODULES_STAMP) $(THIRDPARTY_STAMP) $(ALL_ROOTFS_SOS) $(KERNEL_ELF) $(SKELETON_FILES) | $(ROOTFS_DIR)
 	@mkdir -p $(BUILD_DIR)
-	@if [ -d $(ROOTFS_SKELETON_DIR) ]; then cp -r $(ROOTFS_SKELETON_DIR)/. $(ROOTFS_DIR)/ 2>/dev/null || true; fi
+	@mkdir -p $(ROOTFS_DIR)/bin $(ROOTFS_DIR)/sbin $(ROOTFS_DIR)/lib \
+		$(ROOTFS_DIR)/usr/bin $(ROOTFS_DIR)/usr/sbin $(ROOTFS_DIR)/usr/lib $(ROOTFS_DIR)/usr/tbin \
+		$(ROOTFS_DIR)/dev $(ROOTFS_DIR)/etc $(ROOTFS_DIR)/etc/X11/app-defaults \
+		$(ROOTFS_DIR)/proc $(ROOTFS_DIR)/sys $(ROOTFS_DIR)/mnt \
+		$(ROOTFS_DIR)/tmp $(ROOTFS_DIR)/tmp/.X11-unix \
+		$(ROOTFS_DIR)/var $(ROOTFS_DIR)/var/log $(ROOTFS_DIR)/var/run $(ROOTFS_DIR)/var/empty $(ROOTFS_DIR)/var/lib/xkb \
+		$(ROOTFS_DIR)/root $(ROOTFS_DIR)/home $(ROOTFS_DIR)/home/szpont \
+		$(ROOTFS_DIR)/usr/share $(ROOTFS_DIR)/usr/share/artwork $(ROOTFS_DIR)/usr/share/X11/app-defaults $(ROOTFS_DIR)/usr/lib/X11/app-defaults
+	@chmod 1777 $(ROOTFS_DIR)/tmp $(ROOTFS_DIR)/tmp/.X11-unix 2>/dev/null || true
+	@chmod 755 $(ROOTFS_DIR)/var/empty 2>/dev/null || true
+	@if [ -d $(ROOTFS_SKELETON_DIR) ]; then cp -a $(ROOTFS_SKELETON_DIR)/. $(ROOTFS_DIR)/ 2>/dev/null || true; fi
+	@if [ -f $(ROOTFS_SKELETON_DIR)/etc/X11/app-defaults/XTerm ]; then \
+		cp -f $(ROOTFS_SKELETON_DIR)/etc/X11/app-defaults/XTerm $(ROOTFS_DIR)/usr/share/X11/app-defaults/XTerm; \
+		cp -f $(ROOTFS_SKELETON_DIR)/etc/X11/app-defaults/XTerm $(ROOTFS_DIR)/usr/share/X11/app-defaults/XTerm-color; \
+		cp -f $(ROOTFS_SKELETON_DIR)/etc/X11/app-defaults/XTerm $(ROOTFS_DIR)/usr/lib/X11/app-defaults/XTerm; \
+		cp -f $(ROOTFS_SKELETON_DIR)/etc/X11/app-defaults/XTerm $(ROOTFS_DIR)/usr/lib/X11/app-defaults/XTerm-color; \
+	fi
+	@if [ -f $(ROOTFS_SKELETON_DIR)/etc/X11/app-defaults/SzponTerm ]; then \
+		cp -f $(ROOTFS_SKELETON_DIR)/etc/X11/app-defaults/SzponTerm $(ROOTFS_DIR)/usr/share/X11/app-defaults/SzponTerm; \
+		cp -f $(ROOTFS_SKELETON_DIR)/etc/X11/app-defaults/SzponTerm $(ROOTFS_DIR)/usr/share/X11/app-defaults/SzponTerm-color; \
+		cp -f $(ROOTFS_SKELETON_DIR)/etc/X11/app-defaults/SzponTerm $(ROOTFS_DIR)/usr/lib/X11/app-defaults/SzponTerm; \
+		cp -f $(ROOTFS_SKELETON_DIR)/etc/X11/app-defaults/SzponTerm $(ROOTFS_DIR)/usr/lib/X11/app-defaults/SzponTerm-color; \
+	fi
+	@if [ -f $(BUILD_DIR)/third_party/libX11/nls/C/XLC_LOCALE ]; then \
+		mkdir -p $(ROOTFS_DIR)/usr/share/X11/locale/C; \
+		cp -f $(BUILD_DIR)/third_party/libX11/nls/C/XLC_LOCALE $(ROOTFS_DIR)/usr/share/X11/locale/C/; \
+		cp -f $(BUILD_DIR)/third_party/libX11/nls/locale.dir $(ROOTFS_DIR)/usr/share/X11/locale/; \
+		cp -f $(BUILD_DIR)/third_party/libX11/nls/locale.alias $(ROOTFS_DIR)/usr/share/X11/locale/; \
+	fi
 	@mkdir -p $(ROOTFS_DIR)/usr/share/artwork
 	@if [ -d artwork ]; then cp -r artwork/* $(ROOTFS_DIR)/usr/share/artwork/ 2>/dev/null || true; fi
 	@if [ -f artwork/szpont-detected.jpg ]; then cp artwork/szpont-detected.jpg $(ROOTFS_DIR)/usr/share/artwork/szpont-detected.png 2>/dev/null || true; fi
 	@rm -f $(ROOTFS_DIR)/lib/*.a
+	@./scripts/verify_rootfs.py $(ROOTFS_DIR)
 	@./scripts/make_initramfs.py $(ROOTFS_DIR) $(BUILD_DIR)/initramfs.tar
 
 initramfs: $(BUILD_DIR)/initramfs.tar
@@ -68,4 +97,4 @@ $(ISO_IMAGE): $(KERNEL_ELF) $(BUILD_DIR)/initramfs.tar limine-bin/limine-bios.sy
 	@./limine-bin/limine bios-install $(ISO_IMAGE)
 	@echo "  [OK]  Obraz ISO gotowy: $(ISO_IMAGE)"
 
-iso: $(ISO_IMAGE)
+iso: build $(ISO_IMAGE)

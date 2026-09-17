@@ -1,5 +1,5 @@
 # /etc/environment - System-wide environment variables for SzpontOS
-PATH=/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin
+PATH=/bin:/usr/bin:/usr/tbin:/usr/local/bin:/sbin:/usr/sbin
 TERM=xterm-256color
 COLORTERM=truecolor
 SHELL=/bin/sh

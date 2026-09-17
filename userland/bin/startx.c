@@ -130,7 +130,8 @@ int main(int argc, char *argv[]) {
         unlink(g_sock_path);
     }
 
-    signal(SIGINT, cleanup_and_exit);
+    signal(SIGINT, SIG_IGN);
+    signal(SIGQUIT, SIG_IGN);
     signal(SIGTERM, cleanup_and_exit);
     signal(SIGHUP, cleanup_and_exit);
 
@@ -144,7 +145,7 @@ int main(int argc, char *argv[]) {
 
     if (g_server_pid == 0) {
         /* Child: Exec X Server */
-        char *server_envp[] = { (char *)"DISPLAY=:0", (char *)"PATH=/bin:/usr/bin", NULL };
+        char *server_envp[] = { (char *)"DISPLAY=:0", (char *)"PATH=/bin:/usr/bin:/usr/tbin", NULL };
         if (strstr(server_bin, "Xorg")) {
             char *server_argv[] = {
                 (char *)server_bin,
@@ -183,7 +184,7 @@ int main(int argc, char *argv[]) {
     setenv("DISPLAY", display, 1);
     setenv("TERM", "xterm-256color", 0);
     setenv("COLORTERM", "truecolor", 0);
-    setenv("PATH", "/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin", 0);
+    setenv("PATH", "/bin:/usr/bin:/usr/tbin:/usr/local/bin:/sbin:/usr/sbin", 0);
     setenv("XDG_SESSION_TYPE", "x11", 0);
     setenv("XDG_CURRENT_DESKTOP", "SzpontOS", 0);
     setenv("XDG_RUNTIME_DIR", "/tmp", 0);
@@ -202,12 +203,16 @@ int main(int argc, char *argv[]) {
     }
 
     if (g_client_pid == 0) {
-        /* Child: Exec client with inherited environment */
+        /* Child: Exec client with separate process group */
+        setpgid(0, 0);
+        signal(SIGINT, SIG_DFL);
+        signal(SIGQUIT, SIG_DFL);
         extern char **environ;
         execve(client_bin, client_args, environ);
         perror("[startx] Failed to execute client");
         _exit(1);
     }
+    setpgid(g_client_pid, g_client_pid);
 
     /* 4. Wait for client to exit */
     int status = 0;

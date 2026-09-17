@@ -20,6 +20,12 @@ KERNEL_C_SRCS := \
     $(ROOT_DIR)/kernel/src/fs/procfs.c \
     $(ROOT_DIR)/kernel/src/fs/tmpfs.c \
     $(ROOT_DIR)/kernel/src/fs/elf.c \
+    $(ROOT_DIR)/kernel/src/fs/eventfd.c \
+    $(ROOT_DIR)/kernel/src/fs/epoll.c \
+    $(ROOT_DIR)/kernel/src/fs/inotify.c \
+    $(ROOT_DIR)/kernel/src/fs/timerfd.c \
+    $(ROOT_DIR)/kernel/src/fs/signalfd.c \
+    $(ROOT_DIR)/kernel/src/fs/sysfs.c \
     $(ROOT_DIR)/kernel/src/sched/process.c \
     $(ROOT_DIR)/kernel/src/sched/futex.c \
     $(ROOT_DIR)/kernel/src/sched/sched.c \

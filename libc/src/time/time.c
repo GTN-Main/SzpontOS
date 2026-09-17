@@ -45,29 +45,10 @@ int nanosleep(const struct timespec *req, struct timespec *rem) {
 }
 
 int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *request, struct timespec *remain) {
-    if (!request || request->tv_nsec < 0 || request->tv_nsec >= 1000000000L)
-        return EINVAL;
-    if (clock_id != CLOCK_REALTIME && clock_id != CLOCK_MONOTONIC)
-        return EINVAL;
-
-    struct timespec req = *request;
-    if (flags & TIMER_ABSTIME) {
-        struct timespec now;
-        if (clock_gettime(clock_id, &now) != 0)
-            return errno;
-        req.tv_sec = request->tv_sec - now.tv_sec;
-        req.tv_nsec = request->tv_nsec - now.tv_nsec;
-        if (req.tv_nsec < 0) {
-            req.tv_sec--;
-            req.tv_nsec += 1000000000L;
-        }
-        if (req.tv_sec < 0 || (req.tv_sec == 0 && req.tv_nsec <= 0))
-            return 0; /* time already passed */
+    int64_t ret = __syscall4(SYS_clock_nanosleep, (int64_t)clock_id, (int64_t)flags, (int64_t)request, (int64_t)remain);
+    if (ret < 0) {
+        return (int)-ret;
     }
-
-    if (nanosleep(&req, remain) != 0)
-        return errno;
-
     return 0;
 }
 

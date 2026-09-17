@@ -402,7 +402,7 @@ $(ROOTFS_DIR)/lib/libXdmcp.so: $(XDMCP_OBJS) | $(SYSROOT_STAMP) $(ROOTFS_DIR)
 # ==============================================================================
 third_party/libxcb/configure: third_party/libxcb/configure.ac
 	@echo "  [PRECONF-LIBXCB] Generowanie configure dla libxcb..."
-	@cd third_party/libxcb && autoreconf -fi -I ../util-macros -I /opt/homebrew/share/aclocal 2>/dev/null || true
+	@cd third_party/libxcb && autoreconf -fi -I ../util-macros $(ACLOCAL_EXTRA_DIRS) 2>/dev/null || true
 
 $(BUILD_DIR)/third_party/libxcb/Makefile: third_party/libxcb/configure | $(ROOTFS_DIR)/lib/libXau.so $(ROOTFS_DIR)/lib/libXdmcp.so $(SYSROOT_STAMP)
 	@mkdir -p $(BUILD_DIR)/third_party/libxcb
@@ -424,10 +424,19 @@ $(ROOTFS_DIR)/lib/libxcb.so: $(BUILD_DIR)/third_party/libxcb/Makefile
 	$(MAKE) -j$(JOBS) -C src XCBPROTO_XCBINCLUDEDIR="$(abspath $(SYSROOT_DIR))/usr/share/xcb" && \
 	cp -f src/*.h $(abspath $(SYSROOT_DIR))/usr/include/xcb/ && \
 	cd src && \
+	if [ -f dri3.c ] && [ ! -f dri3.o ]; then $(CC) -fPIC -O2 -ffreestanding -fno-builtin -isystem $(abspath $(SYSROOT_DIR))/usr/include -I. -I$(abspath third_party/libxcb)/src -c dri3.c -o dri3.o 2>/dev/null || true; fi && \
 	$(LD) -shared -soname libxcb.so.1 -o $(abspath $(SYSROOT_DIR))/usr/lib/libxcb.so.1 *.o -L$(abspath $(SYSROOT_DIR))/usr/lib -lXau -lXdmcp -lc && \
 	ln -sf libxcb.so.1 $(abspath $(SYSROOT_DIR))/usr/lib/libxcb.so && \
 	cp -f $(abspath $(SYSROOT_DIR))/usr/lib/libxcb.so.1 $(abspath $(ROOTFS_DIR))/lib/libxcb.so.1 && \
 	ln -sf libxcb.so.1 $(abspath $(ROOTFS_DIR))/lib/libxcb.so && \
+	for ext in randr dri2 dri3 present sync xfixes shm glx render shape xinput; do \
+		if [ -f $$ext.o ]; then \
+			$(LD) -shared -soname libxcb-$$ext.so.0 -o $(abspath $(SYSROOT_DIR))/usr/lib/libxcb-$$ext.so.0 $$ext.o -L$(abspath $(SYSROOT_DIR))/usr/lib -lxcb -lc 2>/dev/null || true; \
+			ln -sf libxcb-$$ext.so.0 $(abspath $(SYSROOT_DIR))/usr/lib/libxcb-$$ext.so 2>/dev/null || true; \
+			cp -f $(abspath $(SYSROOT_DIR))/usr/lib/libxcb-$$ext.so.0 $(abspath $(ROOTFS_DIR))/lib/ 2>/dev/null || true; \
+			ln -sf libxcb-$$ext.so.0 $(abspath $(ROOTFS_DIR))/lib/libxcb-$$ext.so 2>/dev/null || true; \
+		fi; \
+	done && \
 	cp -f $(abspath $(BUILD_DIR)/third_party/libxcb)/*.pc $(abspath $(SYSROOT_DIR))/usr/lib/pkgconfig/ 2>/dev/null || true && \
 	cp -f $(abspath $(BUILD_DIR)/third_party/libxcb)/*.pc $(abspath $(SYSROOT_DIR))/usr/share/pkgconfig/ 2>/dev/null || true
 
@@ -437,7 +446,7 @@ $(ROOTFS_DIR)/lib/libxcb.so: $(BUILD_DIR)/third_party/libxcb/Makefile
 # ==============================================================================
 third_party/libX11/configure: third_party/libX11/configure.ac
 	@echo "  [PRECONF-LIBX11] Generowanie configure dla libX11..."
-	@cd third_party/libX11 && autoreconf -fi -I ../util-macros -I ../xtrans -I /opt/homebrew/share/aclocal 2>/dev/null || true
+	@cd third_party/libX11 && autoreconf -fi -I ../util-macros -I ../xtrans $(ACLOCAL_EXTRA_DIRS) 2>/dev/null || true
 
 $(BUILD_DIR)/third_party/libX11/Makefile: third_party/libX11/configure | $(ROOTFS_DIR)/lib/libxcb.so $(ROOTFS_DIR)/lib/libXau.so $(ROOTFS_DIR)/lib/libXdmcp.so $(SYSROOT_STAMP)
 	@mkdir -p $(BUILD_DIR)/third_party/libX11 $(SYSROOT_DIR)/usr/include/X11 $(SYSROOT_DIR)/usr/include/xcb
@@ -472,9 +481,23 @@ $(ROOTFS_DIR)/lib/libX11.so: $(BUILD_DIR)/third_party/libX11/Makefile
 	ln -sf libX11.so.6 $(abspath $(SYSROOT_DIR))/usr/lib/libX11.so && \
 	cp -f $(abspath $(SYSROOT_DIR))/usr/lib/libX11.so.6 $(abspath $(ROOTFS_DIR))/lib/libX11.so.6 && \
 	ln -sf libX11.so.6 $(abspath $(ROOTFS_DIR))/lib/libX11.so && \
+	if [ -f src/x11_xcb.o ]; then \
+		$(LD) -shared -soname libX11-xcb.so.1 -o $(abspath $(SYSROOT_DIR))/usr/lib/libX11-xcb.so.1 src/x11_xcb.o -L$(abspath $(SYSROOT_DIR))/usr/lib -lX11 -lxcb -lc 2>/dev/null || true; \
+		ln -sf libX11-xcb.so.1 $(abspath $(SYSROOT_DIR))/usr/lib/libX11-xcb.so 2>/dev/null || true; \
+		cp -f $(abspath $(SYSROOT_DIR))/usr/lib/libX11-xcb.so.1 $(abspath $(ROOTFS_DIR))/lib/ 2>/dev/null || true; \
+		ln -sf libX11-xcb.so.1 $(abspath $(ROOTFS_DIR))/lib/libX11-xcb.so 2>/dev/null || true; \
+	fi && \
 	cp -r $(abspath third_party/libX11/include/X11)/* $(abspath $(SYSROOT_DIR))/usr/include/X11/ && \
 	cp -f $(abspath $(BUILD_DIR)/third_party/libX11)/include/X11/XlibConf.h $(abspath $(SYSROOT_DIR))/usr/include/X11/ 2>/dev/null || true && \
-	cp -f $(abspath $(BUILD_DIR)/third_party/libX11)/*.pc $(abspath $(SYSROOT_DIR))/usr/lib/pkgconfig/ 2>/dev/null || true
+	cp -f $(abspath $(BUILD_DIR)/third_party/libX11)/*.pc $(abspath $(SYSROOT_DIR))/usr/lib/pkgconfig/ 2>/dev/null || true && \
+	$(MAKE) -C nls && \
+	mkdir -p $(abspath $(SYSROOT_DIR))/usr/share/X11/locale/C $(abspath $(ROOTFS_DIR))/usr/share/X11/locale/C && \
+	cp -f nls/C/XLC_LOCALE $(abspath $(SYSROOT_DIR))/usr/share/X11/locale/C/ 2>/dev/null || true && \
+	cp -f nls/C/XLC_LOCALE $(abspath $(ROOTFS_DIR))/usr/share/X11/locale/C/ 2>/dev/null || true && \
+	cp -f nls/locale.dir $(abspath $(SYSROOT_DIR))/usr/share/X11/locale/ 2>/dev/null || true && \
+	cp -f nls/locale.dir $(abspath $(ROOTFS_DIR))/usr/share/X11/locale/ 2>/dev/null || true && \
+	cp -f nls/locale.alias $(abspath $(SYSROOT_DIR))/usr/share/X11/locale/ 2>/dev/null || true && \
+	cp -f nls/locale.alias $(abspath $(ROOTFS_DIR))/usr/share/X11/locale/ 2>/dev/null || true
 
 
 # ==============================================================================
@@ -521,7 +544,7 @@ $(BUILD_DIR)/third_party/libfontenc:
 $(BUILD_DIR)/third_party/libfontenc/config.h: | $(BUILD_DIR)/third_party/libfontenc
 	@touch $@
 
-$(BUILD_DIR)/third_party/libfontenc/%.o: third_party/libfontenc/src/%.c | $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libfontenc $(BUILD_DIR)/third_party/libfontenc/config.h
+$(BUILD_DIR)/third_party/libfontenc/%.o: third_party/libfontenc/src/%.c | $(SYSROOT_DIR)/usr/include/zlib.h $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libfontenc $(BUILD_DIR)/third_party/libfontenc/config.h
 	@echo "  [CC-LIBFONTENC] $<"
 	@$(CC) -fPIC -O2 -ffreestanding -fno-builtin -DHAVE_CONFIG_H -DHAVE_REALLOCARRAY=1 \
 	    -DFONT_ENCODINGS_DIRECTORY='"/usr/share/fonts/X11/encodings/encodings.dir"' \
@@ -547,7 +570,7 @@ $(ROOTFS_DIR)/lib/libfontenc.so: $(FONTENC_OBJS) | $(LIBZ_A) $(SYSROOT_STAMP) $(
 third_party/libXfont2/configure: third_party/libXfont2/configure.ac
 	@echo "  [PRECONF-LIBXFONT2] Generowanie configure dla libXfont2..."
 	@mkdir -p third_party/libXfont2/m4
-	@cd third_party/libXfont2 && autoreconf -fi -I ../util-macros -I ../xtrans -I ../font-util -I /opt/homebrew/share/aclocal 2>/dev/null || true
+	@cd third_party/libXfont2 && autoreconf -fi -I ../util-macros -I ../xtrans -I ../font-util $(ACLOCAL_EXTRA_DIRS) 2>/dev/null || true
 
 $(BUILD_DIR)/third_party/libXfont2/Makefile: third_party/libXfont2/configure | $(ROOTFS_DIR)/lib/libfontenc.so $(LIBZ_A) $(SYSROOT_STAMP)
 	@mkdir -p $(BUILD_DIR)/third_party/libXfont2
@@ -1051,12 +1074,28 @@ $(XTERM_BUILD_DIR)/Makefile: | $(XTERM_BUILD_DIR) $(ROOTFS_DIR)/lib/libXaw.so $(
 	$(abspath third_party/xterm)/configure --host=x86_64-elf --without-xinerama --disable-imake --disable-setuid --disable-setgid --disable-freetype --without-pcre --without-pcre2 --disable-luit
 
 $(ROOTFS_DIR)/bin/xterm: $(XTERM_BUILD_DIR)/Makefile | $(ROOTFS_DIR)
-	@mkdir -p $(ROOTFS_DIR)/bin
+	@mkdir -p $(ROOTFS_DIR)/bin $(ROOTFS_DIR)/etc/X11/app-defaults $(ROOTFS_DIR)/usr/share/X11/app-defaults $(ROOTFS_DIR)/usr/lib/X11/app-defaults
 	@echo "  [MAKE-XTERM] Kompilacja oficjalnego upstream xterm (-j$(JOBS))..."
 	@cd $(XTERM_BUILD_DIR) && \
 	$(MAKE) -j$(JOBS) EXTRA_CFLAGS="-DUSE_SYSV_PGRP=1 -DHAVE_GRANTPT_PTY_ISATTY=1 -DUSE_POSIX_TERMIOS=1" && \
 	cp -f xterm $(abspath $(ROOTFS_DIR))/bin/xterm && \
 	cp -f resize $(abspath $(ROOTFS_DIR))/bin/resize 2>/dev/null || true
+	@if [ -f userland/skeleton/etc/X11/app-defaults/XTerm ]; then \
+		cp -f userland/skeleton/etc/X11/app-defaults/XTerm $(ROOTFS_DIR)/etc/X11/app-defaults/XTerm; \
+		cp -f userland/skeleton/etc/X11/app-defaults/XTerm $(ROOTFS_DIR)/etc/X11/app-defaults/XTerm-color; \
+		cp -f userland/skeleton/etc/X11/app-defaults/XTerm $(ROOTFS_DIR)/usr/share/X11/app-defaults/XTerm; \
+		cp -f userland/skeleton/etc/X11/app-defaults/XTerm $(ROOTFS_DIR)/usr/share/X11/app-defaults/XTerm-color; \
+		cp -f userland/skeleton/etc/X11/app-defaults/XTerm $(ROOTFS_DIR)/usr/lib/X11/app-defaults/XTerm; \
+		cp -f userland/skeleton/etc/X11/app-defaults/XTerm $(ROOTFS_DIR)/usr/lib/X11/app-defaults/XTerm-color; \
+	fi
+	@if [ -f userland/skeleton/etc/X11/app-defaults/SzponTerm ]; then \
+		cp -f userland/skeleton/etc/X11/app-defaults/SzponTerm $(ROOTFS_DIR)/etc/X11/app-defaults/SzponTerm; \
+		cp -f userland/skeleton/etc/X11/app-defaults/SzponTerm $(ROOTFS_DIR)/etc/X11/app-defaults/SzponTerm-color; \
+		cp -f userland/skeleton/etc/X11/app-defaults/SzponTerm $(ROOTFS_DIR)/usr/share/X11/app-defaults/SzponTerm; \
+		cp -f userland/skeleton/etc/X11/app-defaults/SzponTerm $(ROOTFS_DIR)/usr/share/X11/app-defaults/SzponTerm-color; \
+		cp -f userland/skeleton/etc/X11/app-defaults/SzponTerm $(ROOTFS_DIR)/usr/lib/X11/app-defaults/SzponTerm; \
+		cp -f userland/skeleton/etc/X11/app-defaults/SzponTerm $(ROOTFS_DIR)/usr/lib/X11/app-defaults/SzponTerm-color; \
+	fi
 	@chmod +x $@
 
 
@@ -1350,7 +1389,7 @@ cross-ini: $(BUILD_DIR)/szpontos_cross.ini
 
 third_party/xkbcomp/configure: third_party/xkbcomp/configure.ac
 	@echo "  [PRECONF-XKBCOMP] Generowanie configure dla xkbcomp..."
-	@cd third_party/xkbcomp && autoreconf -fi -I ../util-macros -I /opt/homebrew/share/aclocal 2>/dev/null || true
+	@cd third_party/xkbcomp && autoreconf -fi -I ../util-macros $(ACLOCAL_EXTRA_DIRS) 2>/dev/null || true
 
 $(XKBCOMP_BUILD_DIR)/Makefile: third_party/xkbcomp/configure | $(ROOTFS_DIR)/lib/libxkbfile.so $(ROOTFS_DIR)/lib/libX11.so $(SYSROOT_STAMP) $(LIBC_SO) $(CRT0_O)
 	@mkdir -p $(XKBCOMP_BUILD_DIR)
@@ -1391,7 +1430,7 @@ $(ROOTFS_DIR)/usr/share/X11/xkb: $(XKBCONFIG_BUILD_DIR)/build.ninja | $(ROOTFS_D
 	@cp -rf $(SYSROOT_DIR)/usr/share/xkeyboard-config-2 $(ROOTFS_DIR)/usr/share/
 	@cd $(ROOTFS_DIR)/usr/share/X11 && ln -sfn ../xkeyboard-config-2 xkb
 
-$(XSERVER_BUILD_DIR)/build.ninja: $(BUILD_DIR)/szpontos_cross.ini | $(ROOTFS_DIR)/lib/libdrm.so $(ROOTFS_DIR)/lib/libgbm.so $(ROOTFS_DIR)/lib/libpixman-1.so $(ROOTFS_DIR)/lib/libxkbfile.so $(ROOTFS_DIR)/lib/libXfont2.so $(ROOTFS_DIR)/lib/libfontenc.so $(ROOTFS_DIR)/lib/libpciaccess.so $(SYSROOT_STAMP)
+$(XSERVER_BUILD_DIR)/build.ninja: $(BUILD_DIR)/szpontos_cross.ini | $(ROOTFS_DIR)/lib/libdrm.so $(ROOTFS_DIR)/lib/libgbm.so $(ROOTFS_DIR)/lib/libpixman-1.so $(ROOTFS_DIR)/lib/libxkbfile.so $(ROOTFS_DIR)/lib/libXfont2.so $(ROOTFS_DIR)/lib/libfontenc.so $(ROOTFS_DIR)/lib/libpciaccess.so $(ROOTFS_DIR)/lib/libGL.so $(SYSROOT_STAMP)
 	@mkdir -p $(XSERVER_BUILD_DIR)
 	@echo "  [CONF-XORG] Konfiguracja X.Org Server (meson cross-compile)..."
 	@PKG_CONFIG_PATH="$(abspath $(SYSROOT_DIR))/usr/lib/pkgconfig:$(abspath $(SYSROOT_DIR))/usr/share/pkgconfig" \
@@ -1606,6 +1645,12 @@ $(MESA_BUILD_DIR)/src/egl/libEGL.so.1.0.0: $(MESA_BUILD_DIR)/build.ninja
 
 $(ROOTFS_DIR)/lib/libEGL.so: $(MESA_BUILD_DIR)/src/egl/libEGL.so.1.0.0 | $(ROOTFS_DIR)
 	@mkdir -p $(ROOTFS_DIR)/lib/dri $(ROOTFS_DIR)/lib/gbm $(ROOTFS_DIR)/usr/lib
+	@ln -sf libEGL.so.1.0.0 $(SYSROOT_DIR)/usr/lib/libEGL.so 2>/dev/null || true
+	@ln -sf libEGL.so.1.0.0 $(SYSROOT_DIR)/usr/lib/libEGL.so.1 2>/dev/null || true
+	@ln -sf libGLESv2.so.2.0.0 $(SYSROOT_DIR)/usr/lib/libGLESv2.so 2>/dev/null || true
+	@ln -sf libGLESv2.so.2.0.0 $(SYSROOT_DIR)/usr/lib/libGLESv2.so.2 2>/dev/null || true
+	@ln -sf libGL.so.1.2.0 $(SYSROOT_DIR)/usr/lib/libGL.so 2>/dev/null || true
+	@ln -sf libGL.so.1.2.0 $(SYSROOT_DIR)/usr/lib/libGL.so.1 2>/dev/null || true
 	@cp -a $(SYSROOT_DIR)/usr/lib/libgallium*.so* $(ROOTFS_DIR)/lib/
 	@cp -a $(SYSROOT_DIR)/usr/lib/libEGL* $(ROOTFS_DIR)/lib/
 	@cp -a $(SYSROOT_DIR)/usr/lib/libGLESv2* $(ROOTFS_DIR)/lib/

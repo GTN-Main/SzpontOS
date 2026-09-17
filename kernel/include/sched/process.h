@@ -79,6 +79,7 @@ typedef struct process {
     } shm_mappings[32];
 
     int exit_code;
+    int term_sig;
     int priority; /* Nice value: -20 (highest) to 19 (lowest), default 0 */
     uint64_t cpu_time_ns;
     wait_queue_t wait_child;
@@ -122,6 +123,7 @@ int process_kill(pid_t pid, int sig);
 process_t *process_get_foreground(void);
 void process_set_foreground(process_t *proc);
 void process_signal_ctty(vfs_node_t *ctty_node, int sig);
+void process_signal_pgrp(pid_t pgid, int sig);
 void process_check_signals(void);
 size_t process_get_list(proc_info_t *buf, size_t max_count);
 

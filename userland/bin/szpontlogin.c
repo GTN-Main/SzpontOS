@@ -542,7 +542,7 @@ do_authenticate: ;
             setenv("HOME", pw->pw_dir ? pw->pw_dir : "/", 1);
             setenv("SHELL", pw->pw_shell ? pw->pw_shell : "/bin/sh", 1);
             setenv("DISPLAY", disp_name, 1);
-            setenv("PATH", "/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin", 1);
+            setenv("PATH", "/bin:/usr/bin:/usr/tbin:/usr/local/bin:/sbin:/usr/sbin", 1);
             setenv("TERM", "xterm-256color", 0);
             setenv("COLORTERM", "truecolor", 0);
             setenv("XDG_CURRENT_DESKTOP", "SzpontOS", 1);

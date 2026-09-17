@@ -10,6 +10,7 @@
 #include <kernel/smp.h>
 #include <net/net.h>
 #include <drivers/rtc.h>
+#include <fs/timerfd.h>
 
 static list_node_t g_ready_queue = LIST_HEAD_INIT(g_ready_queue);
 static list_node_t g_sleeping_queue = LIST_HEAD_INIT(g_sleeping_queue);
@@ -304,6 +305,7 @@ void thread_sleep(uint32_t ms) {
 void sched_tick(void) {
     if (smp_is_bsp()) {
         netif_poll_all();
+        timerfd_tick();
     }
     if (!g_sched_started)
         return;

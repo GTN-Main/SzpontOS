@@ -143,8 +143,27 @@
 #define SYS_fchmodat 268
 #define SYS_faccessat 269
 #define SYS_utimensat 280
+#define SYS_epoll_wait 232
+#define SYS_epoll_ctl 233
+#define SYS_inotify_init 253
+#define SYS_inotify_add_watch 254
+#define SYS_inotify_rm_watch 255
+#define SYS_epoll_pwait 281
+#define SYS_eventfd 284
+#define SYS_eventfd2 290
+#define SYS_epoll_create1 291
+#define SYS_dup3 292
+#define SYS_pipe2 293
+#define SYS_inotify_init1 294
 #define SYS_getrandom 318
 #define SYS_memfd_create 319
+#define SYS_fchdir 81
+#define SYS_clock_nanosleep 230
+#define SYS_signalfd 282
+#define SYS_timerfd_create 283
+#define SYS_timerfd_settime 286
+#define SYS_timerfd_gettime 287
+#define SYS_signalfd4 289
 #define SYS_kqueue 362
 #define SYS_kevent 363
 

@@ -395,7 +395,7 @@ static size_t procfs_gen_proc_maps(process_t *proc, char *buf, size_t max_len) {
 
 static size_t procfs_gen_proc_environ(process_t *proc, char *buf, size_t max_len) {
     (void)proc;
-    return ksnprintf(buf, max_len, "PATH=/bin:/usr/bin\nUSER=root\nHOME=/root\nTERM=xterm-256color\n");
+    return ksnprintf(buf, max_len, "PATH=/bin:/usr/bin:/usr/tbin\nUSER=root\nHOME=/root\nTERM=xterm-256color\n");
 }
 
 /* =========================================================================

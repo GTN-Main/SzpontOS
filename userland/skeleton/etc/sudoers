@@ -1,0 +1,12 @@
+# /etc/sudoers - SzpontOS Sudoers Configuration
+# (C) Copyright by Szpont Industries. All rights reserved.
+
+# Defaults specification
+Defaults	env_reset
+Defaults	secure_path="/bin:/usr/bin:/usr/tbin:/sbin:/usr/sbin"
+
+# User privilege specification
+root	ALL=(ALL:ALL) ALL
+
+# Members of the wheel group may execute any command
+%wheel	ALL=(ALL:ALL) ALL

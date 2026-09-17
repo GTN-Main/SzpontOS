@@ -12,6 +12,9 @@
 #include <net/socket.h>
 #include <drivers/keyboard.h>
 #include <drivers/serial.h>
+#include <drivers/xhci.h>
+#include <drivers/ehci.h>
+#include <net/net.h>
 #include <arch/x86_64/pit.h>
 #include <kernel/string.h>
 #include <kernel/kprint.h>
@@ -122,6 +125,7 @@ static bool check_event_ready(process_t *proc, kqueue_entry_t *entry) {
         file_descriptor_t *fdesc = proc->fds[fd];
 
         if (fd == 0) {
+            keyboard_poll_hardware();
             if (keyboard_has_char() || serial_received()) {
                 ev->data = 1;
                 return true;
@@ -129,35 +133,45 @@ static bool check_event_ready(process_t *proc, kqueue_entry_t *entry) {
             return false;
         }
 
-        if (fdesc->node && fdesc->node->flags == VFS_TYPE_SOCKET) {
-            socket_t *sock = (socket_t *)fdesc->node->device_data;
-            if (sock && sock->rx_len > 0) {
-                ev->data = (int64_t)sock->rx_len;
-                return true;
+        short rev = vfs_poll_node(fdesc, POLLIN | POLLRDNORM);
+        if (rev & (POLLIN | POLLRDNORM | POLLHUP | POLLERR)) {
+            if (fdesc->node && fdesc->node->flags == VFS_TYPE_SOCKET) {
+                socket_t *sock = (socket_t *)fdesc->node->device_data;
+                ev->data = (sock && sock->rx_len > 0) ? (int64_t)sock->rx_len : 1;
+            } else if (fdesc->node && fdesc->node->flags == VFS_TYPE_PIPE) {
+                pipe_chan_kq_t *p = (pipe_chan_kq_t *)fdesc->node->device_data;
+                ev->data = (p && p->count > 0) ? (int64_t)p->count : 1;
+            } else if (fdesc->node && fdesc->node->flags == VFS_TYPE_FILE) {
+                off_t remaining = (off_t)fdesc->node->length - fdesc->offset;
+                ev->data = (remaining > 0) ? (int64_t)remaining : 0;
+            } else {
+                ev->data = 1;
             }
-            return false;
-        }
 
-        if (fdesc->node && fdesc->node->flags == VFS_TYPE_PIPE) {
-            pipe_chan_kq_t *p = (pipe_chan_kq_t *)fdesc->node->device_data;
-            if (p && p->count > 0) {
-                ev->data = (int64_t)p->count;
-                return true;
+            if (rev & (POLLHUP | POLLERR)) {
+                ev->flags |= EV_EOF;
             }
-            return false;
+            return true;
         }
-
-        /* Regular files or devices */
-        ev->data = 1;
-        return true;
+        return false;
     }
 
     case EVFILT_WRITE: {
         int fd = (int)ev->ident;
         if (fd < 0 || fd >= MAX_FD || !proc->fds[fd])
             return false;
-        ev->data = 4096;
-        return true;
+        file_descriptor_t *fdesc = proc->fds[fd];
+
+        short rev = vfs_poll_node(fdesc, POLLOUT | POLLWRNORM);
+        if (rev & (POLLOUT | POLLWRNORM)) {
+            ev->data = 4096;
+            return true;
+        } else if (rev & (POLLHUP | POLLERR)) {
+            ev->flags |= EV_EOF;
+            ev->data = 0;
+            return true;
+        }
+        return false;
     }
 
     case EVFILT_TIMER: {
@@ -287,6 +301,9 @@ int sys_kevent(int kq_fd, const struct kevent *changelist, int nchanges, struct 
 
     while (ready_events == 0 && eventlist && nevents > 0) {
         netif_poll_all();
+        xhci_poll();
+        ehci_poll();
+        keyboard_poll_hardware();
 
         for (size_t i = 0; i < kq->count; i++) {
             if (kq->entries[i].active && check_event_ready(proc, &kq->entries[i])) {

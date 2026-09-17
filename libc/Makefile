@@ -15,7 +15,9 @@ LIBC_C_SRCS := \
     $(ROOT_DIR)/libc/src/stdio/printf.c \
     $(ROOT_DIR)/libc/src/stdio/err.c \
     $(ROOT_DIR)/libc/src/signal/siglist.c \
+    $(ROOT_DIR)/libc/src/signal/signalfd.c \
     $(ROOT_DIR)/libc/src/unistd/unistd.c \
+    $(ROOT_DIR)/libc/src/unistd/getusershell.c \
     $(ROOT_DIR)/libc/src/unistd/getrandom.c \
     $(ROOT_DIR)/libc/src/unistd/sysconf.c \
     $(ROOT_DIR)/libc/src/unistd/sendfile.c \
@@ -28,6 +30,7 @@ LIBC_C_SRCS := \
     $(ROOT_DIR)/libc/src/dlfcn/dlfcn.c \
     $(ROOT_DIR)/libc/src/ctype/ctype.c \
     $(ROOT_DIR)/libc/src/time/time.c \
+    $(ROOT_DIR)/libc/src/time/timerfd.c \
     $(ROOT_DIR)/libc/src/getopt/getopt.c \
     $(ROOT_DIR)/libc/src/mman/mman.c \
     $(ROOT_DIR)/libc/src/regex/regex.c \
@@ -44,6 +47,7 @@ LIBC_C_SRCS := \
     $(ROOT_DIR)/libc/src/fnmatch/fnmatch.c \
     $(ROOT_DIR)/libc/src/spawn/spawn.c \
     $(ROOT_DIR)/libc/src/poll/poll.c \
+    $(ROOT_DIR)/libc/src/poll/epoll.c \
     $(ROOT_DIR)/libc/src/uchar/uchar.c \
     $(ROOT_DIR)/libc/src/socket/socket.c \
     $(ROOT_DIR)/libc/src/socket/inet.c \
@@ -129,12 +133,19 @@ $(LIBDL_A):
 	@$(AR) rcs $@
 
 LIBC_HEADERS := $(shell find $(ROOT_DIR)/libc/include -type f 2>/dev/null)
+UAPI_HEADERS := $(shell find $(ROOT_DIR)/kernel/include/uapi -type f 2>/dev/null)
+
+$(BUILD_DIR)/libc/dso_handle.o:
+	@mkdir -p $(dir $@)
+	@printf '__attribute__((visibility("hidden"))) void *__dso_handle = &__dso_handle;\n' | $(CC) -c -fPIC -O2 -ffreestanding -x c - -o $@
 
 # Sysroot Target (cross-compilation root for third-party libraries)
-$(SYSROOT_STAMP): $(LIBC_A) $(CRT0_O) $(CRTI_O) $(CRTN_O) $(LIBM_A) $(LIBDL_A) $(LIBC_SO) $(LIBM_SO) $(LIBC_HEADERS)
+$(SYSROOT_STAMP): $(LIBC_A) $(CRT0_O) $(CRTI_O) $(CRTN_O) $(BUILD_DIR)/libc/dso_handle.o $(LIBM_A) $(LIBDL_A) $(LIBC_SO) $(LIBM_SO) $(LIBC_HEADERS) $(UAPI_HEADERS)
 	@mkdir -p $(SYSROOT_DIR)/usr/include $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib/pkgconfig $(SYSROOT_DIR)/usr/share/pkgconfig $(SYSROOT_DIR)/usr/share/xcb $(SYSROOT_DIR)/usr/include/libdrm $(SYSROOT_DIR)/usr/include/drm $(SYSROOT_DIR)/usr/include/libxcvt $(SYSROOT_DIR)/usr/include/pixman-1 $(SYSROOT_DIR)/usr/include/X11/Xtrans $(SYSROOT_DIR)/usr/include/X11/extensions
 	@cp -R $(ROOT_DIR)/libc/include/. $(SYSROOT_DIR)/usr/include/
-	@cp -f $(LIBC_A) $(CRT0_O) $(CRTI_O) $(CRTN_O) $(LIBM_A) $(LIBDL_A) $(SYSROOT_DIR)/usr/lib/ 2>/dev/null || true
+	@if [ -d $(ROOT_DIR)/kernel/include/uapi ]; then cp -R $(ROOT_DIR)/kernel/include/uapi/. $(SYSROOT_DIR)/usr/include/; fi
+	@cp -f $(LIBC_A) $(CRT0_O) $(CRTI_O) $(CRTN_O) $(BUILD_DIR)/libc/dso_handle.o $(LIBM_A) $(LIBDL_A) $(SYSROOT_DIR)/usr/lib/ 2>/dev/null || true
+	@cp -f $(BUILD_DIR)/libc/dso_handle.o $(SYSROOT_DIR)/usr/lib/dso_handle.o 2>/dev/null || true
 	@cp -f $(LIBC_SO) $(LIBM_SO) $(SYSROOT_DIR)/usr/lib/ 2>/dev/null || true
 	@$(AR) rcs $(SYSROOT_DIR)/usr/lib/libpthread.a 2>/dev/null || true
 	@ln -sf libc.so $(SYSROOT_DIR)/usr/lib/libpthread.so 2>/dev/null || true

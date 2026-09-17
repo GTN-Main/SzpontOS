@@ -21,10 +21,11 @@
 #include <time.h>
 #include <errno.h>
 #include <termios.h>
+#include <paths.h>
 
 int errno = 0;
 
-static char *g_default_environ[] = {"PATH=/bin:/usr/bin",  "USER=root",     "HOME=/root",
+static char *g_default_environ[] = {"PATH=" _PATH_STDPATH,  "USER=root",     "HOME=/root",
                                     "TERM=xterm-256color", "SHELL=/bin/sh", NULL};
 
 char **environ = g_default_environ;
@@ -96,13 +97,16 @@ int dup2(int oldfd, int newfd) {
     return (int)__check_syscall(__syscall2(SYS_dup2, oldfd, newfd));
 }
 
+int dup3(int oldfd, int newfd, int flags) {
+    return (int)__check_syscall(__syscall3(SYS_dup3, oldfd, newfd, flags));
+}
+
 int pipe(int pipefd[2]) {
     return (int)__check_syscall(__syscall1(SYS_pipe, (int64_t)pipefd));
 }
 
 int pipe2(int pipefd[2], int flags) {
-    (void)flags;
-    return pipe(pipefd);
+    return (int)__check_syscall(__syscall2(SYS_pipe2, (int64_t)pipefd, (int64_t)flags));
 }
 
 static char g_ttyname_buf[64];
@@ -245,18 +249,46 @@ int execve(const char *pathname, char *const argv[], char *const envp[]) {
 }
 
 int execvp(const char *file, char *const argv[]) {
-    if (!file)
+    if (!file || !*file) {
+        errno = ENOENT;
         return -1;
-    if (strchr(file, '/')) {
-        return execve(file, argv, NULL);
     }
-    char buf[256];
-    snprintf(buf, sizeof(buf), "/bin/%s", file);
-    return execve(buf, argv, NULL);
+    if (strchr(file, '/')) {
+        return execve(file, argv, environ);
+    }
+    const char *path = getenv("PATH");
+    if (!path || !*path) {
+        path = _PATH_DEFPATH;
+    }
+    char path_copy[512];
+    strncpy(path_copy, path, sizeof(path_copy) - 1);
+    path_copy[sizeof(path_copy) - 1] = '\0';
+
+    char *saveptr = NULL;
+    char *dir = strtok_r(path_copy, ":", &saveptr);
+    char buf[512];
+    int last_errno = ENOENT;
+
+    while (dir) {
+        if (dir[0] == '\0') {
+            snprintf(buf, sizeof(buf), "%s", file);
+        } else {
+            snprintf(buf, sizeof(buf), "%s/%s", dir, file);
+        }
+        if (access(buf, X_OK) == 0) {
+            return execve(buf, argv, environ);
+        }
+        if (errno != ENOENT) {
+            last_errno = errno;
+        }
+        dir = strtok_r(NULL, ":", &saveptr);
+    }
+    errno = last_errno;
+    return -1;
 }
 
 int execv(const char *path, char *const argv[]) {
-    return execve(path, argv, NULL);
+    return execve(path, argv, environ);
 }
 
 int execl(const char *path, const char *arg0, ...) {
@@ -280,7 +312,7 @@ int execl(const char *path, const char *arg0, ...) {
     argv[argc] = NULL;
     va_end(ap);
 
-    int ret = execve(path, argv, NULL);
+    int ret = execve(path, argv, environ);
     free(argv);
     return ret;
 }
@@ -424,6 +456,10 @@ int chdir(const char *path) {
     return (int)__check_syscall(__syscall1(SYS_chdir, (int64_t)path));
 }
 
+int fchdir(int fd) {
+    return (int)__check_syscall(__syscall1(SYS_fchdir, (int64_t)fd));
+}
+
 int chroot(const char *path) {
     if (!path) {
         errno = EFAULT;
@@ -489,29 +525,25 @@ int sigfillset(sigset_t *set) {
 int sigaddset(sigset_t *set, int signum) {
     if (!set || signum < 1 || signum > 64)
         return -1;
-    *set |= ((sigset_t)1 << (signum - 1));
+    *set |= ((sigset_t)1 << signum);
     return 0;
 }
 
 int sigdelset(sigset_t *set, int signum) {
     if (!set || signum < 1 || signum > 64)
         return -1;
-    *set &= ~((sigset_t)1 << (signum - 1));
+    *set &= ~((sigset_t)1 << signum);
     return 0;
 }
 
 int sigismember(const sigset_t *set, int signum) {
     if (!set || signum < 1 || signum > 64)
         return -1;
-    return (*set & ((sigset_t)1 << (signum - 1))) ? 1 : 0;
+    return (*set & ((sigset_t)1 << signum)) ? 1 : 0;
 }
 
 int sigprocmask(int how, const sigset_t *set, sigset_t *oldset) {
-    (void)how;
-    (void)set;
-    if (oldset)
-        *oldset = 0;
-    return 0;
+    return (int)__check_syscall(__syscall4(SYS_rt_sigprocmask, (int64_t)how, (int64_t)set, (int64_t)oldset, sizeof(sigset_t)));
 }
 
 int sysinfo(struct sysinfo *info) {

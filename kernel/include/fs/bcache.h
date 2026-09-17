@@ -13,6 +13,10 @@ typedef struct buffer {
     bool dirty;
     bool valid;
     uint32_t refcount;
+    struct buffer *hash_next;
+    struct buffer *hash_prev;
+    struct buffer *lru_next;
+    struct buffer *lru_prev;
     uint8_t data[BCACHE_MAX_BLOCK_SIZE];
 } buffer_t;
 

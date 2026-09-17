@@ -194,10 +194,10 @@ USER_PROGS := \
     $(ROOTFS_DIR)/bin/wc \
     $(ROOTFS_DIR)/bin/clear \
     $(ROOTFS_DIR)/bin/mount \
-    $(ROOTFS_DIR)/bin/dltest \
+    $(ROOTFS_DIR)/usr/tbin/dltest \
     $(ROOTFS_DIR)/bin/file \
-    $(ROOTFS_DIR)/bin/mathtest \
-    $(ROOTFS_DIR)/bin/threadtest \
+    $(ROOTFS_DIR)/usr/tbin/mathtest \
+    $(ROOTFS_DIR)/usr/tbin/threadtest \
     $(ROOTFS_DIR)/bin/insmod \
     $(ROOTFS_DIR)/bin/rmmod \
     $(ROOTFS_DIR)/bin/lsmod \
@@ -205,8 +205,8 @@ USER_PROGS := \
     $(ROOTFS_DIR)/bin/rm \
     $(ROOTFS_DIR)/bin/hostname \
     $(ROOTFS_DIR)/bin/uname \
-    $(ROOTFS_DIR)/bin/tuitest \
-    $(ROOTFS_DIR)/bin/drmtest \
+    $(ROOTFS_DIR)/usr/tbin/tuitest \
+    $(ROOTFS_DIR)/usr/tbin/drmtest \
     $(ROOTFS_DIR)/bin/SzpontX11 \
     $(ROOTFS_DIR)/bin/Xorg \
     $(ROOTFS_DIR)/bin/startx \
@@ -226,10 +226,10 @@ USER_PROGS := \
     $(ROOTFS_DIR)/bin/kill \
     $(ROOTFS_DIR)/bin/killall \
     $(ROOTFS_DIR)/bin/dmesg \
-    $(ROOTFS_DIR)/bin/randtest \
-    $(ROOTFS_DIR)/bin/tmpfstest \
-    $(ROOTFS_DIR)/bin/ptytest \
-    $(ROOTFS_DIR)/bin/kqueuetest \
+    $(ROOTFS_DIR)/usr/tbin/randtest \
+    $(ROOTFS_DIR)/usr/tbin/tmpfstest \
+    $(ROOTFS_DIR)/usr/tbin/ptytest \
+    $(ROOTFS_DIR)/usr/tbin/kqueuetest \
     $(ROOTFS_DIR)/bin/grep \
     $(ROOTFS_DIR)/bin/find \
     $(ROOTFS_DIR)/bin/top \
@@ -240,12 +240,12 @@ USER_PROGS := \
     $(ROOTFS_DIR)/bin/lspci \
     $(ROOTFS_DIR)/bin/lsusb \
     $(ROOTFS_DIR)/bin/donut \
-    $(ROOTFS_DIR)/bin/mousetest \
-    $(ROOTFS_DIR)/bin/unixtest \
-    $(ROOTFS_DIR)/bin/gittest \
+    $(ROOTFS_DIR)/usr/tbin/mousetest \
+    $(ROOTFS_DIR)/usr/tbin/unixtest \
+    $(ROOTFS_DIR)/usr/tbin/gittest \
     $(ROOTFS_DIR)/bin/openssl \
     $(ROOTFS_DIR)/bin/curl \
-    $(ROOTFS_DIR)/bin/cpptest
+    $(ROOTFS_DIR)/usr/tbin/cpptest
 
 
 # ==============================================================================
@@ -255,6 +255,7 @@ USER_PROGS := \
 # Kernel Compilation Flags
 CFLAGS := \
     -ffreestanding \
+    -D__KERNEL__=1 \
     -fno-stack-protector \
     -fno-stack-check \
     -fno-lto \
@@ -274,6 +275,7 @@ CFLAGS := \
     -MMD \
     -MP \
     -I $(ROOT_DIR)/kernel/include \
+    -I $(ROOT_DIR)/kernel/include/uapi \
     -I $(BUILD_DIR)/include \
     -I $(ROOT_DIR)
 
@@ -307,7 +309,8 @@ USER_CFLAGS := \
     -g \
     -MMD \
     -MP \
-    -I $(ROOT_DIR)/libc/include
+    -I $(ROOT_DIR)/libc/include \
+    -I $(ROOT_DIR)/kernel/include/uapi
 
 ifeq ($(TOOLCHAIN_TYPE),clang)
     USER_CFLAGS += -target $(ARCH)-unknown-none-elf

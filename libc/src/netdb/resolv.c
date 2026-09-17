@@ -213,8 +213,12 @@ int res_send(const unsigned char *msg, int msglen,
                 ssize_t received = recvfrom(sockfd, ans, (size_t)anssiz, 0,
                                             (struct sockaddr *)&from, &fromlen);
                 if (received > HFIXEDSZ) {
-                    close(sockfd);
-                    return (int)received;
+                    HEADER *hp = (HEADER *)ans;
+                    HEADER *qhp = (HEADER *)msg;
+                    if (hp->id == qhp->id) {
+                        close(sockfd);
+                        return (int)received;
+                    }
                 }
             }
             close(sockfd);

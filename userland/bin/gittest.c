@@ -12,7 +12,7 @@ static void run_cmd(const char *desc, char *const argv[], const char *workdir) {
         if (workdir) {
             chdir(workdir);
         }
-        char *envp[] = {"PATH=/bin:/usr/bin", "USER=root", "HOME=/root", "TERM=xterm-256color", "SHELL=/bin/sh", NULL};
+        char *envp[] = {"PATH=/bin:/usr/bin:/usr/tbin", "USER=root", "HOME=/root", "TERM=xterm-256color", "SHELL=/bin/sh", NULL};
         execve(argv[0], argv, envp);
         _exit(127);
     }

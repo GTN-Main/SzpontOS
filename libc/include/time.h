@@ -48,6 +48,11 @@ struct timespec {
     long tv_nsec;
 };
 
+struct itimerspec {
+    struct timespec it_interval;
+    struct timespec it_value;
+};
+
 time_t time(time_t *tloc);
 struct tm *gmtime(const time_t *timep);
 struct tm *gmtime_r(const time_t *timep, struct tm *result);

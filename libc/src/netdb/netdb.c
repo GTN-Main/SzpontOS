@@ -54,6 +54,8 @@ static int parse_dns_response_ipv4(const unsigned char *resp, int len, uint32_t 
                 rpos++;
                 break;
             }
+            if (rpos + 1 + resp[rpos] > (size_t)len)
+                return -1;
             rpos += 1 + resp[rpos];
         }
         rpos += QFIXEDSZ; /* QTYPE + QCLASS */
@@ -71,6 +73,8 @@ static int parse_dns_response_ipv4(const unsigned char *resp, int len, uint32_t 
                 rpos++;
                 break;
             }
+            if (rpos + 1 + resp[rpos] > (size_t)len)
+                return -1;
             rpos += 1 + resp[rpos];
         }
 

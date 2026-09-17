@@ -2,7 +2,7 @@
 # /etc/rc.d/01_mountcritlocal -- Mount critical local filesystems
 
 echo "Checking and mounting critical local filesystems..."
-mkdir -p /tmp /var/run /var/log /proc /dev
+mkdir -p /tmp /var/run /var/log /proc /dev /sys
 chmod 1777 /tmp
 mkdir -p /tmp/.X11-unix
 chmod 1777 /tmp/.X11-unix

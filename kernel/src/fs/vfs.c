@@ -1,5 +1,6 @@
 #include <fs/vfs.h>
 #include <fs/pipe.h>
+#include <fs/inotify.h>
 #include <sched/process.h>
 #include <sched/sched.h>
 #include <mm/heap.h>
@@ -467,7 +468,11 @@ int vfs_mkdir(const char *path, mode_t mode) {
     }
 
     if (parent->ops && parent->ops->mkdir) {
-        return parent->ops->mkdir(parent, dir_name, mode);
+        int r = parent->ops->mkdir(parent, dir_name, mode);
+        if (r == 0) {
+            inotify_emit(parent_path, dir_name, IN_CREATE | IN_ISDIR, 0);
+        }
+        return r;
     }
 
     return -1;
@@ -497,7 +502,11 @@ int vfs_unlink(const char *path) {
     }
 
     if (parent->ops && parent->ops->unlink) {
-        return parent->ops->unlink(parent, entry_name);
+        int r = parent->ops->unlink(parent, entry_name);
+        if (r == 0) {
+            inotify_emit(parent_path, entry_name, IN_DELETE, 0);
+        }
+        return r;
     }
 
     return -1;
@@ -527,9 +536,17 @@ int vfs_rmdir(const char *path) {
     }
 
     if (parent->ops && parent->ops->rmdir) {
-        return parent->ops->rmdir(parent, dir_name);
+        int r = parent->ops->rmdir(parent, dir_name);
+        if (r == 0) {
+            inotify_emit(parent_path, dir_name, IN_DELETE | IN_ISDIR, 0);
+        }
+        return r;
     } else if (parent->ops && parent->ops->unlink) {
-        return parent->ops->unlink(parent, dir_name);
+        int r = parent->ops->unlink(parent, dir_name);
+        if (r == 0) {
+            inotify_emit(parent_path, dir_name, IN_DELETE | IN_ISDIR, 0);
+        }
+        return r;
     }
 
     return -1;
@@ -565,7 +582,14 @@ int vfs_rename(const char *oldpath, const char *newpath) {
     }
 
     if (old_parent->ops && old_parent->ops->rename) {
-        return old_parent->ops->rename(old_parent, old_name, new_parent, new_name);
+        int r = old_parent->ops->rename(old_parent, old_name, new_parent, new_name);
+        if (r == 0) {
+            static uint32_t s_cookie = 1;
+            uint32_t cookie = s_cookie++;
+            inotify_emit(old_parent_path, old_name, IN_MOVED_FROM, cookie);
+            inotify_emit(new_parent_path, new_name, IN_MOVED_TO, cookie);
+        }
+        return r;
     }
 
     return -1;

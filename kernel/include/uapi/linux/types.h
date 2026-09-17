@@ -3,7 +3,11 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#if defined(__has_include)
+#if __has_include(<sys/types.h>) && !defined(__KERNEL__)
 #include <sys/types.h>
+#endif
+#endif
 #include <asm/types.h>
 
 typedef uint16_t __le16;

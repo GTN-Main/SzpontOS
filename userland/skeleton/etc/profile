@@ -1,7 +1,7 @@
 # /etc/profile - System-wide profile for SzpontOS login shells
 # (C) Copyright by Szpont Industries. All rights reserved.
 
-export PATH=/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin
+export PATH=/bin:/usr/bin:/usr/tbin:/usr/local/bin:/sbin:/usr/sbin
 export TERM=xterm-256color
 export COLORTERM=truecolor
 export ENV=/etc/shrc
@@ -12,6 +12,8 @@ export SHELL=${SHELL:-/bin/sh}
 export MAGIC=/etc/magic:/usr/share/misc/magic
 export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
+export XFILESEARCHPATH=/etc/X11/app-defaults/%N:/usr/share/X11/app-defaults/%N:/usr/lib/X11/app-defaults/%N
+export XAPPLRESDIR=/etc/X11/app-defaults
 
 # Source interactive shell configuration
 if [ -f /etc/shrc ]; then

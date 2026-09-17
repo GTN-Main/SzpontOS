@@ -5,20 +5,26 @@
 
 #include <locale.h>
 #include <langinfo.h>
+#include <stdlib.h>
 #include <string.h>
 
-static char g_current_locale[64] = "C.UTF-8";
+static char g_current_locale[64] = "C";
 
 char *setlocale(int category, const char *locale) {
     (void)category;
     if (!locale) {
         return g_current_locale;
     }
-    if (*locale == '\0' || strcmp(locale, "C") == 0 || strcmp(locale, "POSIX") == 0 || strcmp(locale, "C.UTF-8") == 0) {
-        strncpy(g_current_locale, locale[0] ? locale : "C.UTF-8", sizeof(g_current_locale) - 1);
+    if (*locale == '\0') {
+        const char *env = getenv("LC_ALL");
+        if (!env || !*env) env = getenv("LANG");
+        if (!env || !*env) env = "C";
+        strncpy(g_current_locale, env, sizeof(g_current_locale) - 1);
+        g_current_locale[sizeof(g_current_locale) - 1] = '\0';
         return g_current_locale;
     }
     strncpy(g_current_locale, locale, sizeof(g_current_locale) - 1);
+    g_current_locale[sizeof(g_current_locale) - 1] = '\0';
     return g_current_locale;
 }
 
