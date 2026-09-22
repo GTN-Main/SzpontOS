@@ -1,7 +1,7 @@
 # SzpontOS QEMU Emulator Execution Rules
 # Included by root Makefile
 
-.PHONY: run run-virtio run-ps2 run-usb run-stress run-cli debug
+.PHONY: run run-virtio run-virgl run-ps2 run-usb run-stress run-cli debug
 
 # Run in graphical QEMU
 run: build $(ISO_IMAGE)
@@ -10,6 +10,10 @@ run: build $(ISO_IMAGE)
 # Run in graphical QEMU with Virtio-VGA
 run-virtio: build $(ISO_IMAGE)
 	@./scripts/run_qemu.sh $(ISO_IMAGE) --virtio
+
+# Run in graphical QEMU with Virtio-GPU 3D Virgl Acceleration
+run-virgl: build $(ISO_IMAGE)
+	@./scripts/run_qemu.sh $(ISO_IMAGE) --virgl
 
 # Run in graphical QEMU with Bare Metal PS/2 simulation
 run-ps2: build $(ISO_IMAGE)

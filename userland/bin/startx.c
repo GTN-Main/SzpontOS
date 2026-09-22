@@ -17,6 +17,8 @@
 #include <sys/wait.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/ioctl.h>
+#include <fcntl.h>
 
 #define COLOR_RESET   "\033[0m"
 #define COLOR_BOLD    "\033[1m"
@@ -95,14 +97,22 @@ int main(int argc, char *argv[]) {
         server_bin = "/usr/bin/Xorg";
     } else if (stat("/bin/Xorg", &st) == 0) {
         server_bin = "/bin/Xorg";
+    } else if (stat("/usr/bin/SzpontX11", &st) == 0) {
+        server_bin = "/usr/bin/SzpontX11";
     } else {
         server_bin = "/bin/SzpontX11";
     }
 
     /* Determine default client: Prefer Display/Login Manager if available */
-    const char *client_bin = "/bin/szpontlogin";
-    if (access("/bin/szpontlogin", X_OK) != 0) {
-        client_bin = "/bin/szpontdesktop";
+    const char *client_bin = "/usr/bin/szpontlogin";
+    if (access("/usr/bin/szpontlogin", X_OK) != 0 && access("/bin/szpontlogin", X_OK) != 0) {
+        if (access("/usr/bin/szpontdesktop", X_OK) == 0) {
+            client_bin = "/usr/bin/szpontdesktop";
+        } else {
+            client_bin = "/bin/szpontdesktop";
+        }
+    } else if (access("/usr/bin/szpontlogin", X_OK) != 0) {
+        client_bin = "/bin/szpontlogin";
     }
     char *client_args[16];
     int client_argc = 0;
@@ -135,6 +145,86 @@ int main(int argc, char *argv[]) {
     signal(SIGTERM, cleanup_and_exit);
     signal(SIGHUP, cleanup_and_exit);
 
+    /* Detect DRM driver to pick hardware accelerated or software fallback config */
+    const char *config_path = "/etc/X11/xorg-sw.conf";
+    int drm_fd = open("/dev/dri/card0", O_RDWR);
+    if (drm_fd >= 0) {
+        struct {
+            int version_major;
+            int version_minor;
+            int version_patchlevel;
+            size_t name_len;
+            char *name;
+            size_t date_len;
+            char *date;
+            size_t desc_len;
+            char *desc;
+        } ver;
+        char name_buf[64] = {0};
+        memset(&ver, 0, sizeof(ver));
+        ver.name = name_buf;
+        ver.name_len = sizeof(name_buf) - 1;
+        int hardware_accel = 0;
+        if (ioctl(drm_fd, 0xc0406400, &ver) == 0) {
+            if (strcmp(name_buf, "i915") == 0) {
+                hardware_accel = 1;
+                setenv("CROCUS_GEN8", "1", 1);
+                setenv("MESA_LOADER_DRIVER_OVERRIDE", "crocus", 1);
+                printf(COLOR_GREEN "[startx] Detected Intel GPU ('%s') -> 3D hardware acceleration enabled (crocus)" COLOR_RESET "\n",
+                       name_buf);
+            } else if (strcmp(name_buf, "virtio_gpu") == 0) {
+                /* Check if host actually supports Virgl 3D hardware acceleration */
+                struct {
+                    uint64_t param;
+                    uint64_t value;
+                } gp;
+                uint64_t val = 0;
+                memset(&gp, 0, sizeof(gp));
+                gp.param = 1; /* VIRTGPU_PARAM_3D_FEATURES */
+                gp.value = (uint64_t)(uintptr_t)&val;
+                if (ioctl(drm_fd, 0xc0106443, &gp) == 0 && val == 1) {
+                    hardware_accel = 1;
+                    unsetenv("CROCUS_GEN8");
+                    setenv("MESA_LOADER_DRIVER_OVERRIDE", "virtio_gpu", 1);
+                    printf(COLOR_GREEN "[startx] Detected VirtIO 3D GPU ('%s') -> 3D hardware acceleration enabled (virgl)" COLOR_RESET "\n",
+                           name_buf);
+                } else {
+                    hardware_accel = 0;
+                    unsetenv("CROCUS_GEN8");
+                    unsetenv("MESA_LOADER_DRIVER_OVERRIDE");
+                    printf(COLOR_CYAN "[startx] Detected 2D VirtIO GPU -> using software 3D fallback" COLOR_RESET "\n");
+                }
+            } else {
+                hardware_accel = 0;
+                unsetenv("CROCUS_GEN8");
+                unsetenv("MESA_LOADER_DRIVER_OVERRIDE");
+            }
+
+            if (getenv("XORG_SW") != NULL && strcmp(getenv("XORG_SW"), "1") == 0) {
+                hardware_accel = 0;
+                unsetenv("MESA_LOADER_DRIVER_OVERRIDE");
+                printf(COLOR_YELLOW "[startx] Forced software fallback via XORG_SW=1 (xorg-sw.conf)" COLOR_RESET "\n");
+            }
+
+            if (hardware_accel) {
+                if (access("/etc/X11/xorg.conf", R_OK) == 0) {
+                    config_path = "/etc/X11/xorg.conf";
+                } else if (access("/etc/X11/xorg-sw.conf", R_OK) == 0) {
+                    config_path = "/etc/X11/xorg-sw.conf";
+                }
+                printf(COLOR_GREEN "[startx] Using hardware acceleration Xorg config: %s (glamor + DRI3)" COLOR_RESET "\n", config_path);
+            } else {
+                if (access("/etc/X11/xorg-sw.conf", R_OK) == 0) {
+                    config_path = "/etc/X11/xorg-sw.conf";
+                } else if (access("/etc/X11/xorg.conf", R_OK) == 0) {
+                    config_path = "/etc/X11/xorg.conf";
+                }
+                printf(COLOR_CYAN "[startx] Using software fallback Xorg config: %s (ShadowFB)" COLOR_RESET "\n", config_path);
+            }
+        }
+        close(drm_fd);
+    }
+
     /* 1. Launch X Server */
     printf(COLOR_YELLOW "[startx] Starting X11 Server: %s %s..." COLOR_RESET "\n", server_bin, display);
     g_server_pid = fork();
@@ -145,19 +235,19 @@ int main(int argc, char *argv[]) {
 
     if (g_server_pid == 0) {
         /* Child: Exec X Server */
-        char *server_envp[] = { (char *)"DISPLAY=:0", (char *)"PATH=/bin:/usr/bin:/usr/tbin", NULL };
+        extern char **environ;
         if (strstr(server_bin, "Xorg")) {
             char *server_argv[] = {
                 (char *)server_bin,
                 (char *)display,
-                (char *)"-config", (char *)"/etc/X11/xorg.conf",
+                (char *)"-config", (char *)config_path,
                 (char *)"-nolisten", (char *)"tcp",
                 NULL
             };
-            execve(server_bin, server_argv, server_envp);
+            execve(server_bin, server_argv, environ);
         } else {
             char *server_argv[] = { (char *)server_bin, (char *)display, NULL };
-            execve(server_bin, server_argv, server_envp);
+            execve(server_bin, server_argv, environ);
         }
         perror("[startx] Failed to execute X server");
         _exit(1);

@@ -973,6 +973,22 @@ int mkdirat(int dirfd, const char *pathname, mode_t mode) {
     return (int)__check_syscall(__syscall3(SYS_mkdirat, (int64_t)dirfd, (int64_t)pathname, (int64_t)mode));
 }
 
+int mkfifoat(int dirfd, const char *pathname, mode_t mode) {
+    return mknodat(dirfd, pathname, mode | S_IFIFO, 0);
+}
+
+int mkfifo(const char *pathname, mode_t mode) {
+    return mkfifoat(AT_FDCWD, pathname, mode);
+}
+
+int mknodat(int dirfd, const char *pathname, mode_t mode, dev_t dev) {
+    return (int)__check_syscall(__syscall4(SYS_mknodat, (int64_t)dirfd, (int64_t)pathname, (int64_t)mode, (int64_t)dev));
+}
+
+int mknod(const char *pathname, mode_t mode, dev_t dev) {
+    return (int)__check_syscall(__syscall3(SYS_mknod, (int64_t)pathname, (int64_t)mode, (int64_t)dev));
+}
+
 ssize_t readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsiz) {
     return (ssize_t)__check_syscall(__syscall4(SYS_readlinkat, (int64_t)dirfd, (int64_t)pathname, (int64_t)buf, (int64_t)bufsiz));
 }
@@ -1004,14 +1020,15 @@ void sync(void) {
 }
 
 int fsync(int fd) {
-    (void)fd;
-    return (int)__syscall0(SYS_sync);
+    return (int)__check_syscall(__syscall1(SYS_fsync, (int64_t)fd));
+}
+
+int fdatasync(int fd) {
+    return (int)__check_syscall(__syscall1(SYS_fdatasync, (int64_t)fd));
 }
 
 int flock(int fd, int operation) {
-    (void)fd;
-    (void)operation;
-    return 0;
+    return (int)__check_syscall(__syscall2(SYS_flock, (int64_t)fd, (int64_t)operation));
 }
 
 static char g_syslog_ident[64] = "szpontos";

@@ -24,6 +24,7 @@
 #include <errno.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
+#include <drm/drm_fourcc.h>
 
 #define TEST_WIDTH  256
 #define TEST_HEIGHT 256
@@ -77,15 +78,15 @@ int main(int argc, char *argv[]) {
     uint32_t bo_handle = 0;
     uint32_t bo_pitch = 0;
     uint64_t bo_size = 0;
-    int ret = drmModeCreateDumb(rnode_fd, TEST_WIDTH, TEST_HEIGHT, 32, 0,
-                                &bo_handle, &bo_pitch, &bo_size);
+    int ret = drmModeCreateDumbBuffer(rnode_fd, TEST_WIDTH, TEST_HEIGHT, 32, 0,
+                                      &bo_handle, &bo_pitch, &bo_size);
     if (ret != 0 || bo_handle == 0) {
-        printf("FAILED: drmModeCreateDumb error %d\n", ret);
+        printf("FAILED: drmModeCreateDumbBuffer error %d\n", ret);
     } else {
         uint64_t map_offset = 0;
-        ret = drmModeMapDumb(rnode_fd, bo_handle, &map_offset);
+        ret = drmModeMapDumbBuffer(rnode_fd, bo_handle, &map_offset);
         if (ret != 0) {
-            printf("FAILED: drmModeMapDumb error %d\n", ret);
+            printf("FAILED: drmModeMapDumbBuffer error %d\n", ret);
         } else {
             uint32_t *pixels = (uint32_t *)mmap(NULL, bo_size, PROT_READ | PROT_WRITE,
                                                 MAP_SHARED, rnode_fd, (off_t)map_offset);
@@ -221,6 +222,9 @@ int main(int argc, char *argv[]) {
     printf("[TEST 6] Card0 FourCC AddFB2 & Page Flip Event Queue... ");
     int card_fd = drmOpen("szpont-drm", NULL);
     if (card_fd < 0) {
+        card_fd = drmOpen(NULL, NULL);
+    }
+    if (card_fd < 0) {
         printf("FAILED: drmOpen card0 %s\n", strerror(errno));
     } else {
         drmModeResPtr res = drmModeGetResources(card_fd);
@@ -236,7 +240,7 @@ int main(int argc, char *argv[]) {
 
             uint32_t fb_bo = 0, fb_pitch = 0;
             uint64_t fb_sz = 0;
-            drmModeCreateDumb(card_fd, width, height, 32, 0, &fb_bo, &fb_pitch, &fb_sz);
+            drmModeCreateDumbBuffer(card_fd, width, height, 32, 0, &fb_bo, &fb_pitch, &fb_sz);
 
             uint32_t handles[4] = { fb_bo, 0, 0, 0 };
             uint32_t pitches[4] = { fb_pitch, 0, 0, 0 };
@@ -283,7 +287,7 @@ int main(int argc, char *argv[]) {
                 }
                 drmDropMaster(card_fd);
                 drmModeRmFB(card_fd, fb2_id);
-                drmModeDestroyDumb(card_fd, fb_bo);
+                drmModeDestroyDumbBuffer(card_fd, fb_bo);
             }
             if (conn) drmModeFreeConnector(conn);
             drmModeFreeResources(res);
@@ -293,7 +297,7 @@ int main(int argc, char *argv[]) {
 
     /* Cleanup render node resources */
     if (prime_fd >= 0) close(prime_fd);
-    if (bo_handle > 0) drmModeDestroyDumb(rnode_fd, bo_handle);
+    if (bo_handle > 0) drmModeDestroyDumbBuffer(rnode_fd, bo_handle);
     if (rnode_fd >= 0) close(rnode_fd);
 
     printf("\n-----------------------------------------------------\n");

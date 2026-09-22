@@ -141,8 +141,7 @@ LIBC_SO    := $(ROOTFS_DIR)/lib/libc.so
 LIBM_A     := $(BUILD_DIR)/libc/libm.a
 LIBM_SO    := $(ROOTFS_DIR)/lib/libm.so
 LIBDL_A    := $(BUILD_DIR)/libc/libdl.a
-LIBCALC_SO := $(ROOTFS_DIR)/lib/libcalc.so
-LIBSTDCXX_SO := $(ROOTFS_DIR)/lib/libstdc++.so
+LIBSTDCXX_SO := $(ROOTFS_DIR)/usr/lib/libstdc++.so
 LIBSTDCXX_A  := $(SYSROOT_DIR)/usr/lib/libstdc++.a
 
 # Third-party Ports Targets
@@ -167,85 +166,101 @@ MODULES := \
     $(MODULE_DIR)/hello.sko \
     $(MODULE_DIR)/dummy_dev.sko
 
-# Userland Programs List
-USER_PROGS := \
+# Userland Programs List (/bin - Essential Rescue/Boot Binaries)
+USER_BIN_PROGS := \
     $(ROOTFS_DIR)/bin/init \
     $(ROOTFS_DIR)/bin/sh \
-    $(ROOTFS_DIR)/bin/hello \
     $(ROOTFS_DIR)/bin/cat \
-    $(ROOTFS_DIR)/bin/id \
-    $(ROOTFS_DIR)/bin/whoami \
-    $(ROOTFS_DIR)/bin/useradd \
-    $(ROOTFS_DIR)/bin/userdel \
-    $(ROOTFS_DIR)/bin/groupadd \
-    $(ROOTFS_DIR)/bin/su \
     $(ROOTFS_DIR)/bin/chmod \
     $(ROOTFS_DIR)/bin/chown \
-    $(ROOTFS_DIR)/bin/df \
-    $(ROOTFS_DIR)/bin/ps \
-    $(ROOTFS_DIR)/bin/free \
-    $(ROOTFS_DIR)/bin/uptime \
     $(ROOTFS_DIR)/bin/date \
-    $(ROOTFS_DIR)/bin/clock \
+    $(ROOTFS_DIR)/bin/df \
+    $(ROOTFS_DIR)/bin/dmesg \
+    $(ROOTFS_DIR)/bin/hostname \
+    $(ROOTFS_DIR)/bin/kill \
+    $(ROOTFS_DIR)/bin/ls \
     $(ROOTFS_DIR)/bin/mkdir \
-    $(ROOTFS_DIR)/bin/touch \
-    $(ROOTFS_DIR)/bin/head \
-    $(ROOTFS_DIR)/bin/tail \
-    $(ROOTFS_DIR)/bin/wc \
-    $(ROOTFS_DIR)/bin/clear \
     $(ROOTFS_DIR)/bin/mount \
-    $(ROOTFS_DIR)/usr/tbin/dltest \
-    $(ROOTFS_DIR)/bin/file \
-    $(ROOTFS_DIR)/usr/tbin/mathtest \
-    $(ROOTFS_DIR)/usr/tbin/threadtest \
+    $(ROOTFS_DIR)/bin/ps \
+    $(ROOTFS_DIR)/bin/rm \
+    $(ROOTFS_DIR)/bin/sleep \
+    $(ROOTFS_DIR)/bin/su \
+    $(ROOTFS_DIR)/bin/sync \
+    $(ROOTFS_DIR)/bin/touch \
+    $(ROOTFS_DIR)/bin/uname \
+    $(ROOTFS_DIR)/bin/reboot \
+    $(ROOTFS_DIR)/bin/shutdown \
+    $(ROOTFS_DIR)/bin/poweroff \
+    $(ROOTFS_DIR)/bin/ifconfig \
+    $(ROOTFS_DIR)/bin/ping \
+    $(ROOTFS_DIR)/bin/sysctl \
     $(ROOTFS_DIR)/bin/insmod \
     $(ROOTFS_DIR)/bin/rmmod \
     $(ROOTFS_DIR)/bin/lsmod \
-    $(ROOTFS_DIR)/bin/modinfo \
-    $(ROOTFS_DIR)/bin/rm \
-    $(ROOTFS_DIR)/bin/hostname \
-    $(ROOTFS_DIR)/bin/uname \
+    $(ROOTFS_DIR)/bin/modinfo
+
+# Userland Programs List (/usr/bin - Applications & User Commands)
+USER_USR_BIN_PROGS := \
+    $(ROOTFS_DIR)/usr/bin/clear \
+    $(ROOTFS_DIR)/usr/bin/clock \
+    $(ROOTFS_DIR)/usr/bin/env \
+    $(ROOTFS_DIR)/usr/bin/free \
+    $(ROOTFS_DIR)/usr/bin/uptime \
+    $(ROOTFS_DIR)/usr/bin/id \
+    $(ROOTFS_DIR)/usr/bin/whoami \
+    $(ROOTFS_DIR)/usr/bin/top \
+    $(ROOTFS_DIR)/usr/bin/lspci \
+    $(ROOTFS_DIR)/usr/bin/lsusb \
+    $(ROOTFS_DIR)/usr/bin/sudo \
+    $(ROOTFS_DIR)/usr/bin/useradd \
+    $(ROOTFS_DIR)/usr/bin/userdel \
+    $(ROOTFS_DIR)/usr/bin/groupadd \
+    $(ROOTFS_DIR)/usr/bin/killall \
+    $(ROOTFS_DIR)/usr/bin/head \
+    $(ROOTFS_DIR)/usr/bin/tail \
+    $(ROOTFS_DIR)/usr/bin/wc \
+    $(ROOTFS_DIR)/usr/bin/grep \
+    $(ROOTFS_DIR)/usr/bin/find \
+    $(ROOTFS_DIR)/usr/bin/file \
+    $(ROOTFS_DIR)/usr/bin/curl \
+    $(ROOTFS_DIR)/usr/bin/nc \
+    $(ROOTFS_DIR)/usr/bin/httpd \
+    $(ROOTFS_DIR)/usr/bin/httpget \
+    $(ROOTFS_DIR)/usr/bin/host \
+    $(ROOTFS_DIR)/usr/bin/openssl \
+    $(ROOTFS_DIR)/usr/bin/git \
+    $(ROOTFS_DIR)/usr/bin/nano \
+    $(ROOTFS_DIR)/usr/bin/zsh \
+    $(ROOTFS_DIR)/usr/bin/fastfetch \
+    $(ROOTFS_DIR)/usr/bin/donut \
+    $(ROOTFS_DIR)/usr/bin/hello \
+    $(ROOTFS_DIR)/usr/bin/startx \
+    $(ROOTFS_DIR)/usr/bin/szpontlogin \
+    $(ROOTFS_DIR)/usr/bin/szpontdesktop \
+    $(ROOTFS_DIR)/usr/bin/szponterm \
+    $(ROOTFS_DIR)/usr/bin/xterm \
+    $(ROOTFS_DIR)/usr/bin/makaljer \
+    $(ROOTFS_DIR)/usr/bin/szpontdetected \
+    $(ROOTFS_DIR)/usr/bin/SzpontX11 \
+    $(ROOTFS_DIR)/usr/bin/Xorg
+
+# Userland Programs List (/usr/tbin - System & Driver Test Suites)
+USER_TEST_PROGS := \
+    $(ROOTFS_DIR)/usr/tbin/dltest \
+    $(ROOTFS_DIR)/usr/tbin/mathtest \
+    $(ROOTFS_DIR)/usr/tbin/threadtest \
     $(ROOTFS_DIR)/usr/tbin/tuitest \
     $(ROOTFS_DIR)/usr/tbin/drmtest \
-    $(ROOTFS_DIR)/bin/SzpontX11 \
-    $(ROOTFS_DIR)/bin/Xorg \
-    $(ROOTFS_DIR)/bin/startx \
-    $(ROOTFS_DIR)/bin/szpontdesktop \
-    $(ROOTFS_DIR)/bin/szponterm \
-    $(ROOTFS_DIR)/bin/xterm \
-    $(ROOTFS_DIR)/bin/nano \
-    $(ROOTFS_DIR)/bin/zsh \
-    $(ROOTFS_DIR)/bin/fastfetch \
-    $(ROOTFS_DIR)/bin/git \
-    $(ROOTFS_DIR)/bin/ifconfig \
-    $(ROOTFS_DIR)/bin/ping \
-    $(ROOTFS_DIR)/bin/sleep \
-    $(ROOTFS_DIR)/bin/nc \
-    $(ROOTFS_DIR)/bin/httpd \
-    $(ROOTFS_DIR)/bin/sysctl \
-    $(ROOTFS_DIR)/bin/kill \
-    $(ROOTFS_DIR)/bin/killall \
-    $(ROOTFS_DIR)/bin/dmesg \
     $(ROOTFS_DIR)/usr/tbin/randtest \
     $(ROOTFS_DIR)/usr/tbin/tmpfstest \
     $(ROOTFS_DIR)/usr/tbin/ptytest \
     $(ROOTFS_DIR)/usr/tbin/kqueuetest \
-    $(ROOTFS_DIR)/bin/grep \
-    $(ROOTFS_DIR)/bin/find \
-    $(ROOTFS_DIR)/bin/top \
-    $(ROOTFS_DIR)/bin/reboot \
-    $(ROOTFS_DIR)/bin/shutdown \
-    $(ROOTFS_DIR)/bin/poweroff \
-    $(ROOTFS_DIR)/bin/ls \
-    $(ROOTFS_DIR)/bin/lspci \
-    $(ROOTFS_DIR)/bin/lsusb \
-    $(ROOTFS_DIR)/bin/donut \
     $(ROOTFS_DIR)/usr/tbin/mousetest \
     $(ROOTFS_DIR)/usr/tbin/unixtest \
     $(ROOTFS_DIR)/usr/tbin/gittest \
-    $(ROOTFS_DIR)/bin/openssl \
-    $(ROOTFS_DIR)/bin/curl \
     $(ROOTFS_DIR)/usr/tbin/cpptest
+
+USER_PROGS := $(USER_BIN_PROGS) $(USER_USR_BIN_PROGS) $(USER_TEST_PROGS)
 
 
 # ==============================================================================

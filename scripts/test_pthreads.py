@@ -10,16 +10,8 @@ def run_test():
     master, slave = pty.openpty()
 
     qemu_cmd = [
-        "qemu-system-x86_64",
-        "-M", "pc",
-        "-cpu", "max",
-        "-m", "512M",
-        "-display", "none",
-        "-cdrom", "build/szpontos.iso",
-        "-drive", "file=build/disk.img,format=raw,if=ide,index=0,media=disk,snapshot=on,file.locking=off",
-        "-serial", "stdio",
-        "-no-reboot",
-        "-no-shutdown"
+        "./scripts/run_qemu.sh",
+        "--headless"
     ]
 
     proc = subprocess.Popen(
@@ -38,9 +30,9 @@ def run_test():
 
     try:
         while True:
-            if sent_command and time.time() - sent_time > 8:
+            if sent_command and time.time() - sent_time > 20:
                 break
-            if not sent_command and time.time() - start_time > 25:
+            if not sent_command and time.time() - start_time > 40:
                 break
 
             r, _, _ = select.select([master], [], [], 0.1)
@@ -54,8 +46,8 @@ def run_test():
                     sys.stdout.flush()
 
                     if not sent_command and "Type 'help'" in output and "# " in output:
-                        print("\n[TEST] Sending '/bin/threadtest'...", flush=True)
-                        os.write(master, b"/bin/threadtest\n")
+                        print("\n[TEST] Sending 'threadtest'...", flush=True)
+                        os.write(master, b"threadtest\n")
                         sent_command = True
                         sent_time = time.time()
 

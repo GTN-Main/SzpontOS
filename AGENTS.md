@@ -87,15 +87,8 @@ SzpontOS/
 │       ├── netdb/               # getaddrinfo, gethostbyname, DNS resolver
 │       └── unistd/              # POSIX syscall wrappers (fork, execve, read, write, sleep, fchdir, etc.)
 │
-├── libdrm/                      # Native Direct Rendering Manager Library (builds libdrm.so)
-│   ├── include/                 # xf86drm.h, xf86drmMode.h, drm/*
-│   └── src/                     # xf86drm.c, xf86drmMode.c, syncobj.c
-│
-├── libgbm/                      # Generic Buffer Management Library (builds libgbm.so)
-│   ├── include/                 # gbm.h
-│   └── src/                     # gbm.c
-│
 ├── third_party/                 # Ported open-source packages cross-compiled against libc sysroot
+│   ├── libdrm/                  # Official Linux libdrm submodule (libdrm.so, libdrm_intel, libdrm_amdgpu, libdrm_nouveau, libdrm_radeon)
 │   ├── xorg/                    # Official X.Org X11 Server (Xorg binary with native DRM/KMS modesetting)
 │   ├── mesa/                    # Mesa 3D (25.x): Gallium drivers, EGL, OpenGL ES 2.0, DRI3
 │   ├── libX11/, libxcb/, ...    # Core X11 client libraries (libX11, libXext, libXau, libXdmcp, libxkbfile, etc.)
@@ -113,16 +106,10 @@ SzpontOS/
 ├── userland/                    # User space programs and root filesystem
 │   ├── init/main.c              # PID 1 init process (spawns /bin/sh or graphical session)
 │   ├── sh/main.c                # Interactive Unix shell with built-ins & history
-│   ├── bin/                     # Core utilities: cat, chmod, chown, clear, clock, cpptest, curltest, date, df,
-│   │                            # dltest, dmesg, donut, drmtest, env, epolltest, eventfdtest, find, free,
-│   │                            # gittest, gltriangle, glxgears, grep, groupadd, head, hello, host, hostname,
-│   │                            # httpd, httpget, id, ifconfig, inotifytest, insmod, kill, killall, kqueuetest,
-│   │                            # ls, lsmod, lspci, lsusb, makaljer, mathtest, mesadrmtest, mkdir, modinfo,
-│   │                            # mount, mousetest, nc, ping, poweroff, ps, ptytest, randtest, reboot, rm,
-│   │                            # rmmod, shmtest, shutdown, signalfdtest, sleep, startx, su, sync, sysctl,
-│   │                            # sysfstest, szpontdesktop, szpontdetected, szponterm, szpontlogin, tail,
-│   │                            # threadtest, timerfdtest, tmpfstest, top, touch, tuitest, uname, unixtest,
-│   │                            # uptime, useradd, userdel, wc, whoami
+│   ├── bin/                     # Essential /bin utilities (cat, chmod, chown, cp, date, df, dmesg, echo,
+│   │                            # kill, ln, ls, mkdir, mount, mv, ps, rm, rmdir, sh, sleep, sync, umount, uname)
+│   │                            # and extended /usr/bin utilities (szpontdesktop, szponterm, szpontlogin,
+│   │                            # startx, top, nano, zsh, git, curl, openssl, ssh, fastfetch, donut, etc.)
 │   └── skeleton/                # Static rootfs skeleton templates (/etc/passwd, /etc/magic, /etc/ssh, etc.)
 │
 ├── mk/                          # Modular Build System Makefiles
@@ -572,7 +559,7 @@ When launched with QEMU, the user-mode SLIRP network forwarders are active:
 7. **Dynamic Linking & Shared Libraries (No Static Linking):**
    - Userland binaries and ported packages must be dynamically linked against shared libraries (`.so`).
    - Avoid static linking for userland programs whenever possible.
-   - All shared libraries must reside in `/lib` (in `build/rootfs/lib/`) with valid ELF `DT_SONAME` tags (e.g. `libc.so`, `libm.so`, `libz.so`, `libX11.so`, `libpixman-1.so`, `libdrm.so`, `libgbm.so`, `libstdc++.so`, `libgallium-25.0.5.so`).
+   - Core minimal rescue libraries (`libc.so`, `libm.so`, and kernel modules in `/lib/modules/`) reside in `/lib`. Extended and third-party shared libraries reside in `/usr/lib` (e.g. `libz.so`, `libX11.so`, `libpixman-1.so`, `libdrm.so`, `libgbm.so`, `libstdc++.so`, `libgallium-25.0.5.so`). The kernel dynamic ELF loader automatically resolves dependencies across `/lib` and `/usr/lib`.
    - When introducing a new shared library, add it to `ALL_ROOTFS_SOS` in [mk/third_party.mk](mk/third_party.mk).
 
 8. **C++ Runtime & Modern Language Support:**

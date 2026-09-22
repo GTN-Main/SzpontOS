@@ -571,6 +571,18 @@ static vfs_ops_t g_pipe_write_ops = {.read = NULL,
                                      .chown = NULL,
                                      .unlink = NULL};
 
+vfs_ops_t g_fifo_ops = {.read = pipe_read_op,
+                        .write = pipe_write_op,
+                        .open = NULL,
+                        .close = NULL,
+                        .readdir = NULL,
+                        .finddir = NULL,
+                        .create = NULL,
+                        .mkdir = NULL,
+                        .chmod = NULL,
+                        .chown = NULL,
+                        .unlink = NULL};
+
 static int64_t sys_pipe2(int *pipefd, int flags) {
     if (!pipefd)
         return -22; /* -EINVAL */
@@ -683,6 +695,28 @@ static int64_t sys_close(int fd) {
     file_descriptor_t *f = proc->fds[fd];
     proc->fds[fd] = NULL;
     proc->fd_cloexec[fd] = false;
+
+    if (f && f->node) {
+        bool still_open = false;
+        for (int i = 0; i < MAX_FD; i++) {
+            if (proc->fds[i] && proc->fds[i]->node == f->node) {
+                still_open = true;
+                break;
+            }
+        }
+        if (!still_open) {
+            if (f->node->lock_type == 2 && f->node->lock_owner == proc->pid) {
+                f->node->lock_type = 0;
+                f->node->lock_owner = 0;
+            } else if (f->node->lock_type == 1) {
+                if (f->node->lock_count > 0)
+                    f->node->lock_count--;
+                if (f->node->lock_count == 0)
+                    f->node->lock_type = 0;
+            }
+        }
+    }
+
     fd_release(f);
     return 0;
 }
@@ -2501,6 +2535,118 @@ static int64_t sys_mkdirat(int dirfd, const char *pathname, mode_t mode) {
     return sys_mkdir(full, mode);
 }
 
+static int64_t sys_mknodat(int dirfd, const char *pathname, mode_t mode, dev_t dev) {
+    char full[256];
+    build_at_path(dirfd, pathname, full, sizeof(full));
+    if (full[0] == '\0')
+        return -14; /* -EFAULT */
+    return vfs_mknod(full, mode, dev);
+}
+
+static int64_t sys_mknod(const char *pathname, mode_t mode, dev_t dev) {
+    return sys_mknodat(-100 /* AT_FDCWD */, pathname, mode, dev);
+}
+
+static int64_t sys_fsync(int fd) {
+    process_t *proc = sched_get_current_process();
+    if (!proc || fd < 0 || fd >= MAX_FD || !proc->fds[fd])
+        return -9; /* -EBADF */
+
+    file_descriptor_t *f = proc->fds[fd];
+    if (!f || !f->node)
+        return -9; /* -EBADF */
+
+    if (f->node->ops && f->node->ops->fsync) {
+        int r = f->node->ops->fsync(f->node);
+        if (r < 0)
+            return r;
+    }
+
+    bflush(NULL);
+    return 0;
+}
+
+static int64_t sys_fdatasync(int fd) {
+    return sys_fsync(fd);
+}
+
+static int64_t sys_flock(int fd, int operation) {
+    process_t *proc = sched_get_current_process();
+    if (!proc || fd < 0 || fd >= MAX_FD || !proc->fds[fd])
+        return -9; /* -EBADF */
+
+    file_descriptor_t *f = proc->fds[fd];
+    if (!f || !f->node)
+        return -9; /* -EBADF */
+
+    int op = operation & ~4; /* Strip LOCK_NB (4) */
+    bool nonblock = (operation & 4) != 0;
+
+    if (op != 1 && op != 2 && op != 8) {
+        return -22; /* -EINVAL */
+    }
+
+    vfs_node_t *node = f->node;
+
+    if (op == 8) { /* LOCK_UN */
+        if (node->lock_type == 2 && node->lock_owner == proc->pid) {
+            node->lock_type = 0;
+            node->lock_owner = 0;
+        } else if (node->lock_type == 1) {
+            if (node->lock_count > 0)
+                node->lock_count--;
+            if (node->lock_count == 0)
+                node->lock_type = 0;
+        }
+        return 0;
+    }
+
+    if (op == 2) { /* LOCK_EX */
+        while (1) {
+            if (node->lock_type == 0) {
+                node->lock_type = 2;
+                node->lock_owner = proc->pid;
+                return 0;
+            }
+            if (node->lock_type == 2 && node->lock_owner == proc->pid) {
+                return 0;
+            }
+            if (nonblock) {
+                return -11; /* -EWOULDBLOCK / -EAGAIN */
+            }
+            if (proc->pending_signals & ~proc->blocked_signals) {
+                return -4; /* -EINTR */
+            }
+            thread_sleep(2);
+        }
+    }
+
+    if (op == 1) { /* LOCK_SH */
+        while (1) {
+            if (node->lock_type == 0 || node->lock_type == 1) {
+                node->lock_type = 1;
+                node->lock_count++;
+                return 0;
+            }
+            if (node->lock_type == 2 && node->lock_owner == proc->pid) {
+                node->lock_type = 1;
+                node->lock_owner = 0;
+                node->lock_count = 1;
+                return 0;
+            }
+            if (nonblock) {
+                return -11; /* -EWOULDBLOCK / -EAGAIN */
+            }
+            if (proc->pending_signals & ~proc->blocked_signals) {
+                return -4; /* -EINTR */
+            }
+            thread_sleep(2);
+        }
+    }
+
+    return -22; /* -EINVAL */
+}
+
 static int64_t sys_unlinkat(int dirfd, const char *pathname, int flags) {
     char full[256];
     build_at_path(dirfd, pathname, full, sizeof(full));
@@ -3229,6 +3375,12 @@ static uint64_t syscall_dispatch_inner(uint64_t sys_no, uint64_t a1, uint64_t a2
         return sys_alarm((unsigned int)a1);
     case SYS_fcntl:
         return sys_fcntl((int)a1, (int)a2, (uint64_t)a3);
+    case SYS_flock:
+        return sys_flock((int)a1, (int)a2);
+    case SYS_fsync:
+        return sys_fsync((int)a1);
+    case SYS_fdatasync:
+        return sys_fdatasync((int)a1);
     case SYS_truncate:
         return sys_truncate((const char *)a1, (off_t)a2);
     case SYS_ftruncate:
@@ -3322,6 +3474,8 @@ static uint64_t syscall_dispatch_inner(uint64_t sys_no, uint64_t a1, uint64_t a2
         return process_sigprocmask((int)a1, (const sigset_t *)a2, (sigset_t *)a3);
     case SYS_rt_sigpending:
         return process_sigpending((sigset_t *)a1);
+    case SYS_mknod:
+        return sys_mknod((const char *)a1, (mode_t)a2, (dev_t)a3);
     case SYS_syslog:
         return sys_syslog_syscall((int)a1, (char *)a2, (int)a3);
     case SYS_sysctl:
@@ -3439,6 +3593,8 @@ static uint64_t syscall_dispatch_inner(uint64_t sys_no, uint64_t a1, uint64_t a2
         return sys_openat((int)a1, (const char *)a2, (int)a3, (mode_t)a4);
     case SYS_mkdirat:
         return sys_mkdirat((int)a1, (const char *)a2, (mode_t)a3);
+    case SYS_mknodat:
+        return sys_mknodat((int)a1, (const char *)a2, (mode_t)a3, (dev_t)a4);
     case SYS_unlinkat:
         return sys_unlinkat((int)a1, (const char *)a2, (int)a3);
     case SYS_linkat:

@@ -19,6 +19,8 @@
 #include <drivers/ata.h>
 #include <drivers/ahci.h>
 #include <drivers/pci.h>
+#include <drivers/virtio_gpu.h>
+#include <drivers/i915/i915_drv.h>
 #include <net/net.h>
 #include <fs/vfs.h>
 #include <fs/devfs.h>
@@ -188,6 +190,46 @@ void _start(void) {
         klog_warn("No initramfs module provided by bootloader!");
     }
 
+    /* Step 7: PCI Bus Enumeration & GPU Hardware Acceleration Detection */
+    pci_init();
+
+    /* Probe for Intel Integrated Graphics (i915 / Gen3-Gen12) */
+    pci_device_t *intel_pci = NULL;
+    for (pci_device_t *dev = pci_get_device_list(); dev != NULL; dev = dev->next) {
+        if (dev->vendor_id == INTEL_VENDOR_ID && dev->class_code == 0x03) {
+            intel_pci = dev;
+            break;
+        }
+    }
+
+    bool gpu_found = false;
+    if (intel_pci) {
+        if (i915_init(intel_pci)) {
+            gpu_found = true;
+        } else {
+            klog_warn("Display: Intel i915 driver initialization failed");
+        }
+    }
+
+    if (!gpu_found) {
+        /* Probe for VirtIO GPU / VirtIO-VGA Hardware Acceleration */
+        pci_device_t *vgpu_pci = pci_find_device(VIRTIO_GPU_VENDOR_ID, VIRTIO_GPU_DEVICE_ID_MODERN);
+        if (!vgpu_pci)
+            vgpu_pci = pci_find_device(VIRTIO_GPU_VENDOR_ID, VIRTIO_GPU_DEVICE_ID_LEGACY);
+
+        if (vgpu_pci) {
+            if (virtio_gpu_init(vgpu_pci)) {
+                gpu_found = true;
+            } else {
+                klog_info("Display: VirtIO GPU initialization failed, falling back to Framebuffer");
+            }
+        }
+    }
+
+    if (!gpu_found) {
+        klog_info("Display: Accelerated hardware GPU not present, using Framebuffer renderer fallback");
+    }
+
     /* Mount DevFS at /dev, CSPRNG & UNIX98 PTY */
     devfs_init();
     random_init();
@@ -202,12 +244,9 @@ void _start(void) {
     /* Mount TmpFS at /tmp and /run */
     tmpfs_init();
 
-    /* Step 7: Block Devices, Buffer Cache, ATA & AHCI SATA Storage */
+    /* Step 8: Block Devices, Buffer Cache, ATA & AHCI SATA Storage */
     bcache_init();
     ata_init();
-
-    /* Step 8: PCI Bus Enumeration, AHCI SATA, USB & Networking */
-    pci_init();
     ahci_init();
     usb_init();
     net_init();

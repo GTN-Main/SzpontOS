@@ -6,6 +6,8 @@
 
 #include <fs/tmpfs.h>
 #include <fs/vfs.h>
+#include <fs/devfs.h>
+#include <fs/pipe.h>
 #include <mm/heap.h>
 #include <sched/process.h>
 #include <sched/sched.h>
@@ -212,6 +214,52 @@ static int tmpfs_dir_create(vfs_node_t *parent, const char *name, mode_t mode) {
     tmpfs_node_t *child = tmpfs_alloc_node(name, VFS_TYPE_FILE, mode, uid, gid);
     if (!child)
         return -12; /* -ENOMEM */
+
+    return tmpfs_add_child(pnode, child);
+}
+
+static int tmpfs_dir_mknod(vfs_node_t *parent, const char *name, mode_t mode, dev_t dev) {
+    tmpfs_node_t *pnode = (tmpfs_node_t *)parent;
+    if (!pnode || !name)
+        return -22;
+
+    if (tmpfs_dir_finddir(parent, name) != NULL)
+        return -17; /* -EEXIST */
+
+    process_t *proc = sched_get_current_process();
+    if (S_ISCHR(mode) || S_ISBLK(mode)) {
+        if (proc && proc->euid != 0)
+            return -1; /* -EPERM */
+    }
+
+    uid_t uid = proc ? proc->euid : 0;
+    gid_t gid = proc ? proc->egid : 0;
+    uint32_t flags = VFS_TYPE_FILE;
+    if (S_ISCHR(mode))
+        flags = VFS_TYPE_CHARDEVICE;
+    else if (S_ISBLK(mode))
+        flags = VFS_TYPE_BLOCKDEVICE;
+    else if (S_ISFIFO(mode))
+        flags = VFS_TYPE_PIPE;
+    else if (S_ISDIR(mode))
+        flags = VFS_TYPE_DIRECTORY;
+
+    tmpfs_node_t *child = tmpfs_alloc_node(name, flags, mode, uid, gid);
+    if (!child)
+        return -12; /* -ENOMEM */
+
+    child->node.rdev = (uint32_t)dev;
+    if (flags == VFS_TYPE_CHARDEVICE || flags == VFS_TYPE_BLOCKDEVICE) {
+        child->node.ops = devfs_find_ops_for_rdev(flags, (uint32_t)dev);
+    } else if (flags == VFS_TYPE_PIPE) {
+        pipe_chan_t *p = (pipe_chan_t *)kzalloc(sizeof(pipe_chan_t));
+        if (p) {
+            p->readers = 1;
+            p->writers = 1;
+            child->node.device_data = p;
+            child->node.ops = &g_fifo_ops;
+        }
+    }
 
     return tmpfs_add_child(pnode, child);
 }
@@ -459,7 +507,8 @@ static vfs_ops_t g_tmpfs_dir_ops = {.readdir = tmpfs_dir_readdir,
                                     .symlink = tmpfs_dir_symlink,
                                     .link = tmpfs_dir_link,
                                     .chmod = tmpfs_chmod,
-                                    .chown = tmpfs_chown};
+                                    .chown = tmpfs_chown,
+                                    .mknod = tmpfs_dir_mknod};
 
 static vfs_ops_t g_tmpfs_symlink_ops = {.read = NULL,
                                         .write = NULL,

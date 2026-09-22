@@ -36,6 +36,25 @@ typedef struct vfs_dirent {
 #define VFS_WRITE 2
 #define VFS_EXEC 1
 
+#ifndef S_IFMT
+#define S_IFMT   0170000
+#define S_IFIFO  0010000
+#define S_IFCHR  0020000
+#define S_IFDIR  0040000
+#define S_IFBLK  0060000
+#define S_IFREG  0100000
+#define S_IFLNK  0120000
+#define S_IFSOCK 0140000
+
+#define S_ISFIFO(m) (((m) & S_IFMT) == S_IFIFO)
+#define S_ISCHR(m)  (((m) & S_IFMT) == S_IFCHR)
+#define S_ISDIR(m)  (((m) & S_IFMT) == S_IFDIR)
+#define S_ISBLK(m)  (((m) & S_IFMT) == S_IFBLK)
+#define S_ISREG(m)  (((m) & S_IFMT) == S_IFREG)
+#define S_ISLNK(m)  (((m) & S_IFMT) == S_IFLNK)
+#define S_ISSOCK(m) (((m) & S_IFMT) == S_IFSOCK)
+#endif
+
 typedef struct vfs_ops {
     ssize_t (*read)(struct vfs_node *node, off_t offset, size_t size, void *buffer);
     ssize_t (*write)(struct vfs_node *node, off_t offset, size_t size, const void *buffer);
@@ -57,6 +76,8 @@ typedef struct vfs_ops {
     int (*link)(struct vfs_node *parent, struct vfs_node *source, const char *new_name);
     int (*access)(struct vfs_node *node, int mode);
     int (*mmap)(struct vfs_node *node, void *addr, size_t length, int prot, int flags, off_t offset, void **out_vaddr);
+    int (*mknod)(struct vfs_node *parent, const char *name, mode_t mode, dev_t dev);
+    int (*fsync)(struct vfs_node *node);
 } vfs_ops_t;
 
 typedef struct vfs_node {
@@ -71,6 +92,10 @@ typedef struct vfs_node {
     vfs_ops_t *ops;
     void *device_data;    /* Driver private data */
     struct vfs_node *ptr; /* Mount point or symlink redirection */
+    /* Advisory lock state (flock) */
+    int lock_type;        /* 0 = unlocked, 1 = LOCK_SH, 2 = LOCK_EX */
+    int lock_count;       /* Number of shared lock holders */
+    pid_t lock_owner;     /* PID holding exclusive lock */
 } vfs_node_t;
 
 typedef struct file_descriptor {
@@ -92,6 +117,7 @@ vfs_node_t *vfs_lookup(const char *path);
 vfs_node_t *vfs_lookup_nofollow(const char *path);
 int vfs_unlink(const char *path);
 int vfs_mkdir(const char *path, mode_t mode);
+int vfs_mknod(const char *path, mode_t mode, dev_t dev);
 int vfs_rmdir(const char *path);
 int vfs_rename(const char *oldpath, const char *newpath);
 int vfs_truncate(const char *path, off_t length);

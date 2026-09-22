@@ -181,6 +181,7 @@ int getresgid(gid_t *rgid, gid_t *egid, gid_t *sgid);
 
 void sync(void);
 int fsync(int fd);
+int fdatasync(int fd);
 
 int getentropy(void *buffer, size_t length);
 ssize_t getrandom(void *buf, size_t buflen, unsigned int flags);

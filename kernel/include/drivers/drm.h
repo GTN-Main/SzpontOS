@@ -11,9 +11,11 @@
 #include <fs/vfs.h>
 #include <drm/drm.h>
 #include <drm/drm_mode.h>
+#include <drm/virtgpu_drm.h>
+#include <drm/i915_drm.h>
 
-#define DRM_MAX_DUMB_BUFFERS 32
-#define DRM_MAX_FBS          32
+#define DRM_MAX_DUMB_BUFFERS 64
+#define DRM_MAX_FBS          64
 #define DRM_MAX_CONNECTORS   4
 #define DRM_MAX_CRTC         2
 #define DRM_MAX_ENCODERS     2
@@ -32,6 +34,10 @@ typedef struct drm_dumb_bo {
     int refcount;
     bool allocated;
     bool is_direct_vram;
+    bool is_3d;
+    bool is_gem_wrapper;
+    uint32_t hw_res_handle;
+    uint64_t i915_gtt_offset;
 } drm_dumb_bo_t;
 
 typedef struct drm_fb {

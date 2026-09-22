@@ -60,6 +60,9 @@
 #define SYS_uname 63
 #define SYS_shmdt 67
 #define SYS_fcntl 72
+#define SYS_flock 73
+#define SYS_fsync 74
+#define SYS_fdatasync 75
 #define SYS_truncate 76
 #define SYS_ftruncate 77
 #define SYS_getdents 78
@@ -108,6 +111,7 @@
 #define SYS_seteuid 125
 #define SYS_setegid 126
 #define SYS_rt_sigpending 127
+#define SYS_mknod 133
 #define SYS_statfs 137
 #define SYS_fstatfs 138
 #define SYS_getpriority 140
@@ -134,6 +138,7 @@
 #define SYS_utimes 235
 #define SYS_openat 257
 #define SYS_mkdirat 258
+#define SYS_mknodat 259
 #define SYS_fchownat 260
 #define SYS_futimesat 261
 #define SYS_newfstatat 262

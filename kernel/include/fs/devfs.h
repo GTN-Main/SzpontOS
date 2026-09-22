@@ -10,6 +10,8 @@ int devfs_register_device_path(const char *path, vfs_node_t *node);
 int devfs_unregister_device(const char *name);
 int devfs_unregister_device_path(const char *path);
 int devfs_register_block_device(block_device_t *bdev);
+int devfs_register_device_in_dir(vfs_node_t *dir, const char *name, vfs_node_t *node);
+vfs_ops_t *devfs_find_ops_for_rdev(uint32_t flags, uint32_t rdev);
 vfs_node_t *devfs_mkdir(const char *name);
 
 #endif /* SZPONTOS_FS_DEVFS_H */

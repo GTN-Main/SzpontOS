@@ -9,6 +9,7 @@ extern "C" {
 #define RTLD_NOW 0x00002
 #define RTLD_GLOBAL 0x00100
 #define RTLD_LOCAL 0x00000
+#define RTLD_NOLOAD 0x00004
 
 #define RTLD_DEFAULT ((void *)0)
 typedef struct {

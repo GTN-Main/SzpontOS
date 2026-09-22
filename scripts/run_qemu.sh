@@ -40,6 +40,21 @@ for arg in "$@"; do
         --virtio)
             VGA_FLAGS=("-vga" "virtio" "-global" "virtio-vga.xres=2560" "-global" "virtio-vga.yres=1440")
             ;;
+        --virgl)
+            echo "[*] Tryb VirtIO-GPU 3D Virgl: Akceleracja sprzętowa OpenGL (virgl)"
+            if qemu-system-x86_64 -device help 2>&1 | grep -q "virtio-vga-gl"; then
+                VGA_FLAGS=("-device" "virtio-vga-gl,xres=2560,yres=1440")
+                if [ "$OS_TYPE" == "Darwin" ]; then
+                    DISPLAY_OPT="cocoa,gl=es"
+                else
+                    DISPLAY_OPT="default,gl=on"
+                fi
+            else
+                echo "[!] UWAGA: Host QEMU nie obsługuje urządzenia 'virtio-vga-gl' (brak virglrenderer na hoście)."
+                echo "[!] Uruchamianie w trybie standardowym VirtIO-VGA 2D."
+                VGA_FLAGS=("-vga" "virtio" "-global" "virtio-vga.xres=2560" "-global" "virtio-vga.yres=1440")
+            fi
+            ;;
         --baremetal-ps2|--ps2)
             echo "[*] Tryb Bare Metal PS/2: Włączono kontroler i8042 PS/2 na płycie Q35"
             MACHINE_OPT="q35,i8042=on"

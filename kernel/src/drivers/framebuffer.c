@@ -14,6 +14,7 @@
 #include <arch/x86_64/mtrr.h>
 #include <drivers/keyboard.h>
 #include <drivers/tty.h>
+#include <drivers/virtio_gpu.h>
 
 static struct limine_framebuffer *g_fb = NULL;
 static uint32_t *g_fb_ptr = NULL;
@@ -416,7 +417,7 @@ void fb_blit_from_buffer(const uint32_t *src, size_t src_pitch_pixels, size_t ds
 
     size_t copy_bytes = w * sizeof(uint32_t);
     for (size_t row = 0; row < h; row++) {
-        const uint32_t *src_row = src + row * src_pitch_pixels;
+        const uint32_t *src_row = src + (dst_y + row) * src_pitch_pixels + dst_x;
         uint32_t *dst_row = g_fb_ptr + (dst_y + row) * g_fb_pitch_pixels + dst_x;
         memcpy(dst_row, src_row, copy_bytes);
     }
@@ -464,6 +465,10 @@ static inline void fb_flush_rect(size_t x, size_t y, size_t w, size_t h) {
         memcpy(&g_fb_ptr[offset], &g_backbuffer[offset], bytes);
     }
     __asm__ volatile("sfence" ::: "memory");
+
+    if (virtio_gpu_is_active()) {
+        virtio_gpu_blit(g_backbuffer, g_fb_pitch_pixels, x, y, w, h);
+    }
 }
 
 void fb_flush(void) {

@@ -86,6 +86,9 @@ int main(int argc, char *argv[]) {
     printf("[drmtest] Opening SzpontOS DRM device (/dev/dri/card0)...\n");
     int drm_fd = drmOpen("szpont-drm", NULL);
     if (drm_fd < 0) {
+        drm_fd = drmOpen(NULL, NULL);
+    }
+    if (drm_fd < 0) {
         fprintf(stderr, "[drmtest] Error: Failed to open DRM device: %s\n", strerror(errno));
         return 1;
     }
@@ -142,9 +145,9 @@ int main(int argc, char *argv[]) {
     uint32_t pitch = 0;
     uint64_t size = 0;
 
-    int ret = drmModeCreateDumb(drm_fd, width, height, 32, 0, &handle, &pitch, &size);
+    int ret = drmModeCreateDumbBuffer(drm_fd, width, height, 32, 0, &handle, &pitch, &size);
     if (ret != 0) {
-        fprintf(stderr, "[drmtest] Error: drmModeCreateDumb failed\n");
+        fprintf(stderr, "[drmtest] Error: drmModeCreateDumbBuffer failed\n");
         drmModeFreeConnector(conn);
         drmModeFreeResources(res);
         close(drm_fd);
@@ -156,10 +159,10 @@ int main(int argc, char *argv[]) {
 
     /* 2. Map Dumb Buffer into process memory */
     uint64_t offset = 0;
-    ret = drmModeMapDumb(drm_fd, handle, &offset);
+    ret = drmModeMapDumbBuffer(drm_fd, handle, &offset);
     if (ret != 0) {
-        fprintf(stderr, "[drmtest] Error: drmModeMapDumb failed\n");
-        drmModeDestroyDumb(drm_fd, handle);
+        fprintf(stderr, "[drmtest] Error: drmModeMapDumbBuffer failed\n");
+        drmModeDestroyDumbBuffer(drm_fd, handle);
         close(drm_fd);
         return 1;
     }
@@ -167,7 +170,7 @@ int main(int argc, char *argv[]) {
     uint32_t *fb_mem = (uint32_t *)mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, drm_fd, (off_t)offset);
     if (fb_mem == MAP_FAILED || !fb_mem) {
         fprintf(stderr, "[drmtest] Error: mmap failed on DRM buffer\n");
-        drmModeDestroyDumb(drm_fd, handle);
+        drmModeDestroyDumbBuffer(drm_fd, handle);
         close(drm_fd);
         return 1;
     }
@@ -180,7 +183,7 @@ int main(int argc, char *argv[]) {
     if (ret != 0) {
         fprintf(stderr, "[drmtest] Error: drmModeAddFB failed\n");
         munmap(fb_mem, size);
-        drmModeDestroyDumb(drm_fd, handle);
+        drmModeDestroyDumbBuffer(drm_fd, handle);
         close(drm_fd);
         return 1;
     }
@@ -271,7 +274,7 @@ int main(int argc, char *argv[]) {
     drmDropMaster(drm_fd);
     munmap(fb_mem, size);
     drmModeRmFB(drm_fd, fb_id);
-    drmModeDestroyDumb(drm_fd, handle);
+    drmModeDestroyDumbBuffer(drm_fd, handle);
     drmModeFreeConnector(conn);
     drmModeFreeResources(res);
     close(drm_fd);

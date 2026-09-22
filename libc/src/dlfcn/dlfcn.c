@@ -88,6 +88,7 @@ typedef struct {
 #define R_X86_64_RELATIVE  8
 #define R_X86_64_DTPMOD64  16
 #define R_X86_64_DTPOFF64  17
+#define R_X86_64_TPOFF64   18
 
 #define PT_LOAD   1
 #define PT_DYNAMIC 2
@@ -98,8 +99,34 @@ typedef struct {
 #define SHT_DYNAMIC 6
 #define SHT_DYNSYM 11
 
-#define DT_NULL   0
-#define DT_NEEDED 1
+#define DT_NULL       0
+#define DT_NEEDED     1
+#define DT_PLTRELSZ   2
+#define DT_PLTGOT     3
+#define DT_HASH       4
+#define DT_STRTAB     5
+#define DT_SYMTAB     6
+#define DT_RELA       7
+#define DT_RELASZ     8
+#define DT_RELAENT    9
+#define DT_STRSZ      10
+#define DT_SYMENT     11
+#define DT_INIT       12
+#define DT_FINI       13
+#define DT_SONAME     14
+#define DT_RPATH      15
+#define DT_SYMBOLIC   16
+#define DT_REL        17
+#define DT_RELSZ      18
+#define DT_RELENT     19
+#define DT_PLTREL     20
+#define DT_DEBUG      21
+#define DT_TEXTREL    22
+#define DT_JMPREL     23
+#define DT_INIT_ARRAY 25
+#define DT_FINI_ARRAY 26
+#define DT_INIT_ARRAYSZ 27
+#define DT_FINI_ARRAYSZ 28
 
 typedef struct {
     int64_t d_tag;
@@ -116,6 +143,8 @@ typedef struct dl_handle {
     size_t sym_count;
     char *strtab;
     size_t str_size;
+    int inits_done;
+    size_t tls_mod_id;
 } dl_handle_t;
 
 #define MAX_DL_HANDLES 64
@@ -123,6 +152,25 @@ static dl_handle_t g_dl_handles[MAX_DL_HANDLES];
 static size_t g_dl_count = 0;
 static uintptr_t g_next_dl_base = 0x0000720000000000ULL;
 static int g_main_initialized = 0;
+
+static int so_names_match(const char *name1, const char *name2) {
+    if (!name1 || !name2) return 0;
+    const char *b1 = strrchr(name1, '/'); b1 = b1 ? b1 + 1 : name1;
+    const char *b2 = strrchr(name2, '/'); b2 = b2 ? b2 + 1 : name2;
+    if (strcmp(b1, b2) == 0) return 1;
+
+    char buf1[128], buf2[128];
+    strncpy(buf1, b1, sizeof(buf1) - 1); buf1[sizeof(buf1) - 1] = '\0';
+    strncpy(buf2, b2, sizeof(buf2) - 1); buf2[sizeof(buf2) - 1] = '\0';
+    char *p1 = strstr(buf1, ".so");
+    char *p2 = strstr(buf2, ".so");
+    if (p1 && p2) {
+        *(p1 + 3) = '\0';
+        *(p2 + 3) = '\0';
+        if (strcmp(buf1, buf2) == 0) return 1;
+    }
+    return 0;
+}
 
 static void set_dlerror(const char *msg) {
     if (msg) {
@@ -247,6 +295,36 @@ static void *find_symbol_in_handle(dl_handle_t *h, const char *symbol) {
     return NULL;
 }
 
+static local_elf_sym_t *find_defining_symbol(const char *sym_name, dl_handle_t **out_handle) {
+    if (!sym_name || !*sym_name) return NULL;
+    local_elf_sym_t *weak_sym = NULL;
+    dl_handle_t *weak_h = NULL;
+
+    for (size_t s = 0; s < g_dl_count; s++) {
+        dl_handle_t *dh = &g_dl_handles[s];
+        if (!dh->symtab || !dh->strtab) continue;
+        for (size_t k = 0; k < dh->sym_count; k++) {
+            if (dh->symtab[k].st_shndx != 0 && dh->symtab[k].st_name < dh->str_size) {
+                if (strcmp(dh->strtab + dh->symtab[k].st_name, sym_name) == 0) {
+                    uint8_t bind = dh->symtab[k].st_info >> 4;
+                    if (bind != 2 /* STB_WEAK */) {
+                        if (out_handle) *out_handle = dh;
+                        return &dh->symtab[k];
+                    } else if (!weak_sym) {
+                        weak_sym = &dh->symtab[k];
+                        weak_h = dh;
+                    }
+                }
+            }
+        }
+    }
+    if (weak_sym) {
+        if (out_handle) *out_handle = weak_h;
+        return weak_sym;
+    }
+    return NULL;
+}
+
 static void init_main_binary_symbols(void) {
     if (g_main_initialized)
         return;
@@ -351,6 +429,8 @@ static void init_main_binary_symbols(void) {
                         h->sym_count = sym_count;
                         h->strtab = strtab;
                         h->str_size = str_size;
+                        h->inits_done = 1;
+                        h->tls_mod_id = 1;
                     }
                 }
             }
@@ -361,11 +441,15 @@ static void init_main_binary_symbols(void) {
 
     /* Preload core system shared libraries so dynamic symbols are available to all modules */
     const char *preload_libs[] = {
-        "/lib/libdrm.so",
-        "/lib/libgbm.so",
-        "/lib/libpixman-1.so",
-        "/lib/libm.so",
-        "/lib/libc.so",
+        "libdrm.so",
+        "libgbm.so",
+        "libpixman-1.so",
+        "libm.so",
+        "libc.so",
+        "libepoxy.so",
+        "libEGL.so",
+        "libGL.so",
+        "libGLESv2.so",
         NULL
     };
     for (int i = 0; preload_libs[i]; i++) {
@@ -425,17 +509,14 @@ void *dlopen(const char *filename, int flags) {
 
     /* Check if already loaded */
     for (size_t i = 0; i < g_dl_count; i++) {
-        const char *hn = g_dl_handles[i].name;
-        const char *hbase = strrchr(hn, '/');
-        if (hbase) hbase++; else hbase = hn;
-        const char *fnbase = strrchr(filename, '/');
-        if (fnbase) fnbase++; else fnbase = filename;
-
-        if (strcmp(hn, filename) == 0 ||
-            strcmp(hbase, fnbase) == 0 ||
-            (strncmp(hbase, fnbase, 6) == 0 && strstr(hbase, ".so") && strstr(fnbase, ".so"))) {
+        if (so_names_match(g_dl_handles[i].name, filename)) {
             return &g_dl_handles[i];
         }
+    }
+
+    if (flags & RTLD_NOLOAD) {
+        set_dlerror("dlopen: library not loaded");
+        return NULL;
     }
 
     if (g_dl_count >= MAX_DL_HANDLES) {
@@ -457,9 +538,20 @@ void *dlopen(const char *filename, int flags) {
                 fd = open(path, O_RDONLY, 0);
             }
         }
-    } else {
+        if (fd < 0) {
+            /* Fallback: if absolute path does not exist (e.g. host build sysroot leakage),
+             * extract basename and search in standard library directories */
+            const char *base = strrchr(filename, '/');
+            if (base && *(base + 1)) {
+                filename = base + 1;
+            }
+        }
+    }
+
+    if (filename[0] != '/') {
         const char *search_dirs[] = {
             "/usr/lib/dri",
+            "/lib/dri",
             "/usr/lib/xorg/modules/drivers",
             "/usr/lib/xorg/modules/input",
             "/usr/lib/xorg/modules/xlibre-25/drivers",
@@ -537,6 +629,9 @@ extern szpont_tls_module_t __szpont_tls_modules[64];
 extern size_t __szpont_tls_mod_count;
 
     size_t dl_mod_id = 0;
+    uintptr_t dyn_vaddr = 0;
+    size_t dyn_memsz = 0;
+    (void)dyn_memsz;
 
     /* 1. Map PT_LOAD segments */
     if (ehdr.e_phoff && ehdr.e_phnum) {
@@ -562,7 +657,13 @@ extern size_t __szpont_tls_mod_count;
                             memset((void *)(vaddr + phdrs[i].p_filesz), 0,
                                    phdrs[i].p_memsz - phdrs[i].p_filesz);
                         }
+                    } else if (phdrs[i].p_type == PT_DYNAMIC) {
+                        dyn_vaddr = base_addr + phdrs[i].p_vaddr;
+                        dyn_memsz = phdrs[i].p_memsz;
                     } else if (phdrs[i].p_type == PT_TLS) {
+                        if (__szpont_tls_mod_count == 0) {
+                            __szpont_tls_mod_count = 1;
+                        }
                         if (__szpont_tls_mod_count < 64) {
                             dl_mod_id = __szpont_tls_mod_count++;
                             __szpont_tls_modules[dl_mod_id].image = base_addr + phdrs[i].p_vaddr;
@@ -609,6 +710,9 @@ extern size_t __szpont_tls_mod_count;
                         sym_idx = i;
                     } else if (shdrs[i].sh_type == SHT_SYMTAB && sym_idx < 0) {
                         sym_idx = i;
+                    } else if (shdrs[i].sh_type == SHT_DYNAMIC && dyn_vaddr == 0) {
+                        dyn_vaddr = base_addr + shdrs[i].sh_addr;
+                        dyn_memsz = shdrs[i].sh_size;
                     } else if (shdrs[i].sh_type == SHT_RELA) {
                         if (shstrtab && strcmp(shstrtab + shdrs[i].sh_name, ".rela.plt") == 0) {
                             rela_plt_count = shdrs[i].sh_size / sizeof(local_elf_rela_t);
@@ -662,8 +766,44 @@ extern size_t __szpont_tls_mod_count;
     h->sym_count = sym_count;
     h->strtab = strtab;
     h->str_size = str_size;
+    h->inits_done = 0;
+    h->tls_mod_id = dl_mod_id;
 
-    /* 3. Apply Dynamic Relocations (R_X86_64_RELATIVE, R_X86_64_64, R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT) */
+    /* 3. Load DT_NEEDED dependencies recursively */
+    if (dyn_vaddr) {
+        local_elf_dyn_t *dyn = (local_elf_dyn_t *)dyn_vaddr;
+        uintptr_t dt_strtab_vaddr = 0;
+        size_t dt_strsz = 0;
+
+        for (size_t d = 0; dyn[d].d_tag != DT_NULL; d++) {
+            if (dyn[d].d_tag == DT_STRTAB) {
+                dt_strtab_vaddr = base_addr + dyn[d].d_un.d_ptr;
+            } else if (dyn[d].d_tag == DT_STRSZ) {
+                dt_strsz = dyn[d].d_un.d_val;
+            }
+        }
+
+        if (dt_strtab_vaddr == 0 && strtab != NULL) {
+            dt_strtab_vaddr = (uintptr_t)strtab;
+            dt_strsz = str_size;
+        }
+
+        if (dt_strtab_vaddr != 0) {
+            for (size_t d = 0; dyn[d].d_tag != DT_NULL; d++) {
+                if (dyn[d].d_tag == DT_NEEDED) {
+                    uint64_t str_offset = dyn[d].d_un.d_val;
+                    if (dt_strsz == 0 || str_offset < dt_strsz) {
+                        const char *dep_name = (const char *)(dt_strtab_vaddr + str_offset);
+                        if (dep_name && *dep_name) {
+                            dlopen(dep_name, RTLD_GLOBAL);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /* 4. Apply Dynamic Relocations (R_X86_64_RELATIVE, R_X86_64_64, R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT) */
     for (int pass = 0; pass < 2; pass++) {
         local_elf_rela_t *relas = (pass == 0) ? rela_dyn : rela_plt;
         size_t count = (pass == 0) ? rela_dyn_count : rela_plt_count;
@@ -702,16 +842,85 @@ extern size_t __szpont_tls_mod_count;
                     *target += base_addr;
                 }
             } else if (type == R_X86_64_DTPMOD64) {
-                *target = (uint64_t)(dl_mod_id ? dl_mod_id : 1);
+                uint64_t mod_id = dl_mod_id ? dl_mod_id : 1;
+                if (sym_idx != 0 && symtab && sym_idx < sym_count) {
+                    if (symtab[sym_idx].st_shndx != 0) {
+                        mod_id = dl_mod_id ? dl_mod_id : 1;
+                    } else if (strtab && symtab[sym_idx].st_name < str_size) {
+                        const char *sym_name = strtab + symtab[sym_idx].st_name;
+                        dl_handle_t *def_h = NULL;
+                        local_elf_sym_t *def_sym = find_defining_symbol(sym_name, &def_h);
+                        if (def_sym && def_h) {
+                            mod_id = def_h->tls_mod_id ? def_h->tls_mod_id : 1;
+                        }
+                    }
+                }
+                *target = mod_id;
             } else if (type == R_X86_64_DTPOFF64) {
                 uint64_t offset = relas[j].r_addend;
-                if (sym_idx < sym_count && symtab) {
-                    offset += symtab[sym_idx].st_value;
+                if (sym_idx != 0 && symtab && sym_idx < sym_count) {
+                    if (symtab[sym_idx].st_shndx != 0) {
+                        offset += symtab[sym_idx].st_value;
+                    } else if (strtab && symtab[sym_idx].st_name < str_size) {
+                        const char *sym_name = strtab + symtab[sym_idx].st_name;
+                        local_elf_sym_t *def_sym = find_defining_symbol(sym_name, NULL);
+                        if (def_sym) {
+                            offset += def_sym->st_value;
+                        }
+                    }
+                }
+                *target = offset;
+            } else if (type == R_X86_64_TPOFF64) {
+                uint64_t offset = relas[j].r_addend;
+                if (sym_idx != 0 && symtab && sym_idx < sym_count) {
+                    if (symtab[sym_idx].st_shndx != 0) {
+                        offset += symtab[sym_idx].st_value;
+                    } else if (strtab && symtab[sym_idx].st_name < str_size) {
+                        const char *sym_name = strtab + symtab[sym_idx].st_name;
+                        local_elf_sym_t *def_sym = find_defining_symbol(sym_name, NULL);
+                        if (def_sym) {
+                            offset += def_sym->st_value;
+                        }
+                    }
                 }
                 *target = offset;
             }
         }
         free(relas);
+    }
+
+    /* 5. Execute ELF constructors (DT_INIT and DT_INIT_ARRAY) */
+    if (!h->inits_done) {
+        h->inits_done = 1;
+        uintptr_t init_func = 0;
+        uintptr_t init_array = 0;
+        size_t init_array_sz = 0;
+
+        if (dyn_vaddr) {
+            local_elf_dyn_t *dyn = (local_elf_dyn_t *)dyn_vaddr;
+            for (size_t d = 0; dyn[d].d_tag != DT_NULL; d++) {
+                if (dyn[d].d_tag == DT_INIT && dyn[d].d_un.d_ptr != 0) {
+                    init_func = base_addr + dyn[d].d_un.d_ptr;
+                } else if (dyn[d].d_tag == DT_INIT_ARRAY && dyn[d].d_un.d_ptr != 0) {
+                    init_array = base_addr + dyn[d].d_un.d_ptr;
+                } else if (dyn[d].d_tag == DT_INIT_ARRAYSZ) {
+                    init_array_sz = dyn[d].d_un.d_val;
+                }
+            }
+        }
+
+        if (init_func) {
+            ((void (*)(void))init_func)();
+        }
+        if (init_array && init_array_sz >= sizeof(uintptr_t)) {
+            size_t count = init_array_sz / sizeof(uintptr_t);
+            uintptr_t *arr = (uintptr_t *)init_array;
+            for (size_t k = 0; k < count; k++) {
+                if (arr[k] != 0 && arr[k] != (uintptr_t)-1) {
+                    ((void (*)(void))arr[k])();
+                }
+            }
+        }
     }
 
     set_dlerror(NULL);

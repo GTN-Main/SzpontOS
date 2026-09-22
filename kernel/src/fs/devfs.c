@@ -1,4 +1,5 @@
 #include <fs/devfs.h>
+#include <fs/pipe.h>
 #include <arch/x86_64/io.h>
 #include <drivers/serial.h>
 #include <drivers/framebuffer.h>
@@ -488,9 +489,109 @@ int devfs_register_block_device(block_device_t *bdev) {
     return devfs_register_device(bdev->name, node);
 }
 
+vfs_ops_t *devfs_find_ops_for_rdev(uint32_t flags, uint32_t rdev) {
+    if (flags == VFS_TYPE_BLOCKDEVICE)
+        return &g_block_ops;
+
+    uint32_t maj = (rdev >> 8) & 0xff;
+    uint32_t min = rdev & 0xff;
+
+    /* DRM */
+    if (maj == 226) {
+        if (min >= 128)
+            return &g_drm_render_ops;
+        return &g_drm_ops;
+    }
+    /* null, zero */
+    if (maj == 1) {
+        if (min == 3)
+            return &g_null_ops;
+        if (min == 5)
+            return &g_zero_ops;
+    }
+    /* tty, serial */
+    if (maj == 4) {
+        if (min == 64)
+            return &g_serial_ops;
+        return &g_tty_ops;
+    }
+    if (maj == 5)
+        return &g_tty_ops;
+    /* psaux, speaker */
+    if (maj == 10) {
+        if (min == 1)
+            return &g_psaux_ops;
+        if (min == 2)
+            return &g_speaker_ops;
+    }
+
+    for (size_t i = 0; i < g_device_count; i++) {
+        if (g_devices[i].node && g_devices[i].node->rdev == rdev && g_devices[i].node->ops) {
+            return g_devices[i].node->ops;
+        }
+    }
+
+    return &g_null_ops;
+}
+
+static int devfs_dir_mknod(vfs_node_t *parent, const char *name, mode_t mode, dev_t dev) {
+    if (!parent || !name)
+        return -22;
+
+    process_t *proc = sched_get_current_process();
+    if (S_ISCHR(mode) || S_ISBLK(mode)) {
+        if (proc && proc->euid != 0)
+            return -1; /* -EPERM */
+    }
+
+    if (parent->ops && parent->ops->finddir) {
+        if (parent->ops->finddir(parent, name) != NULL)
+            return -17; /* -EEXIST */
+    }
+
+    vfs_node_t *node = (vfs_node_t *)kzalloc(sizeof(vfs_node_t));
+    if (!node)
+        return -12; /* -ENOMEM */
+
+    strncpy(node->name, name, sizeof(node->name) - 1);
+    if (S_ISCHR(mode)) {
+        node->flags = VFS_TYPE_CHARDEVICE;
+    } else if (S_ISBLK(mode)) {
+        node->flags = VFS_TYPE_BLOCKDEVICE;
+    } else if (S_ISFIFO(mode)) {
+        node->flags = VFS_TYPE_PIPE;
+    } else {
+        node->flags = VFS_TYPE_FILE;
+    }
+
+    node->permissions = (mode & 07777);
+    node->uid = proc ? proc->euid : 0;
+    node->gid = proc ? proc->egid : 0;
+    node->rdev = (uint32_t)dev;
+
+    if (node->flags == VFS_TYPE_PIPE) {
+        pipe_chan_t *p = (pipe_chan_t *)kzalloc(sizeof(pipe_chan_t));
+        if (p) {
+            p->readers = 1;
+            p->writers = 1;
+            node->device_data = p;
+            node->ops = &g_fifo_ops;
+        }
+    } else {
+        node->ops = devfs_find_ops_for_rdev(node->flags, (uint32_t)dev);
+    }
+
+    if (parent == g_devfs_root) {
+        return devfs_register_device(name, node);
+    } else {
+        return devfs_register_device_in_dir(parent, name, node);
+    }
+}
+
 void devfs_init(void) {
     g_devfs_dir_ops.readdir = devfs_readdir;
     g_devfs_dir_ops.finddir = devfs_finddir;
+    g_devfs_dir_ops.mknod = devfs_dir_mknod;
 
     g_null_ops.read = devfs_null_read;
     g_null_ops.write = devfs_null_write;

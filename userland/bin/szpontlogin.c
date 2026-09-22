@@ -330,16 +330,22 @@ int main(int argc, char *argv[]) {
     XEvent ev;
     while (1) {
         XNextEvent(dpy, &ev);
-
         switch (ev.type) {
         case Expose:
-            if (ev.xexpose.count == 0) {
-                render_login_card(dpy, win, gc, username_buf, password_buf, focus,
-                                  status_msg, is_error, bg_col, card_col, border_col,
-                                  cyan_col, indigo_col, text_col, text_dim, input_bg,
-                                  green_col, red_col, btn_bg, btn_text);
-                XFlush(dpy);
-            }
+            while (XCheckTypedWindowEvent(dpy, win, Expose, &ev)) {}
+            render_login_card(dpy, win, gc, username_buf, password_buf, focus,
+                              status_msg, is_error, bg_col, card_col, border_col,
+                              cyan_col, indigo_col, text_col, text_dim, input_bg,
+                              green_col, red_col, btn_bg, btn_text);
+            XFlush(dpy);
+            break;
+
+        case MapNotify:
+            render_login_card(dpy, win, gc, username_buf, password_buf, focus,
+                              status_msg, is_error, bg_col, card_col, border_col,
+                              cyan_col, indigo_col, text_col, text_dim, input_bg,
+                              green_col, red_col, btn_bg, btn_text);
+            XFlush(dpy);
             break;
 
         case ButtonPress: {
@@ -549,13 +555,19 @@ do_authenticate: ;
             setenv("XDG_SESSION_TYPE", "x11", 1);
             setenv("XDG_RUNTIME_DIR", "/tmp", 0);
             setenv("ENV", "/etc/shrc", 0);
+            setenv("CROCUS_GEN8", "1", 0);
+            setenv("MESA_LOADER_DRIVER_OVERRIDE", "crocus", 0);
 
-            /* 4. Exec /bin/szpontdesktop */
-            char *session_argv[] = {(char *)"/bin/szpontdesktop", NULL};
+            /* 4. Exec szpontdesktop */
+            const char *desktop_bin = "/usr/bin/szpontdesktop";
+            if (access("/usr/bin/szpontdesktop", X_OK) != 0 && access("/bin/szpontdesktop", X_OK) == 0) {
+                desktop_bin = "/bin/szpontdesktop";
+            }
+            char *session_argv[] = {(char *)desktop_bin, NULL};
             extern char **environ;
-            execve("/bin/szpontdesktop", session_argv, environ);
+            execve(desktop_bin, session_argv, environ);
 
-            perror("[szpontlogin] Failed to execute /bin/szpontdesktop");
+            perror("[szpontlogin] Failed to execute szpontdesktop");
             _exit(1);
         }
 

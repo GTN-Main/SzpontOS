@@ -42,7 +42,11 @@
 #define PATH_RCCONF   "/etc/rc.conf"
 #define PATH_SHUTDOWN "/etc/rc.shutdown"
 #define PATH_BSHELL   "/bin/sh"
-#define PATH_STARTX   "/bin/startx"
+static inline const char *get_startx_path(void) {
+    if (access("/usr/bin/startx", X_OK) == 0) return "/usr/bin/startx";
+    return "/bin/startx";
+}
+#define PATH_STARTX   (get_startx_path())
 
 /* Anti-thrashing timing constants (from FreeBSD init) */
 #define GETTY_SPACING 5  /* Minimum seconds a session must run before exit */

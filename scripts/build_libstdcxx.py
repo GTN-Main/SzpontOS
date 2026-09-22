@@ -654,8 +654,9 @@ def main():
     so_target = os.path.join(sysroot_dir, "usr", "lib", "libstdc++.so.6")
     so_link = os.path.join(sysroot_dir, "usr", "lib", "libstdc++.so")
     a_target = os.path.join(sysroot_dir, "usr", "lib", "libstdc++.a")
-    rootfs_so_target = os.path.join(rootfs_dir, "lib", "libstdc++.so.6")
-    rootfs_so_link = os.path.join(rootfs_dir, "lib", "libstdc++.so")
+    rootfs_so_target = os.path.join(rootfs_dir, "usr", "lib", "libstdc++.so.6")
+    rootfs_so_link = os.path.join(rootfs_dir, "usr", "lib", "libstdc++.so")
+    os.makedirs(os.path.join(rootfs_dir, "usr", "lib"), exist_ok=True)
 
     need_relink = bool(tasks) or not os.path.exists(so_target) or not os.path.exists(rootfs_so_target) or not os.path.exists(a_target)
     if not need_relink:

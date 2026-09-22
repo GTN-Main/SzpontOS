@@ -1,8 +1,6 @@
 #include <stdio.h>
 #include <dlfcn.h>
-
-typedef int (*calc_func_t)(int, int);
-typedef const char *(*version_func_t)(void);
+typedef double (*math_func_t)(double);
 
 int main(int argc, char *argv[]) {
     (void)argc;
@@ -10,13 +8,19 @@ int main(int argc, char *argv[]) {
 
     printf("[DLTEST] Testing dynamic shared library loading (dlopen/dlsym)...\n");
 
-    void *handle = dlopen("libcalc.so", RTLD_LAZY);
+    void *handle = dlopen("libm.so", RTLD_LAZY);
     if (!handle) {
-        printf("[DLTEST] Error opening 'libcalc.so': %s\n", dlerror());
+        printf("[DLTEST] Error opening 'libm.so': %s\n", dlerror());
         return 1;
     }
 
-    printf("[DLTEST] Successfully loaded '/lib/libcalc.so' at handle %p!\n", handle);
+    printf("[DLTEST] Successfully loaded 'libm.so' at handle %p!\n", handle);
+    math_func_t cos_fn = (math_func_t)dlsym(handle, "cos");
+    if (cos_fn) {
+        printf("[DLTEST] dlsym 'cos' found at %p! cos(0) = %.1f\n", cos_fn, cos_fn(0.0));
+    } else {
+        printf("[DLTEST] Failed to resolve 'cos': %s\n", dlerror());
+    }
 
     void *m_handle = dlopen("/usr/lib/xorg/modules/drivers/modesetting_drv.so", RTLD_LAZY);
     if (!m_handle) {

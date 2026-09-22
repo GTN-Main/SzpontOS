@@ -7,39 +7,39 @@
 ALL_ROOTFS_SOS := \
 	$(LIBC_SO) $(LIBM_SO) \
 	$(LIBSTDCXX_SO) \
-	$(ROOTFS_DIR)/lib/libz.so \
-	$(ROOTFS_DIR)/lib/libdrm.so \
-	$(ROOTFS_DIR)/lib/libgbm.so \
-	$(ROOTFS_DIR)/lib/libpixman-1.so \
-	$(ROOTFS_DIR)/lib/libX11.so \
-	$(ROOTFS_DIR)/lib/libxcb.so \
-	$(ROOTFS_DIR)/lib/libXau.so \
-	$(ROOTFS_DIR)/lib/libXdmcp.so \
-	$(ROOTFS_DIR)/lib/libxkbfile.so \
-	$(ROOTFS_DIR)/lib/libfontenc.so \
-	$(ROOTFS_DIR)/lib/libXfont2.so \
-	$(ROOTFS_DIR)/lib/libxcvt.so \
-	$(ROOTFS_DIR)/lib/libxshmfence.so \
-	$(ROOTFS_DIR)/lib/libpciaccess.so \
-	$(ROOTFS_DIR)/lib/libICE.so \
-	$(ROOTFS_DIR)/lib/libSM.so \
-	$(ROOTFS_DIR)/lib/libXpm.so \
-	$(ROOTFS_DIR)/lib/libXext.so \
-	$(ROOTFS_DIR)/lib/libXfixes.so \
-	$(ROOTFS_DIR)/lib/libXrender.so \
-	$(ROOTFS_DIR)/lib/libXrandr.so \
-	$(ROOTFS_DIR)/lib/libXxf86vm.so \
-	$(ROOTFS_DIR)/lib/libXt.so \
-	$(ROOTFS_DIR)/lib/libXmu.so \
-	$(ROOTFS_DIR)/lib/libXaw.so \
-	$(ROOTFS_DIR)/lib/libcrypto.so \
-	$(ROOTFS_DIR)/lib/libssl.so \
-	$(ROOTFS_DIR)/lib/libcurl.so \
-	$(ROOTFS_DIR)/lib/libgallium-25.0.5.so \
-	$(ROOTFS_DIR)/lib/libEGL.so \
-	$(ROOTFS_DIR)/lib/libGLESv2.so \
-	$(ROOTFS_DIR)/lib/libexpat.so \
-	$(ROOTFS_DIR)/lib/dri/libdril_dri.so
+	$(ROOTFS_DIR)/usr/lib/libz.so \
+	$(ROOTFS_DIR)/usr/lib/libdrm.so \
+	$(ROOTFS_DIR)/usr/lib/libgbm.so \
+	$(ROOTFS_DIR)/usr/lib/libpixman-1.so \
+	$(ROOTFS_DIR)/usr/lib/libX11.so \
+	$(ROOTFS_DIR)/usr/lib/libxcb.so \
+	$(ROOTFS_DIR)/usr/lib/libXau.so \
+	$(ROOTFS_DIR)/usr/lib/libXdmcp.so \
+	$(ROOTFS_DIR)/usr/lib/libxkbfile.so \
+	$(ROOTFS_DIR)/usr/lib/libfontenc.so \
+	$(ROOTFS_DIR)/usr/lib/libXfont2.so \
+	$(ROOTFS_DIR)/usr/lib/libxcvt.so \
+	$(ROOTFS_DIR)/usr/lib/libxshmfence.so \
+	$(ROOTFS_DIR)/usr/lib/libpciaccess.so \
+	$(ROOTFS_DIR)/usr/lib/libICE.so \
+	$(ROOTFS_DIR)/usr/lib/libSM.so \
+	$(ROOTFS_DIR)/usr/lib/libXpm.so \
+	$(ROOTFS_DIR)/usr/lib/libXext.so \
+	$(ROOTFS_DIR)/usr/lib/libXfixes.so \
+	$(ROOTFS_DIR)/usr/lib/libXrender.so \
+	$(ROOTFS_DIR)/usr/lib/libXrandr.so \
+	$(ROOTFS_DIR)/usr/lib/libXxf86vm.so \
+	$(ROOTFS_DIR)/usr/lib/libXt.so \
+	$(ROOTFS_DIR)/usr/lib/libXmu.so \
+	$(ROOTFS_DIR)/usr/lib/libXaw.so \
+	$(ROOTFS_DIR)/usr/lib/libcrypto.so \
+	$(ROOTFS_DIR)/usr/lib/libssl.so \
+	$(ROOTFS_DIR)/usr/lib/libcurl.so \
+	$(ROOTFS_DIR)/usr/lib/libgallium-25.0.5.so \
+	$(ROOTFS_DIR)/usr/lib/libEGL.so \
+	$(ROOTFS_DIR)/usr/lib/libGLESv2.so \
+	$(ROOTFS_DIR)/usr/lib/libexpat.so \
+	$(ROOTFS_DIR)/usr/lib/dri/libdril_dri.so
 
 # ==============================================================================
 # GNU libstdc++-v3 (Out-of-tree build)
@@ -136,11 +136,14 @@ $(NANO_BUILD_DIR)/%.o: third_party/nano/src/%.c $(NANO_BUILD_DIR)/revision.h | $
 	    -DNANO_REG_EXTENDED=REG_EXTENDED -DSYSCONFDIR=\"/etc\" \
 	    -c $< -o $@
 
-$(ROOTFS_DIR)/bin/nano: $(NANO_OBJS) $(LIBNCURSES_A) | $(ROOTFS_DIR) $(LIBC_SO) $(LIBM_SO) $(CRT0_O)
-	@mkdir -p $(ROOTFS_DIR)/bin
+$(ROOTFS_DIR)/usr/bin/nano: $(NANO_OBJS) $(LIBNCURSES_A) | $(ROOTFS_DIR) $(LIBC_SO) $(LIBM_SO) $(CRT0_O)
+	@mkdir -p $(ROOTFS_DIR)/usr/bin $(ROOTFS_DIR)/bin
 	@echo "  [LD-NANO] $@"
-	@$(CC) $(USER_CFLAGS) -nostdlib $(CRT0_O) $(NANO_OBJS) -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lncurses -lm -lc -o $@
+	@$(CC) $(USER_CFLAGS) -nostdlib $(CRT0_O) $(NANO_OBJS) -L$(ROOTFS_DIR)/usr/lib -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lncurses -lm -lc -o $@
 	@chmod +x $@
+	@ln -sf /usr/bin/nano $(ROOTFS_DIR)/bin/nano
+
+$(ROOTFS_DIR)/bin/nano: $(ROOTFS_DIR)/usr/bin/nano
 
 # ==============================================================================
 # GNU file & libmagic (Autotools cross-compile)
@@ -179,11 +182,14 @@ $(FILE_BUILD_DIR)/Makefile: third_party/file/configure | $(SYSROOT_STAMP) $(FILE
 $(FILE_BUILD_DIR):
 	@mkdir -p $@
 
-$(ROOTFS_DIR)/bin/file: $(FILE_BUILD_DIR)/Makefile | $(LIBC_A) $(CRT0_O) $(LIBM_A) $(ROOTFS_DIR)
-	@mkdir -p $(ROOTFS_DIR)/bin $(ROOTFS_DIR)/lib
+$(ROOTFS_DIR)/usr/bin/file: $(FILE_BUILD_DIR)/Makefile | $(LIBC_A) $(CRT0_O) $(LIBM_A) $(ROOTFS_DIR)
+	@mkdir -p $(ROOTFS_DIR)/usr/bin $(ROOTFS_DIR)/bin $(ROOTFS_DIR)/usr/lib
 	@echo "  [MAKE-FILE] Kompilacja GNU file (-j$(JOBS))..."
 	@$(MAKE) -j$(JOBS) -C $(FILE_BUILD_DIR)/src file_LDADD="$(abspath $(SYSROOT_DIR))/usr/lib/crt0.o libmagic.la -lm"
 	@cp $(FILE_BUILD_DIR)/src/file $@
+	@ln -sf /usr/bin/file $(ROOTFS_DIR)/bin/file
+
+$(ROOTFS_DIR)/bin/file: $(ROOTFS_DIR)/usr/bin/file
 
 # Build /etc/magic database
 $(MAGIC_DB): scripts/build_magic_db.py | $(ROOTFS_DIR)
@@ -224,11 +230,14 @@ $(ZSH_BUILD_DIR)/Makefile: third_party/zsh/configure | $(LIBNCURSES_A) $(SYSROOT
 $(ZSH_BUILD_DIR):
 	@mkdir -p $@
 
-$(ROOTFS_DIR)/bin/zsh: $(ZSH_BUILD_DIR)/Makefile | $(LIBNCURSES_A) $(LIBC_A) $(CRT0_O) $(LIBM_A) $(ROOTFS_DIR)
-	@mkdir -p $(ROOTFS_DIR)/bin
+$(ROOTFS_DIR)/usr/bin/zsh: $(ZSH_BUILD_DIR)/Makefile | $(LIBNCURSES_A) $(LIBC_A) $(CRT0_O) $(LIBM_A) $(ROOTFS_DIR)
+	@mkdir -p $(ROOTFS_DIR)/usr/bin $(ROOTFS_DIR)/bin
 	@echo "  [MAKE-ZSH] Kompilacja powłoki Zsh (-j$(JOBS))..."
 	@$(MAKE) -j$(JOBS) -C $(ZSH_BUILD_DIR)/Src zsh
 	@cp $(ZSH_BUILD_DIR)/Src/zsh $@
+	@ln -sf /usr/bin/zsh $(ROOTFS_DIR)/bin/zsh
+
+$(ROOTFS_DIR)/bin/zsh: $(ROOTFS_DIR)/usr/bin/zsh
 
 # ==============================================================================
 # Fastfetch (CMake cross-compile)
@@ -240,7 +249,7 @@ $(FASTFETCH_BUILD_DIR)/Makefile: third_party/fastfetch/CMakeLists.txt | $(SYSROO
 	    -DCMAKE_SYSTEM_NAME=Linux \
 	    -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
 	    -DCMAKE_C_COMPILER="$(shell which -a $(CC) 2>/dev/null | grep -v '\.bear' | head -n 1 || which $(CC) 2>/dev/null || echo $(CC))" \
-	    -DCMAKE_C_FLAGS="--sysroot=$(abspath $(SYSROOT_DIR)) -isystem $(abspath $(SYSROOT_DIR))/usr/include -D__linux__=1 -ffreestanding -fno-builtin -O2" \
+	    -DCMAKE_C_FLAGS="--sysroot=$(abspath $(SYSROOT_DIR)) -isystem $(abspath $(SYSROOT_DIR))/usr/include -D__linux__=1 -D__unix__=1 -ffreestanding -fno-builtin -O2" \
 	    -DCMAKE_EXE_LINKER_FLAGS="-nostdlib -L$(abspath $(SYSROOT_DIR))/usr/lib -B$(abspath $(SYSROOT_DIR))/usr/lib $(abspath $(SYSROOT_DIR))/usr/lib/crt0.o" \
 	    -DCMAKE_C_STANDARD_LIBRARIES="-Wl,--start-group $(abspath $(SYSROOT_DIR))/usr/lib/libc.a $(abspath $(SYSROOT_DIR))/usr/lib/libm.a $(abspath $(SYSROOT_DIR))/usr/lib/libdl.a -Wl,--end-group" \
 	    -DBINARY_LINK_TYPE=static \
@@ -273,11 +282,14 @@ $(FASTFETCH_BUILD_DIR)/Makefile: third_party/fastfetch/CMakeLists.txt | $(SYSROO
 $(FASTFETCH_BUILD_DIR):
 	@mkdir -p $@
 
-$(ROOTFS_DIR)/bin/fastfetch: $(FASTFETCH_BUILD_DIR)/Makefile | $(SYSROOT_STAMP) $(LIBC_A) $(CRT0_O) $(LIBM_A) $(LIBDL_A) $(ROOTFS_DIR)
-	@mkdir -p $(ROOTFS_DIR)/bin
+$(ROOTFS_DIR)/usr/bin/fastfetch: $(FASTFETCH_BUILD_DIR)/Makefile | $(SYSROOT_STAMP) $(LIBC_A) $(CRT0_O) $(LIBM_A) $(LIBDL_A) $(ROOTFS_DIR)
+	@mkdir -p $(ROOTFS_DIR)/usr/bin $(ROOTFS_DIR)/bin
 	@echo "  [MAKE-FASTFETCH] Kompilacja narzędzia Fastfetch (-j$(JOBS))..."
 	@$(MAKE) -j$(JOBS) -C $(FASTFETCH_BUILD_DIR) fastfetch
 	@cp $(FASTFETCH_BUILD_DIR)/fastfetch $@
+	@ln -sf /usr/bin/fastfetch $(ROOTFS_DIR)/bin/fastfetch
+
+$(ROOTFS_DIR)/bin/fastfetch: $(ROOTFS_DIR)/usr/bin/fastfetch
 
 # ==============================================================================
 # zlib (Cross-compiled via original Makefile)
@@ -296,24 +308,28 @@ $(SYSROOT_DIR)/usr/include/zlib.h: third_party/zlib/zlib.h third_party/zlib/zcon
 	@mkdir -p $(SYSROOT_DIR)/usr/include
 	@cp -f third_party/zlib/zlib.h third_party/zlib/zconf.h $(SYSROOT_DIR)/usr/include/
 
-$(LIBZ_A): $(ZLIB_OBJS) | $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include $(ROOTFS_DIR)/lib
-	@echo "  [AR-ZLIB] $@"
-	@$(AR) rcs $@ $(ZLIB_OBJS)
-	@echo "  [LD-ZLIB] $(ROOTFS_DIR)/lib/libz.so"
-	@$(LD) -shared -soname libz.so.1 -o $(ROOTFS_DIR)/lib/libz.so.1.3.1 $(ZLIB_OBJS) -L$(abspath $(SYSROOT_DIR))/usr/lib -L$(ROOTFS_DIR)/lib -lc
-	@ln -sf libz.so.1.3.1 $(ROOTFS_DIR)/lib/libz.so.1
-	@ln -sf libz.so.1.3.1 $(ROOTFS_DIR)/lib/libz.so
-	@cp -a $(ROOTFS_DIR)/lib/libz.so* $(SYSROOT_DIR)/usr/lib/
+$(ROOTFS_DIR)/usr/lib/libz.so: $(ZLIB_OBJS) | $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include $(ROOTFS_DIR)/usr/lib
+	@echo "  [AR-ZLIB] $(LIBZ_A)"
+	@$(AR) rcs $(LIBZ_A) $(ZLIB_OBJS)
+	@echo "  [LD-ZLIB] $@"
+	@$(LD) -shared -soname libz.so.1 -o $(ROOTFS_DIR)/usr/lib/libz.so.1.3.1 $(ZLIB_OBJS) -L$(abspath $(SYSROOT_DIR))/usr/lib -L$(ROOTFS_DIR)/usr/lib -L$(ROOTFS_DIR)/lib -lc
+	@ln -sf libz.so.1.3.1 $(ROOTFS_DIR)/usr/lib/libz.so.1
+	@ln -sf libz.so.1.3.1 $(ROOTFS_DIR)/usr/lib/libz.so
+	@cp -a $(ROOTFS_DIR)/usr/lib/libz.so* $(SYSROOT_DIR)/usr/lib/
 	@cp -f third_party/zlib/zlib.h third_party/zlib/zconf.h $(SYSROOT_DIR)/usr/include/
 
-$(ROOTFS_DIR)/lib/libz.so: $(LIBZ_A)
+$(LIBZ_A): $(ROOTFS_DIR)/usr/lib/libz.so
+	@true
+
+$(ROOTFS_DIR)/lib/libz.so: $(ROOTFS_DIR)/usr/lib/libz.so
+	@ln -sf /usr/lib/libz.so $@ 2>/dev/null || true
 
 # ==============================================================================
 # Git (Libre-WD-40 cross-compile with OpenSSL & cURL)
 # ==============================================================================
-$(ROOTFS_DIR)/bin/git: $(LIBZ_A) $(OPENSSL_STAMP) $(ROOTFS_DIR)/bin/curl | $(ROOTFS_DIR)/etc/ssl/cert.pem $(SYSROOT_STAMP) $(LIBC_A) $(CRT0_O) $(LIBM_A) $(ROOTFS_DIR)
-	@mkdir -p $(ROOTFS_DIR)/bin $(ROOTFS_DIR)/usr/libexec/git-core $(SYSROOT_DIR)/usr/libexec/git-core
+$(ROOTFS_DIR)/usr/bin/git: $(LIBZ_A) $(OPENSSL_STAMP) $(ROOTFS_DIR)/usr/bin/curl | $(ROOTFS_DIR)/etc/ssl/cert.pem $(SYSROOT_STAMP) $(LIBC_A) $(CRT0_O) $(LIBM_A) $(ROOTFS_DIR)
+	@mkdir -p $(ROOTFS_DIR)/usr/bin $(ROOTFS_DIR)/bin $(ROOTFS_DIR)/usr/libexec/git-core $(SYSROOT_DIR)/usr/libexec/git-core
 	@echo "  [MAKE-GIT] Kompilacja narzędzia Git (-j$(JOBS)) z obsługą cURL i OpenSSL..."
 	@$(MAKE) -j$(JOBS) -C third_party/git -I $(abspath userland/config/git) \
 	    CC="$(CC)" \
@@ -324,20 +340,27 @@ $(ROOTFS_DIR)/bin/git: $(LIBZ_A) $(OPENSSL_STAMP) $(ROOTFS_DIR)/bin/curl | $(ROO
 	    uname_S=Linux uname_M=x86_64 \
 	    git git-remote-http git-http-fetch
 	@cp third_party/git/git $@
+	@ln -sf /usr/bin/git $(ROOTFS_DIR)/bin/git
 	@for bin in git-remote-http git-http-fetch; do \
 	    if [ -f third_party/git/$$bin ]; then \
-	        rm -f $(ROOTFS_DIR)/bin/$$bin $(ROOTFS_DIR)/usr/libexec/git-core/$$bin; \
-	        cp -f third_party/git/$$bin $(ROOTFS_DIR)/bin/$$bin; \
+	        rm -f $(ROOTFS_DIR)/usr/bin/$$bin $(ROOTFS_DIR)/bin/$$bin $(ROOTFS_DIR)/usr/libexec/git-core/$$bin; \
+	        cp -f third_party/git/$$bin $(ROOTFS_DIR)/usr/bin/$$bin; \
+	        ln -sf /usr/bin/$$bin $(ROOTFS_DIR)/bin/$$bin; \
 	        cp -f third_party/git/$$bin $(ROOTFS_DIR)/usr/libexec/git-core/$$bin; \
 	    fi; \
 	done
-	@rm -f $(ROOTFS_DIR)/bin/git-remote-https $(ROOTFS_DIR)/bin/git-remote-ftp $(ROOTFS_DIR)/bin/git-remote-ftps
-	@ln -sf git-remote-http $(ROOTFS_DIR)/bin/git-remote-https
-	@ln -sf git-remote-http $(ROOTFS_DIR)/bin/git-remote-ftp
-	@ln -sf git-remote-http $(ROOTFS_DIR)/bin/git-remote-ftps
+	@rm -f $(ROOTFS_DIR)/usr/bin/git-remote-https $(ROOTFS_DIR)/usr/bin/git-remote-ftp $(ROOTFS_DIR)/usr/bin/git-remote-ftps $(ROOTFS_DIR)/bin/git-remote-https $(ROOTFS_DIR)/bin/git-remote-ftp $(ROOTFS_DIR)/bin/git-remote-ftps
+	@ln -sf git-remote-http $(ROOTFS_DIR)/usr/bin/git-remote-https
+	@ln -sf git-remote-http $(ROOTFS_DIR)/usr/bin/git-remote-ftp
+	@ln -sf git-remote-http $(ROOTFS_DIR)/usr/bin/git-remote-ftps
+	@ln -sf /usr/bin/git-remote-http $(ROOTFS_DIR)/bin/git-remote-https
+	@ln -sf /usr/bin/git-remote-http $(ROOTFS_DIR)/bin/git-remote-ftp
+	@ln -sf /usr/bin/git-remote-http $(ROOTFS_DIR)/bin/git-remote-ftps
 	@rm -f $(ROOTFS_DIR)/usr/libexec/git-core/git-remote-https $(ROOTFS_DIR)/usr/libexec/git-core/git-remote-ftp
 	@ln -sf git-remote-http $(ROOTFS_DIR)/usr/libexec/git-core/git-remote-https
 	@ln -sf git-remote-http $(ROOTFS_DIR)/usr/libexec/git-core/git-remote-ftp
+
+$(ROOTFS_DIR)/bin/git: $(ROOTFS_DIR)/usr/bin/git
 
 # ==============================================================================
 # X11 Headers and Protocol Specifications (xorgproto & xtrans)
@@ -363,13 +386,13 @@ $(BUILD_DIR)/third_party/libXau/%.o: third_party/libXau/%.c | $(SYSROOT_STAMP) $
 	@echo "  [CC-LIBXAU] $<"
 	@$(CC) -fPIC -O2 -ffreestanding -fno-builtin -DHAVE_CONFIG_H -isystem $(abspath $(SYSROOT_DIR))/usr/include -Ithird_party/libXau/include -I$(BUILD_DIR)/third_party/libXau -c $< -o $@
 
-$(ROOTFS_DIR)/lib/libXau.so: $(XAU_OBJS) | $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(BUILD_DIR)/third_party/libXau $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11
+$(ROOTFS_DIR)/usr/lib/libXau.so: $(XAU_OBJS) | $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(BUILD_DIR)/third_party/libXau $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11
 	@echo "  [LD-LIBXAU] $@"
 	@$(LD) -shared -soname libXau.so.6 -o $(SYSROOT_DIR)/usr/lib/libXau.so.6 $(XAU_OBJS) -L$(abspath $(SYSROOT_DIR))/usr/lib -lc
 	@ln -sf libXau.so.6 $(SYSROOT_DIR)/usr/lib/libXau.so
-	@cp -f $(SYSROOT_DIR)/usr/lib/libXau.so.6 $(ROOTFS_DIR)/lib/libXau.so.6
-	@ln -sf libXau.so.6 $(ROOTFS_DIR)/lib/libXau.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libXau.so.6 $(ROOTFS_DIR)/usr/lib/libXau.so.6
+	@ln -sf libXau.so.6 $(ROOTFS_DIR)/usr/lib/libXau.so
 	@cp -r third_party/libXau/include/X11/* $(SYSROOT_DIR)/usr/include/X11/
 
 # ==============================================================================
@@ -388,13 +411,13 @@ $(BUILD_DIR)/third_party/libXdmcp/%.o: third_party/libXdmcp/%.c | $(SYSROOT_STAM
 	@echo "  [CC-LIBXDMCP] $<"
 	@$(CC) -fPIC -O2 -ffreestanding -fno-builtin -DHAVE_CONFIG_H -DHASXDMAUTH=1 -isystem $(abspath $(SYSROOT_DIR))/usr/include -Ithird_party/libXdmcp/include -I$(BUILD_DIR)/third_party/libXdmcp -c $< -o $@
 
-$(ROOTFS_DIR)/lib/libXdmcp.so: $(XDMCP_OBJS) | $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(BUILD_DIR)/third_party/libXdmcp $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11
+$(ROOTFS_DIR)/usr/lib/libXdmcp.so: $(XDMCP_OBJS) | $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(BUILD_DIR)/third_party/libXdmcp $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11
 	@echo "  [LD-LIBXDMCP] $@"
 	@$(LD) -shared -soname libXdmcp.so.6 -o $(SYSROOT_DIR)/usr/lib/libXdmcp.so.6 $(XDMCP_OBJS) -L$(abspath $(SYSROOT_DIR))/usr/lib -lc
 	@ln -sf libXdmcp.so.6 $(SYSROOT_DIR)/usr/lib/libXdmcp.so
-	@cp -f $(SYSROOT_DIR)/usr/lib/libXdmcp.so.6 $(ROOTFS_DIR)/lib/libXdmcp.so.6
-	@ln -sf libXdmcp.so.6 $(ROOTFS_DIR)/lib/libXdmcp.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libXdmcp.so.6 $(ROOTFS_DIR)/usr/lib/libXdmcp.so.6
+	@ln -sf libXdmcp.so.6 $(ROOTFS_DIR)/usr/lib/libXdmcp.so
 	@cp -r third_party/libXdmcp/include/X11/* $(SYSROOT_DIR)/usr/include/X11/
 
 # ==============================================================================
@@ -404,7 +427,7 @@ third_party/libxcb/configure: third_party/libxcb/configure.ac
 	@echo "  [PRECONF-LIBXCB] Generowanie configure dla libxcb..."
 	@cd third_party/libxcb && autoreconf -fi -I ../util-macros $(ACLOCAL_EXTRA_DIRS) 2>/dev/null || true
 
-$(BUILD_DIR)/third_party/libxcb/Makefile: third_party/libxcb/configure | $(ROOTFS_DIR)/lib/libXau.so $(ROOTFS_DIR)/lib/libXdmcp.so $(SYSROOT_STAMP)
+$(BUILD_DIR)/third_party/libxcb/Makefile: third_party/libxcb/configure | $(ROOTFS_DIR)/usr/lib/libXau.so $(ROOTFS_DIR)/usr/lib/libXdmcp.so $(SYSROOT_STAMP)
 	@mkdir -p $(BUILD_DIR)/third_party/libxcb
 	@echo "  [CONF-LIBXCB] Konfiguracja libxcb..."
 	@cd $(BUILD_DIR)/third_party/libxcb && \
@@ -416,8 +439,8 @@ $(BUILD_DIR)/third_party/libxcb/Makefile: third_party/libxcb/configure | $(ROOTF
 	    CFLAGS="-fPIC -O2 -ffreestanding -fno-builtin -isystem $(abspath $(SYSROOT_DIR))/usr/include -B$(abspath $(SYSROOT_DIR))/usr/lib" \
 	    LDFLAGS="-nostdlib -L$(abspath $(SYSROOT_DIR))/usr/lib -B$(abspath $(SYSROOT_DIR))/usr/lib"
 
-$(ROOTFS_DIR)/lib/libxcb.so: $(BUILD_DIR)/third_party/libxcb/Makefile
-	@mkdir -p $(BUILD_DIR)/third_party/libxcb $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/xcb
+$(ROOTFS_DIR)/usr/lib/libxcb.so: $(BUILD_DIR)/third_party/libxcb/Makefile
+	@mkdir -p $(BUILD_DIR)/third_party/libxcb $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/xcb
 	@echo "  [MAKE-LIBXCB] Kompilacja libxcb (-j$(JOBS))..."
 	@cd $(BUILD_DIR)/third_party/libxcb && \
 	export PYTHONPATH="$(abspath third_party/xcb-proto)" && \
@@ -427,14 +450,14 @@ $(ROOTFS_DIR)/lib/libxcb.so: $(BUILD_DIR)/third_party/libxcb/Makefile
 	if [ -f dri3.c ] && [ ! -f dri3.o ]; then $(CC) -fPIC -O2 -ffreestanding -fno-builtin -isystem $(abspath $(SYSROOT_DIR))/usr/include -I. -I$(abspath third_party/libxcb)/src -c dri3.c -o dri3.o 2>/dev/null || true; fi && \
 	$(LD) -shared -soname libxcb.so.1 -o $(abspath $(SYSROOT_DIR))/usr/lib/libxcb.so.1 *.o -L$(abspath $(SYSROOT_DIR))/usr/lib -lXau -lXdmcp -lc && \
 	ln -sf libxcb.so.1 $(abspath $(SYSROOT_DIR))/usr/lib/libxcb.so && \
-	cp -f $(abspath $(SYSROOT_DIR))/usr/lib/libxcb.so.1 $(abspath $(ROOTFS_DIR))/lib/libxcb.so.1 && \
-	ln -sf libxcb.so.1 $(abspath $(ROOTFS_DIR))/lib/libxcb.so && \
+	cp -f $(abspath $(SYSROOT_DIR))/usr/lib/libxcb.so.1 $(abspath $(ROOTFS_DIR))/usr/lib/libxcb.so.1 && \
+	ln -sf libxcb.so.1 $(abspath $(ROOTFS_DIR))/usr/lib/libxcb.so && \
 	for ext in randr dri2 dri3 present sync xfixes shm glx render shape xinput; do \
 		if [ -f $$ext.o ]; then \
 			$(LD) -shared -soname libxcb-$$ext.so.0 -o $(abspath $(SYSROOT_DIR))/usr/lib/libxcb-$$ext.so.0 $$ext.o -L$(abspath $(SYSROOT_DIR))/usr/lib -lxcb -lc 2>/dev/null || true; \
 			ln -sf libxcb-$$ext.so.0 $(abspath $(SYSROOT_DIR))/usr/lib/libxcb-$$ext.so 2>/dev/null || true; \
-			cp -f $(abspath $(SYSROOT_DIR))/usr/lib/libxcb-$$ext.so.0 $(abspath $(ROOTFS_DIR))/lib/ 2>/dev/null || true; \
-			ln -sf libxcb-$$ext.so.0 $(abspath $(ROOTFS_DIR))/lib/libxcb-$$ext.so 2>/dev/null || true; \
+			cp -f $(abspath $(SYSROOT_DIR))/usr/lib/libxcb-$$ext.so.0 $(abspath $(ROOTFS_DIR))/usr/lib/ 2>/dev/null || true; \
+			ln -sf libxcb-$$ext.so.0 $(abspath $(ROOTFS_DIR))/usr/lib/libxcb-$$ext.so 2>/dev/null || true; \
 		fi; \
 	done && \
 	cp -f $(abspath $(BUILD_DIR)/third_party/libxcb)/*.pc $(abspath $(SYSROOT_DIR))/usr/lib/pkgconfig/ 2>/dev/null || true && \
@@ -448,7 +471,7 @@ third_party/libX11/configure: third_party/libX11/configure.ac
 	@echo "  [PRECONF-LIBX11] Generowanie configure dla libX11..."
 	@cd third_party/libX11 && autoreconf -fi -I ../util-macros -I ../xtrans $(ACLOCAL_EXTRA_DIRS) 2>/dev/null || true
 
-$(BUILD_DIR)/third_party/libX11/Makefile: third_party/libX11/configure | $(ROOTFS_DIR)/lib/libxcb.so $(ROOTFS_DIR)/lib/libXau.so $(ROOTFS_DIR)/lib/libXdmcp.so $(SYSROOT_STAMP)
+$(BUILD_DIR)/third_party/libX11/Makefile: third_party/libX11/configure | $(ROOTFS_DIR)/usr/lib/libxcb.so $(ROOTFS_DIR)/usr/lib/libXau.so $(ROOTFS_DIR)/usr/lib/libXdmcp.so $(SYSROOT_STAMP)
 	@mkdir -p $(BUILD_DIR)/third_party/libX11 $(SYSROOT_DIR)/usr/include/X11 $(SYSROOT_DIR)/usr/include/xcb
 	@cp -rf third_party/xorgproto/include/X11/* $(SYSROOT_DIR)/usr/include/X11/ 2>/dev/null || true
 	@cp -r third_party/libX11/include/X11/* $(SYSROOT_DIR)/usr/include/X11/ 2>/dev/null || true
@@ -471,21 +494,21 @@ $(BUILD_DIR)/third_party/libX11/Makefile: third_party/libX11/configure | $(ROOTF
 	    CFLAGS="-fPIC -O2 -ffreestanding -fno-builtin -D_POSIX_THREAD_SAFE_FUNCTIONS=1 -isystem $(abspath $(SYSROOT_DIR))/usr/include -B$(abspath $(SYSROOT_DIR))/usr/lib" \
 	    LDFLAGS="-nostdlib -L$(abspath $(SYSROOT_DIR))/usr/lib -B$(abspath $(SYSROOT_DIR))/usr/lib"
 
-$(ROOTFS_DIR)/lib/libX11.so: $(BUILD_DIR)/third_party/libX11/Makefile
-	@mkdir -p $(BUILD_DIR)/third_party/libX11 $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib
+$(ROOTFS_DIR)/usr/lib/libX11.so: $(BUILD_DIR)/third_party/libX11/Makefile
+	@mkdir -p $(BUILD_DIR)/third_party/libX11 $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib
 	@echo "  [MAKE-LIBX11] Kompilacja libX11 (-j$(JOBS))..."
 	@cd $(BUILD_DIR)/third_party/libX11 && \
 	$(MAKE) -j$(JOBS) -C modules && \
 	$(MAKE) -j$(JOBS) -C src && \
 	$(LD) -shared -soname libX11.so.6 -o $(abspath $(SYSROOT_DIR))/usr/lib/libX11.so.6 --whole-archive src/.libs/libX11.a --no-whole-archive -L$(abspath $(SYSROOT_DIR))/usr/lib -lxcb -lXau -lXdmcp -lc && \
 	ln -sf libX11.so.6 $(abspath $(SYSROOT_DIR))/usr/lib/libX11.so && \
-	cp -f $(abspath $(SYSROOT_DIR))/usr/lib/libX11.so.6 $(abspath $(ROOTFS_DIR))/lib/libX11.so.6 && \
-	ln -sf libX11.so.6 $(abspath $(ROOTFS_DIR))/lib/libX11.so && \
+	cp -f $(abspath $(SYSROOT_DIR))/usr/lib/libX11.so.6 $(abspath $(ROOTFS_DIR))/usr/lib/libX11.so.6 && \
+	ln -sf libX11.so.6 $(abspath $(ROOTFS_DIR))/usr/lib/libX11.so && \
 	if [ -f src/x11_xcb.o ]; then \
 		$(LD) -shared -soname libX11-xcb.so.1 -o $(abspath $(SYSROOT_DIR))/usr/lib/libX11-xcb.so.1 src/x11_xcb.o -L$(abspath $(SYSROOT_DIR))/usr/lib -lX11 -lxcb -lc 2>/dev/null || true; \
 		ln -sf libX11-xcb.so.1 $(abspath $(SYSROOT_DIR))/usr/lib/libX11-xcb.so 2>/dev/null || true; \
-		cp -f $(abspath $(SYSROOT_DIR))/usr/lib/libX11-xcb.so.1 $(abspath $(ROOTFS_DIR))/lib/ 2>/dev/null || true; \
-		ln -sf libX11-xcb.so.1 $(abspath $(ROOTFS_DIR))/lib/libX11-xcb.so 2>/dev/null || true; \
+		cp -f $(abspath $(SYSROOT_DIR))/usr/lib/libX11-xcb.so.1 $(abspath $(ROOTFS_DIR))/usr/lib/ 2>/dev/null || true; \
+		ln -sf libX11-xcb.so.1 $(abspath $(ROOTFS_DIR))/usr/lib/libX11-xcb.so 2>/dev/null || true; \
 	fi && \
 	cp -r $(abspath third_party/libX11/include/X11)/* $(abspath $(SYSROOT_DIR))/usr/include/X11/ && \
 	cp -f $(abspath $(BUILD_DIR)/third_party/libX11)/include/X11/XlibConf.h $(abspath $(SYSROOT_DIR))/usr/include/X11/ 2>/dev/null || true && \
@@ -512,7 +535,7 @@ $(BUILD_DIR)/third_party/libxkbfile:
 $(BUILD_DIR)/third_party/libxkbfile/config.h: | $(BUILD_DIR)/third_party/libxkbfile
 	@touch $@
 
-$(BUILD_DIR)/third_party/libxkbfile/%.o: third_party/libxkbfile/src/%.c | $(ROOTFS_DIR)/lib/libX11.so $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libxkbfile $(BUILD_DIR)/third_party/libxkbfile/config.h
+$(BUILD_DIR)/third_party/libxkbfile/%.o: third_party/libxkbfile/src/%.c | $(ROOTFS_DIR)/usr/lib/libX11.so $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libxkbfile $(BUILD_DIR)/third_party/libxkbfile/config.h
 	@echo "  [CC-LIBXKBFILE] $<"
 	@$(CC) -fPIC -O2 -ffreestanding -fno-builtin -DHAVE_CONFIG_H -DHAVE_STRCASECMP=1 \
 	    -isystem $(abspath $(SYSROOT_DIR))/usr/include \
@@ -521,13 +544,13 @@ $(BUILD_DIR)/third_party/libxkbfile/%.o: third_party/libxkbfile/src/%.c | $(ROOT
 	    -Ithird_party/libxkbfile/src \
 	    -I$(BUILD_DIR)/third_party/libxkbfile -c $< -o $@
 
-$(ROOTFS_DIR)/lib/libxkbfile.so: $(XKBFILE_OBJS) | $(ROOTFS_DIR)/lib/libX11.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(BUILD_DIR)/third_party/libxkbfile $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/extensions
+$(ROOTFS_DIR)/usr/lib/libxkbfile.so: $(XKBFILE_OBJS) | $(ROOTFS_DIR)/usr/lib/libX11.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(BUILD_DIR)/third_party/libxkbfile $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/extensions
 	@echo "  [LD-LIBXKBFILE] $@"
 	@$(LD) -shared -soname libxkbfile.so.1 -o $(SYSROOT_DIR)/usr/lib/libxkbfile.so.1 $(XKBFILE_OBJS) -L$(abspath $(SYSROOT_DIR))/usr/lib -lX11 -lc
 	@ln -sf libxkbfile.so.1 $(SYSROOT_DIR)/usr/lib/libxkbfile.so
-	@cp -f $(SYSROOT_DIR)/usr/lib/libxkbfile.so.1 $(ROOTFS_DIR)/lib/libxkbfile.so.1
-	@ln -sf libxkbfile.so.1 $(ROOTFS_DIR)/lib/libxkbfile.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libxkbfile.so.1 $(ROOTFS_DIR)/usr/lib/libxkbfile.so.1
+	@ln -sf libxkbfile.so.1 $(ROOTFS_DIR)/usr/lib/libxkbfile.so
 	@cp -f third_party/libxkbfile/include/X11/extensions/*.h $(SYSROOT_DIR)/usr/include/X11/extensions/ 2>/dev/null || true
 	@printf "prefix=/usr\nexec_prefix=\$${prefix}\nlibdir=\$${exec_prefix}/lib\nincludedir=\$${prefix}/include\n\nName: xkbfile\nDescription: The xkbfile Library\nVersion: 1.1.0\nRequires: kbproto\nRequires.private: x11\nLibs: -L\$${libdir} -lxkbfile\nCflags: -I\$${includedir}\n" > $(SYSROOT_DIR)/usr/lib/pkgconfig/xkbfile.pc
 	@cp -f $(SYSROOT_DIR)/usr/lib/pkgconfig/xkbfile.pc $(SYSROOT_DIR)/usr/share/pkgconfig/ 2>/dev/null || true
@@ -553,13 +576,13 @@ $(BUILD_DIR)/third_party/libfontenc/%.o: third_party/libfontenc/src/%.c | $(SYSR
 	    -Ithird_party/libfontenc/src \
 	    -I$(BUILD_DIR)/third_party/libfontenc -c $< -o $@
 
-$(ROOTFS_DIR)/lib/libfontenc.so: $(FONTENC_OBJS) | $(LIBZ_A) $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(BUILD_DIR)/third_party/libfontenc $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/fonts
+$(ROOTFS_DIR)/usr/lib/libfontenc.so: $(FONTENC_OBJS) | $(LIBZ_A) $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(BUILD_DIR)/third_party/libfontenc $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/fonts
 	@echo "  [LD-LIBFONTENC] $@"
 	@$(LD) -shared -soname libfontenc.so.1 -o $(SYSROOT_DIR)/usr/lib/libfontenc.so.1 $(FONTENC_OBJS) -L$(abspath $(SYSROOT_DIR))/usr/lib -lz -lc
 	@ln -sf libfontenc.so.1 $(SYSROOT_DIR)/usr/lib/libfontenc.so
-	@cp -f $(SYSROOT_DIR)/usr/lib/libfontenc.so.1 $(ROOTFS_DIR)/lib/libfontenc.so.1
-	@ln -sf libfontenc.so.1 $(ROOTFS_DIR)/lib/libfontenc.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libfontenc.so.1 $(ROOTFS_DIR)/usr/lib/libfontenc.so.1
+	@ln -sf libfontenc.so.1 $(ROOTFS_DIR)/usr/lib/libfontenc.so
 	@cp -f third_party/libfontenc/include/X11/fonts/*.h $(SYSROOT_DIR)/usr/include/X11/fonts/ 2>/dev/null || true
 	@printf "prefix=/usr\nexec_prefix=\$${prefix}\nlibdir=\$${exec_prefix}/lib\nincludedir=\$${prefix}/include\n\nName: fontenc\nDescription: The fontenc Library\nVersion: 1.1.4\nLibs: -L\$${libdir} -lfontenc\nCflags: -I\$${includedir}\n" > $(SYSROOT_DIR)/usr/lib/pkgconfig/fontenc.pc
 	@cp -f $(SYSROOT_DIR)/usr/lib/pkgconfig/fontenc.pc $(SYSROOT_DIR)/usr/share/pkgconfig/ 2>/dev/null || true
@@ -572,7 +595,7 @@ third_party/libXfont2/configure: third_party/libXfont2/configure.ac
 	@mkdir -p third_party/libXfont2/m4
 	@cd third_party/libXfont2 && autoreconf -fi -I ../util-macros -I ../xtrans -I ../font-util $(ACLOCAL_EXTRA_DIRS) 2>/dev/null || true
 
-$(BUILD_DIR)/third_party/libXfont2/Makefile: third_party/libXfont2/configure | $(ROOTFS_DIR)/lib/libfontenc.so $(LIBZ_A) $(SYSROOT_STAMP)
+$(BUILD_DIR)/third_party/libXfont2/Makefile: third_party/libXfont2/configure | $(ROOTFS_DIR)/usr/lib/libfontenc.so $(LIBZ_A) $(SYSROOT_STAMP)
 	@mkdir -p $(BUILD_DIR)/third_party/libXfont2
 	@echo "  [CONF-LIBXFONT2] Konfiguracja libXfont2..."
 	@cd $(BUILD_DIR)/third_party/libXfont2 && \
@@ -585,8 +608,8 @@ $(BUILD_DIR)/third_party/libXfont2/Makefile: third_party/libXfont2/configure | $
 	    LDFLAGS="-nostdlib -L$(abspath $(SYSROOT_DIR))/usr/lib -B$(abspath $(SYSROOT_DIR))/usr/lib -lc" \
 	    LIBS="-L$(abspath $(SYSROOT_DIR))/usr/lib -lfontenc -lz -lc"
 
-$(ROOTFS_DIR)/lib/libXfont2.so: $(BUILD_DIR)/third_party/libXfont2/Makefile
-	@mkdir -p $(BUILD_DIR)/third_party/libXfont2 $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib
+$(ROOTFS_DIR)/usr/lib/libXfont2.so: $(BUILD_DIR)/third_party/libXfont2/Makefile
+	@mkdir -p $(BUILD_DIR)/third_party/libXfont2 $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib
 	@echo "  [MAKE-LIBXFONT2] Kompilacja libXfont2 (-j$(JOBS))..."
 	@cd $(BUILD_DIR)/third_party/libXfont2 && \
 	$(MAKE) -j$(JOBS) && \
@@ -594,35 +617,35 @@ $(ROOTFS_DIR)/lib/libXfont2.so: $(BUILD_DIR)/third_party/libXfont2/Makefile
 	rm -f $(abspath $(SYSROOT_DIR))/usr/lib/*.la && \
 	$(LD) -shared -soname libXfont2.so.2 -o $(abspath $(SYSROOT_DIR))/usr/lib/libXfont2.so.2 --whole-archive .libs/libXfont2.a --no-whole-archive -L$(abspath $(SYSROOT_DIR))/usr/lib -lfontenc -lz -lc && \
 	ln -sf libXfont2.so.2 $(abspath $(SYSROOT_DIR))/usr/lib/libXfont2.so && \
-	cp -f $(abspath $(SYSROOT_DIR))/usr/lib/libXfont2.so.2 $(abspath $(ROOTFS_DIR))/lib/libXfont2.so.2 && \
-	ln -sf libXfont2.so.2 $(abspath $(ROOTFS_DIR))/lib/libXfont2.so
+	cp -f $(abspath $(SYSROOT_DIR))/usr/lib/libXfont2.so.2 $(abspath $(ROOTFS_DIR))/usr/lib/libXfont2.so.2 && \
+	ln -sf libXfont2.so.2 $(abspath $(ROOTFS_DIR))/usr/lib/libXfont2.so
 
 
 # ==============================================================================
 # libxcvt Target
 # ==============================================================================
-$(ROOTFS_DIR)/lib/libxcvt.so: $(wildcard third_party/libxcvt/lib/*.c) | $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(BUILD_DIR)/third_party/libxcvt $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/libxcvt
+$(ROOTFS_DIR)/usr/lib/libxcvt.so: $(wildcard third_party/libxcvt/lib/*.c) | $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(BUILD_DIR)/third_party/libxcvt $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/libxcvt
 	@echo "  [MAKE-LIBXCVT] Kompilacja libxcvt..."
 	@$(CC) -fPIC -O2 -ffreestanding -fno-builtin -isystem $(abspath $(SYSROOT_DIR))/usr/include -Ithird_party/libxcvt/include -Ithird_party/libxcvt/lib -c third_party/libxcvt/lib/libxcvt.c -o $(BUILD_DIR)/third_party/libxcvt/libxcvt.o
 	@$(LD) -shared -soname libxcvt.so.0 -o $(SYSROOT_DIR)/usr/lib/libxcvt.so.0 $(BUILD_DIR)/third_party/libxcvt/libxcvt.o -L$(abspath $(SYSROOT_DIR))/usr/lib -lc
 	@ln -sf libxcvt.so.0 $(SYSROOT_DIR)/usr/lib/libxcvt.so
-	@cp -f $(SYSROOT_DIR)/usr/lib/libxcvt.so.0 $(ROOTFS_DIR)/lib/libxcvt.so.0
-	@ln -sf libxcvt.so.0 $(ROOTFS_DIR)/lib/libxcvt.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libxcvt.so.0 $(ROOTFS_DIR)/usr/lib/libxcvt.so.0
+	@ln -sf libxcvt.so.0 $(ROOTFS_DIR)/usr/lib/libxcvt.so
 	@cp -f third_party/libxcvt/include/libxcvt/*.h $(SYSROOT_DIR)/usr/include/libxcvt/ 2>/dev/null || true
 
 # ==============================================================================
 # libxshmfence Target
 # ==============================================================================
-$(ROOTFS_DIR)/lib/libxshmfence.so: third_party/libxshmfence/src/xshmfence_futex.c third_party/libxshmfence/src/xshmfence_alloc.c third_party/libxshmfence/src/xshmfence.h | $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(BUILD_DIR)/third_party/libxshmfence $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11 $(SYSROOT_DIR)/usr/lib/pkgconfig
+$(ROOTFS_DIR)/usr/lib/libxshmfence.so: third_party/libxshmfence/src/xshmfence_futex.c third_party/libxshmfence/src/xshmfence_alloc.c third_party/libxshmfence/src/xshmfence.h | $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(BUILD_DIR)/third_party/libxshmfence $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11 $(SYSROOT_DIR)/usr/lib/pkgconfig
 	@echo "  [MAKE-LIBXSHMFENCE] Kompilacja libxshmfence..."
 	@$(CC) -fPIC -O2 -ffreestanding -fno-builtin -DHAVE_FUTEX=1 -DHAVE_MEMFD_CREATE=1 -DSHMDIR=\"/tmp\" -isystem $(abspath $(SYSROOT_DIR))/usr/include -Ithird_party/libxshmfence/src -c third_party/libxshmfence/src/xshmfence_futex.c -o $(BUILD_DIR)/third_party/libxshmfence/xshmfence_futex.o
 	@$(CC) -fPIC -O2 -ffreestanding -fno-builtin -DHAVE_FUTEX=1 -DHAVE_MEMFD_CREATE=1 -DSHMDIR=\"/tmp\" -isystem $(abspath $(SYSROOT_DIR))/usr/include -Ithird_party/libxshmfence/src -c third_party/libxshmfence/src/xshmfence_alloc.c -o $(BUILD_DIR)/third_party/libxshmfence/xshmfence_alloc.o
 	@$(LD) -shared -soname libxshmfence.so.1 -o $(SYSROOT_DIR)/usr/lib/libxshmfence.so.1 $(BUILD_DIR)/third_party/libxshmfence/xshmfence_futex.o $(BUILD_DIR)/third_party/libxshmfence/xshmfence_alloc.o -L$(abspath $(SYSROOT_DIR))/usr/lib -lc
 	@ln -sf libxshmfence.so.1 $(SYSROOT_DIR)/usr/lib/libxshmfence.so
-	@cp -f $(SYSROOT_DIR)/usr/lib/libxshmfence.so.1 $(ROOTFS_DIR)/lib/libxshmfence.so.1
-	@ln -sf libxshmfence.so.1 $(ROOTFS_DIR)/lib/libxshmfence.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libxshmfence.so.1 $(ROOTFS_DIR)/usr/lib/libxshmfence.so.1
+	@ln -sf libxshmfence.so.1 $(ROOTFS_DIR)/usr/lib/libxshmfence.so
 	@cp -f third_party/libxshmfence/src/xshmfence.h $(SYSROOT_DIR)/usr/include/X11/xshmfence.h
 	@sed -e 's|@prefix@|/usr|g' \
 	     -e 's|@exec_prefix@|/usr|g' \
@@ -631,7 +654,40 @@ $(ROOTFS_DIR)/lib/libxshmfence.so: third_party/libxshmfence/src/xshmfence_futex.
 	     -e 's|@PACKAGE_VERSION@|1.3.2|g' \
 	     third_party/libxshmfence/xshmfence.pc.in > $(SYSROOT_DIR)/usr/lib/pkgconfig/xshmfence.pc
 
-libxshmfence: $(ROOTFS_DIR)/lib/libxshmfence.so
+libxshmfence: $(ROOTFS_DIR)/usr/lib/libxshmfence.so
+
+# ==============================================================================
+# libdrm Target (Official Mesa libdrm via Meson Cross-Compilation)
+# ==============================================================================
+LIBDRM_BUILD_DIR := $(BUILD_DIR)/third_party/libdrm
+
+$(ROOTFS_DIR)/usr/lib/libdrm.so: $(BUILD_DIR)/szpontos_cross.ini | $(SYSROOT_STAMP) $(LIBC_SO) $(ROOTFS_DIR)
+	@mkdir -p $(LIBDRM_BUILD_DIR)
+	@echo "  [CONF-LIBDRM] Konfiguracja official libdrm (meson cross-compile)..."
+	@if [ ! -f $(LIBDRM_BUILD_DIR)/build.ninja ]; then \
+		PKG_CONFIG_PATH="$(abspath $(SYSROOT_DIR))/usr/lib/pkgconfig:$(abspath $(SYSROOT_DIR))/usr/share/pkgconfig" \
+		meson setup $(LIBDRM_BUILD_DIR) third_party/libdrm \
+		    --cross-file $(BUILD_DIR)/szpontos_cross.ini \
+		    -Dprefix=/usr \
+		    -Dudev=false \
+		    -Dvalgrind=disabled \
+		    -Dcairo-tests=disabled \
+		    -Dman-pages=disabled \
+		    -Dtests=false \
+		    -Dinstall-test-programs=false ; \
+	fi
+	@echo "  [NINJA-LIBDRM] Kompilacja libdrm..."
+	@ninja -j$(JOBS) -C $(LIBDRM_BUILD_DIR)
+	@rm -f $(SYSROOT_DIR)/usr/lib/libdrm.so
+	@DESTDIR=$(SYSROOT_DIR) ninja -j$(JOBS) -C $(LIBDRM_BUILD_DIR) install >/dev/null 2>&1 || true
+	@mkdir -p $(SYSROOT_DIR)/usr/include/drm $(SYSROOT_DIR)/usr/include/libdrm
+	@cp -f $(SYSROOT_DIR)/usr/include/libdrm/*.h $(SYSROOT_DIR)/usr/include/drm/ 2>/dev/null || true
+	@cp -f $(SYSROOT_DIR)/usr/include/xf86drm*.h $(SYSROOT_DIR)/usr/include/libdrm/ 2>/dev/null || true
+	@cp -f $(SYSROOT_DIR)/usr/include/xf86drm*.h $(SYSROOT_DIR)/usr/include/drm/ 2>/dev/null || true
+	@cp -a $(SYSROOT_DIR)/usr/lib/libdrm*.so* $(ROOTFS_DIR)/usr/lib/
+	@echo "  [OK]  Official libdrm installed to sysroot and rootfs"
+
+libdrm: $(ROOTFS_DIR)/usr/lib/libdrm.so
 
 # ==============================================================================
 # libpciaccess Target
@@ -652,13 +708,13 @@ $(BUILD_DIR)/third_party/libpciaccess/%.o: third_party/libpciaccess/src/%.c | $(
 	    -Ithird_party/libpciaccess/include -Ithird_party/libpciaccess/src \
 	    -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(BUILD_DIR)/third_party/libpciaccess -c $< -o $@
 
-$(ROOTFS_DIR)/lib/libpciaccess.so: $(PCIACCESS_OBJS) | $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(BUILD_DIR)/third_party/libpciaccess $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include
+$(ROOTFS_DIR)/usr/lib/libpciaccess.so: $(PCIACCESS_OBJS) | $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(BUILD_DIR)/third_party/libpciaccess $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include
 	@echo "  [LD-LIBPCIACCESS] $@"
 	@$(LD) -shared -soname libpciaccess.so.0 -o $(SYSROOT_DIR)/usr/lib/libpciaccess.so.0 $(PCIACCESS_OBJS) -L$(abspath $(SYSROOT_DIR))/usr/lib -lc
 	@ln -sf libpciaccess.so.0 $(SYSROOT_DIR)/usr/lib/libpciaccess.so
-	@cp -f $(SYSROOT_DIR)/usr/lib/libpciaccess.so.0 $(ROOTFS_DIR)/lib/libpciaccess.so.0
-	@ln -sf libpciaccess.so.0 $(ROOTFS_DIR)/lib/libpciaccess.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libpciaccess.so.0 $(ROOTFS_DIR)/usr/lib/libpciaccess.so.0
+	@ln -sf libpciaccess.so.0 $(ROOTFS_DIR)/usr/lib/libpciaccess.so
 	@cp -f third_party/libpciaccess/include/pciaccess.h $(SYSROOT_DIR)/usr/include/
 
 # ==============================================================================
@@ -693,13 +749,13 @@ $(BUILD_DIR)/third_party/pixman/%.o: third_party/pixman/pixman/%.c | $(BUILD_DIR
 	    -isystem $(abspath $(SYSROOT_DIR))/usr/include \
 	    -Ithird_party/pixman/pixman -I$(BUILD_DIR)/third_party/pixman -I. -c $< -o $@
 
-$(ROOTFS_DIR)/lib/libpixman-1.so: $(PIXMAN_OBJS) | $(LIBM_SO) $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(BUILD_DIR)/third_party/pixman $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/pixman-1
+$(ROOTFS_DIR)/usr/lib/libpixman-1.so: $(PIXMAN_OBJS) | $(LIBM_SO) $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(BUILD_DIR)/third_party/pixman $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/pixman-1
 	@echo "  [LD-PIXMAN] $@"
 	@$(LD) -shared -soname libpixman-1.so.0 -o $(SYSROOT_DIR)/usr/lib/libpixman-1.so.0 $(PIXMAN_OBJS) -L$(abspath $(SYSROOT_DIR))/usr/lib -lm -lc
 	@ln -sf libpixman-1.so.0 $(SYSROOT_DIR)/usr/lib/libpixman-1.so
-	@cp -f $(SYSROOT_DIR)/usr/lib/libpixman-1.so.0 $(ROOTFS_DIR)/lib/libpixman-1.so.0
-	@ln -sf libpixman-1.so.0 $(ROOTFS_DIR)/lib/libpixman-1.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libpixman-1.so.0 $(ROOTFS_DIR)/usr/lib/libpixman-1.so.0
+	@ln -sf libpixman-1.so.0 $(ROOTFS_DIR)/usr/lib/libpixman-1.so
 	@cp -f third_party/pixman/pixman/*.h $(SYSROOT_DIR)/usr/include/pixman-1/ 2>/dev/null || true
 	@cp -f third_party/pixman/pixman/*.h $(SYSROOT_DIR)/usr/include/ 2>/dev/null || true
 
@@ -721,13 +777,13 @@ $(BUILD_DIR)/third_party/libICE/%.o: third_party/libICE/src/%.c | $(BUILD_DIR)/t
 	    -isystem $(abspath $(SYSROOT_DIR))/usr/include \
 	    -Ithird_party/libICE/include -Ithird_party/libICE/src -Ithird_party/xtrans -I$(BUILD_DIR)/third_party/libICE -c $< -o $@
 
-$(ROOTFS_DIR)/lib/libICE.so: $(ICE_OBJS) | $(LIBC_SO) $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(BUILD_DIR)/third_party/libICE $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/ICE
+$(ROOTFS_DIR)/usr/lib/libICE.so: $(ICE_OBJS) | $(LIBC_SO) $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(BUILD_DIR)/third_party/libICE $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/ICE
 	@echo "  [LD-LIBICE] $@"
 	@$(LD) -shared -soname libICE.so.6 -o $(SYSROOT_DIR)/usr/lib/libICE.so.6 $(ICE_OBJS) -L$(abspath $(SYSROOT_DIR))/usr/lib -lc
 	@ln -sf libICE.so.6 $(SYSROOT_DIR)/usr/lib/libICE.so
-	@cp -f $(SYSROOT_DIR)/usr/lib/libICE.so.6 $(ROOTFS_DIR)/lib/libICE.so.6
-	@ln -sf libICE.so.6 $(ROOTFS_DIR)/lib/libICE.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libICE.so.6 $(ROOTFS_DIR)/usr/lib/libICE.so.6
+	@ln -sf libICE.so.6 $(ROOTFS_DIR)/usr/lib/libICE.so
 	@mkdir -p $(SYSROOT_DIR)/usr/include/X11/ICE
 	@cp -r third_party/libICE/include/X11/ICE/* $(SYSROOT_DIR)/usr/include/X11/ICE/
 
@@ -749,13 +805,13 @@ $(BUILD_DIR)/third_party/libSM/%.o: third_party/libSM/src/%.c | $(BUILD_DIR)/thi
 	    -isystem $(abspath $(SYSROOT_DIR))/usr/include \
 	    -Ithird_party/libSM/include -Ithird_party/libSM/src -Ithird_party/libICE/include -I$(BUILD_DIR)/third_party/libSM -c $< -o $@
 
-$(ROOTFS_DIR)/lib/libSM.so: $(SM_OBJS) | $(ROOTFS_DIR)/lib/libICE.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(BUILD_DIR)/third_party/libSM $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/SM
+$(ROOTFS_DIR)/usr/lib/libSM.so: $(SM_OBJS) | $(ROOTFS_DIR)/usr/lib/libICE.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(BUILD_DIR)/third_party/libSM $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/SM
 	@echo "  [LD-LIBSM] $@"
 	@$(LD) -shared -soname libSM.so.6 -o $(SYSROOT_DIR)/usr/lib/libSM.so.6 $(SM_OBJS) -L$(abspath $(SYSROOT_DIR))/usr/lib -lICE -lc
 	@ln -sf libSM.so.6 $(SYSROOT_DIR)/usr/lib/libSM.so
-	@cp -f $(SYSROOT_DIR)/usr/lib/libSM.so.6 $(ROOTFS_DIR)/lib/libSM.so.6
-	@ln -sf libSM.so.6 $(ROOTFS_DIR)/lib/libSM.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libSM.so.6 $(ROOTFS_DIR)/usr/lib/libSM.so.6
+	@ln -sf libSM.so.6 $(ROOTFS_DIR)/usr/lib/libSM.so
 	@mkdir -p $(SYSROOT_DIR)/usr/include/X11/SM
 	@cp -r third_party/libSM/include/X11/SM/* $(SYSROOT_DIR)/usr/include/X11/SM/
 
@@ -771,19 +827,19 @@ $(BUILD_DIR)/third_party/libXpm:
 $(BUILD_DIR)/third_party/libXpm/config.h: | $(BUILD_DIR)/third_party/libXpm
 	@touch $@
 
-$(BUILD_DIR)/third_party/libXpm/%.o: third_party/libXpm/src/%.c | $(ROOTFS_DIR)/lib/libX11.so $(BUILD_DIR)/third_party/libXpm/config.h $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libXpm
+$(BUILD_DIR)/third_party/libXpm/%.o: third_party/libXpm/src/%.c | $(ROOTFS_DIR)/usr/lib/libX11.so $(BUILD_DIR)/third_party/libXpm/config.h $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libXpm
 	@echo "  [CC-LIBXPM] $<"
 	@$(CC) -fPIC -O2 -ffreestanding -fno-builtin -DHAVE_CONFIG_H -DNO_ZPIPE=1 -DHAVE_STRCASECMP=1 -DHAVE_ASPRINTF=1 -DHAS_GETCWD=1 \
 	    -isystem $(abspath $(SYSROOT_DIR))/usr/include \
 	    -Ithird_party/libXpm/include -Ithird_party/libXpm/include/X11 -Ithird_party/libXpm/src -I$(BUILD_DIR)/third_party/libXpm -c $< -o $@
 
-$(ROOTFS_DIR)/lib/libXpm.so: $(XPM_OBJS) | $(ROOTFS_DIR)/lib/libX11.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(BUILD_DIR)/third_party/libXpm $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11
+$(ROOTFS_DIR)/usr/lib/libXpm.so: $(XPM_OBJS) | $(ROOTFS_DIR)/usr/lib/libX11.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(BUILD_DIR)/third_party/libXpm $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11
 	@echo "  [LD-LIBXPM] $@"
 	@$(LD) -shared -soname libXpm.so.4 -o $(SYSROOT_DIR)/usr/lib/libXpm.so.4 $(XPM_OBJS) -L$(abspath $(SYSROOT_DIR))/usr/lib -lX11 -lc
 	@ln -sf libXpm.so.4 $(SYSROOT_DIR)/usr/lib/libXpm.so
-	@cp -f $(SYSROOT_DIR)/usr/lib/libXpm.so.4 $(ROOTFS_DIR)/lib/libXpm.so.4
-	@ln -sf libXpm.so.4 $(ROOTFS_DIR)/lib/libXpm.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libXpm.so.4 $(ROOTFS_DIR)/usr/lib/libXpm.so.4
+	@ln -sf libXpm.so.4 $(ROOTFS_DIR)/usr/lib/libXpm.so
 	@mkdir -p $(SYSROOT_DIR)/usr/include/X11
 	@cp -r third_party/libXpm/include/X11/* $(SYSROOT_DIR)/usr/include/X11/
 	@printf "prefix=/usr\nexec_prefix=\$${prefix}\nlibdir=\$${exec_prefix}/lib\nincludedir=\$${prefix}/include\n\nName: Xpm\nDescription: X Pixmap Library\nVersion: 3.5.17\nLibs: -L\$${libdir} -lXpm\nCflags: -I\$${includedir}\n" > $(SYSROOT_DIR)/usr/lib/pkgconfig/xpm.pc
@@ -801,19 +857,19 @@ $(BUILD_DIR)/third_party/libXext:
 $(BUILD_DIR)/third_party/libXext/config.h: | $(BUILD_DIR)/third_party/libXext
 	@touch $@
 
-$(BUILD_DIR)/third_party/libXext/%.o: third_party/libXext/src/%.c | $(ROOTFS_DIR)/lib/libX11.so $(BUILD_DIR)/third_party/libXext/config.h $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libXext
+$(BUILD_DIR)/third_party/libXext/%.o: third_party/libXext/src/%.c | $(ROOTFS_DIR)/usr/lib/libX11.so $(BUILD_DIR)/third_party/libXext/config.h $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libXext
 	@echo "  [CC-LIBXEXT] $<"
 	@$(CC) -fPIC -O2 -ffreestanding -fno-builtin -DHAVE_CONFIG_H \
 	    -isystem $(abspath $(SYSROOT_DIR))/usr/include \
 	    -Ithird_party/libXext/include -Ithird_party/libXext/include/X11/extensions -Ithird_party/libXext/src -I$(BUILD_DIR)/third_party/libXext -c $< -o $@
 
-$(ROOTFS_DIR)/lib/libXext.so: $(XEXT_OBJS) | $(ROOTFS_DIR)/lib/libX11.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(BUILD_DIR)/third_party/libXext $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/extensions
+$(ROOTFS_DIR)/usr/lib/libXext.so: $(XEXT_OBJS) | $(ROOTFS_DIR)/usr/lib/libX11.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(BUILD_DIR)/third_party/libXext $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/extensions
 	@echo "  [LD-LIBXEXT] $@"
 	@$(LD) -shared -soname libXext.so.6 -o $(SYSROOT_DIR)/usr/lib/libXext.so.6 $(XEXT_OBJS) -L$(abspath $(SYSROOT_DIR))/usr/lib -lX11 -lc
 	@ln -sf libXext.so.6 $(SYSROOT_DIR)/usr/lib/libXext.so
-	@cp -f $(SYSROOT_DIR)/usr/lib/libXext.so.6 $(ROOTFS_DIR)/lib/libXext.so.6
-	@ln -sf libXext.so.6 $(ROOTFS_DIR)/lib/libXext.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libXext.so.6 $(ROOTFS_DIR)/usr/lib/libXext.so.6
+	@ln -sf libXext.so.6 $(ROOTFS_DIR)/usr/lib/libXext.so
 	@mkdir -p $(SYSROOT_DIR)/usr/include/X11/extensions
 	@cp -r third_party/libXext/include/X11/extensions/* $(SYSROOT_DIR)/usr/include/X11/extensions/
 	@printf "prefix=/usr\nexec_prefix=\$${prefix}\nlibdir=\$${exec_prefix}/lib\nincludedir=\$${prefix}/include\n\nName: Xext\nDescription: Misc X Extension Library\nVersion: 1.3.6\nLibs: -L\$${libdir} -lXext\nCflags: -I\$${includedir}\n" > $(SYSROOT_DIR)/usr/lib/pkgconfig/xext.pc
@@ -831,26 +887,26 @@ $(BUILD_DIR)/third_party/libXfixes:
 $(BUILD_DIR)/third_party/libXfixes/config.h: | $(BUILD_DIR)/third_party/libXfixes
 	@touch $@
 
-$(BUILD_DIR)/third_party/libXfixes/%.o: third_party/libXfixes/src/%.c | $(ROOTFS_DIR)/lib/libX11.so $(BUILD_DIR)/third_party/libXfixes/config.h $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libXfixes
+$(BUILD_DIR)/third_party/libXfixes/%.o: third_party/libXfixes/src/%.c | $(ROOTFS_DIR)/usr/lib/libX11.so $(BUILD_DIR)/third_party/libXfixes/config.h $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libXfixes
 	@echo "  [CC-LIBXFIXES] $<"
 	@$(CC) -fPIC -O2 -ffreestanding -fno-builtin -DHAVE_CONFIG_H \
 	    -isystem $(abspath $(SYSROOT_DIR))/usr/include -Ithird_party/libXfixes/include \
 	    -Ithird_party/libXfixes/include/X11/extensions \
 	    -Ithird_party/libXfixes/src -I$(BUILD_DIR)/third_party/libXfixes -c $< -o $@
 
-$(ROOTFS_DIR)/lib/libXfixes.so: $(XFIXES_OBJS) | $(ROOTFS_DIR)/lib/libX11.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(BUILD_DIR)/third_party/libXfixes $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/extensions $(SYSROOT_DIR)/usr/lib/pkgconfig
+$(ROOTFS_DIR)/usr/lib/libXfixes.so: $(XFIXES_OBJS) | $(ROOTFS_DIR)/usr/lib/libX11.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(BUILD_DIR)/third_party/libXfixes $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/extensions $(SYSROOT_DIR)/usr/lib/pkgconfig
 	@echo "  [LD-LIBXFIXES] $@"
 	@$(LD) -shared -soname libXfixes.so.3 -o $(SYSROOT_DIR)/usr/lib/libXfixes.so.3 $(XFIXES_OBJS) -L$(abspath $(SYSROOT_DIR))/usr/lib -lX11 -lc
 	@ln -sf libXfixes.so.3 $(SYSROOT_DIR)/usr/lib/libXfixes.so
-	@cp -f $(SYSROOT_DIR)/usr/lib/libXfixes.so.3 $(ROOTFS_DIR)/lib/libXfixes.so.3
-	@ln -sf libXfixes.so.3 $(ROOTFS_DIR)/lib/libXfixes.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libXfixes.so.3 $(ROOTFS_DIR)/usr/lib/libXfixes.so.3
+	@ln -sf libXfixes.so.3 $(ROOTFS_DIR)/usr/lib/libXfixes.so
 	@mkdir -p $(SYSROOT_DIR)/usr/include/X11/extensions
 	@cp -f third_party/libXfixes/include/X11/extensions/*.h $(SYSROOT_DIR)/usr/include/X11/extensions/
 	@printf "prefix=/usr\nexec_prefix=\$${prefix}\nlibdir=\$${exec_prefix}/lib\nincludedir=\$${prefix}/include\n\nName: Xfixes\nDescription: X Fixes Library\nVersion: 6.0.1\nRequires: xproto fixesproto\nLibs: -L\$${libdir} -lXfixes\nCflags: -I\$${includedir}\n" > $(SYSROOT_DIR)/usr/lib/pkgconfig/xfixes.pc
 	@cp -f $(SYSROOT_DIR)/usr/lib/pkgconfig/xfixes.pc $(SYSROOT_DIR)/usr/share/pkgconfig/ 2>/dev/null || true
 
-libXfixes: $(ROOTFS_DIR)/lib/libXfixes.so
+libXfixes: $(ROOTFS_DIR)/usr/lib/libXfixes.so
 
 # ==============================================================================
 # libXrender Target
@@ -864,26 +920,26 @@ $(BUILD_DIR)/third_party/libXrender:
 $(BUILD_DIR)/third_party/libXrender/config.h: | $(BUILD_DIR)/third_party/libXrender
 	@touch $@
 
-$(BUILD_DIR)/third_party/libXrender/%.o: third_party/libXrender/src/%.c | $(ROOTFS_DIR)/lib/libX11.so $(BUILD_DIR)/third_party/libXrender/config.h $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libXrender
+$(BUILD_DIR)/third_party/libXrender/%.o: third_party/libXrender/src/%.c | $(ROOTFS_DIR)/usr/lib/libX11.so $(BUILD_DIR)/third_party/libXrender/config.h $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libXrender
 	@echo "  [CC-LIBXRENDER] $<"
 	@$(CC) -fPIC -O2 -ffreestanding -fno-builtin -DHAVE_CONFIG_H \
 	    -isystem $(abspath $(SYSROOT_DIR))/usr/include -Ithird_party/libXrender/include \
 	    -Ithird_party/libXrender/include/X11/extensions \
 	    -Ithird_party/libXrender/src -I$(BUILD_DIR)/third_party/libXrender -c $< -o $@
 
-$(ROOTFS_DIR)/lib/libXrender.so: $(XRENDER_OBJS) | $(ROOTFS_DIR)/lib/libX11.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(BUILD_DIR)/third_party/libXrender $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/extensions $(SYSROOT_DIR)/usr/lib/pkgconfig
+$(ROOTFS_DIR)/usr/lib/libXrender.so: $(XRENDER_OBJS) | $(ROOTFS_DIR)/usr/lib/libX11.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(BUILD_DIR)/third_party/libXrender $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/extensions $(SYSROOT_DIR)/usr/lib/pkgconfig
 	@echo "  [LD-LIBXRENDER] $@"
 	@$(LD) -shared -soname libXrender.so.1 -o $(SYSROOT_DIR)/usr/lib/libXrender.so.1 $(XRENDER_OBJS) -L$(abspath $(SYSROOT_DIR))/usr/lib -lX11 -lc
 	@ln -sf libXrender.so.1 $(SYSROOT_DIR)/usr/lib/libXrender.so
-	@cp -f $(SYSROOT_DIR)/usr/lib/libXrender.so.1 $(ROOTFS_DIR)/lib/libXrender.so.1
-	@ln -sf libXrender.so.1 $(ROOTFS_DIR)/lib/libXrender.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libXrender.so.1 $(ROOTFS_DIR)/usr/lib/libXrender.so.1
+	@ln -sf libXrender.so.1 $(ROOTFS_DIR)/usr/lib/libXrender.so
 	@mkdir -p $(SYSROOT_DIR)/usr/include/X11/extensions
 	@cp -f third_party/libXrender/include/X11/extensions/*.h $(SYSROOT_DIR)/usr/include/X11/extensions/
 	@printf "prefix=/usr\nexec_prefix=\$${prefix}\nlibdir=\$${exec_prefix}/lib\nincludedir=\$${prefix}/include\n\nName: Xrender\nDescription: X Render Library\nVersion: 0.9.11\nRequires: xproto renderproto >= 0.9\nLibs: -L\$${libdir} -lXrender\nCflags: -I\$${includedir}\n" > $(SYSROOT_DIR)/usr/lib/pkgconfig/xrender.pc
 	@cp -f $(SYSROOT_DIR)/usr/lib/pkgconfig/xrender.pc $(SYSROOT_DIR)/usr/share/pkgconfig/ 2>/dev/null || true
 
-libXrender: $(ROOTFS_DIR)/lib/libXrender.so
+libXrender: $(ROOTFS_DIR)/usr/lib/libXrender.so
 
 # ==============================================================================
 # libXrandr Target
@@ -897,26 +953,26 @@ $(BUILD_DIR)/third_party/libXrandr:
 $(BUILD_DIR)/third_party/libXrandr/config.h: | $(BUILD_DIR)/third_party/libXrandr
 	@touch $@
 
-$(BUILD_DIR)/third_party/libXrandr/%.o: third_party/libXrandr/src/%.c | $(ROOTFS_DIR)/lib/libX11.so $(ROOTFS_DIR)/lib/libXext.so $(ROOTFS_DIR)/lib/libXrender.so $(BUILD_DIR)/third_party/libXrandr/config.h $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libXrandr
+$(BUILD_DIR)/third_party/libXrandr/%.o: third_party/libXrandr/src/%.c | $(ROOTFS_DIR)/usr/lib/libX11.so $(ROOTFS_DIR)/usr/lib/libXext.so $(ROOTFS_DIR)/usr/lib/libXrender.so $(BUILD_DIR)/third_party/libXrandr/config.h $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libXrandr
 	@echo "  [CC-LIBXRANDR] $<"
 	@$(CC) -fPIC -O2 -ffreestanding -fno-builtin -DHAVE_CONFIG_H \
 	    -isystem $(abspath $(SYSROOT_DIR))/usr/include -Ithird_party/libXrandr/include \
 	    -Ithird_party/libXrandr/include/X11/extensions \
 	    -Ithird_party/libXrandr/src -I$(BUILD_DIR)/third_party/libXrandr -c $< -o $@
 
-$(ROOTFS_DIR)/lib/libXrandr.so: $(XRANDR_OBJS) | $(ROOTFS_DIR)/lib/libX11.so $(ROOTFS_DIR)/lib/libXext.so $(ROOTFS_DIR)/lib/libXrender.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(BUILD_DIR)/third_party/libXrandr $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/extensions $(SYSROOT_DIR)/usr/lib/pkgconfig
+$(ROOTFS_DIR)/usr/lib/libXrandr.so: $(XRANDR_OBJS) | $(ROOTFS_DIR)/usr/lib/libX11.so $(ROOTFS_DIR)/usr/lib/libXext.so $(ROOTFS_DIR)/usr/lib/libXrender.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(BUILD_DIR)/third_party/libXrandr $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/extensions $(SYSROOT_DIR)/usr/lib/pkgconfig
 	@echo "  [LD-LIBXRANDR] $@"
 	@$(LD) -shared -soname libXrandr.so.2 -o $(SYSROOT_DIR)/usr/lib/libXrandr.so.2 $(XRANDR_OBJS) -L$(abspath $(SYSROOT_DIR))/usr/lib -lXrender -lXext -lX11 -lc
 	@ln -sf libXrandr.so.2 $(SYSROOT_DIR)/usr/lib/libXrandr.so
-	@cp -f $(SYSROOT_DIR)/usr/lib/libXrandr.so.2 $(ROOTFS_DIR)/lib/libXrandr.so.2
-	@ln -sf libXrandr.so.2 $(ROOTFS_DIR)/lib/libXrandr.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libXrandr.so.2 $(ROOTFS_DIR)/usr/lib/libXrandr.so.2
+	@ln -sf libXrandr.so.2 $(ROOTFS_DIR)/usr/lib/libXrandr.so
 	@mkdir -p $(SYSROOT_DIR)/usr/include/X11/extensions
 	@cp -f third_party/libXrandr/include/X11/extensions/*.h $(SYSROOT_DIR)/usr/include/X11/extensions/
 	@printf "prefix=/usr\nexec_prefix=\$${prefix}\nlibdir=\$${exec_prefix}/lib\nincludedir=\$${prefix}/include\n\nName: Xrandr\nDescription: X RandR Library\nVersion: 1.5.4\nRequires: xproto randrproto >= 1.5\nLibs: -L\$${libdir} -lXrandr\nCflags: -I\$${includedir}\n" > $(SYSROOT_DIR)/usr/lib/pkgconfig/xrandr.pc
 	@cp -f $(SYSROOT_DIR)/usr/lib/pkgconfig/xrandr.pc $(SYSROOT_DIR)/usr/share/pkgconfig/ 2>/dev/null || true
 
-libXrandr: $(ROOTFS_DIR)/lib/libXrandr.so
+libXrandr: $(ROOTFS_DIR)/usr/lib/libXrandr.so
 
 # ==============================================================================
 # libXxf86vm Target
@@ -927,26 +983,26 @@ XXF86VM_OBJS := $(BUILD_DIR)/third_party/libXxf86vm/XF86VMode.o
 $(BUILD_DIR)/third_party/libXxf86vm:
 	@mkdir -p $@
 
-$(BUILD_DIR)/third_party/libXxf86vm/XF86VMode.o: third_party/libXxf86vm/src/XF86VMode.c | $(ROOTFS_DIR)/lib/libX11.so $(ROOTFS_DIR)/lib/libXext.so $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libXxf86vm
+$(BUILD_DIR)/third_party/libXxf86vm/XF86VMode.o: third_party/libXxf86vm/src/XF86VMode.c | $(ROOTFS_DIR)/usr/lib/libX11.so $(ROOTFS_DIR)/usr/lib/libXext.so $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libXxf86vm
 	@echo "  [CC-LIBXXF86VM] $<"
 	@$(CC) -fPIC -O2 -ffreestanding -fno-builtin \
 	    -isystem $(abspath $(SYSROOT_DIR))/usr/include -Ithird_party/libXxf86vm/include \
 	    -Ithird_party/libXxf86vm/include/X11/extensions \
 	    -Ithird_party/libXxf86vm/src -c $< -o $@
 
-$(ROOTFS_DIR)/lib/libXxf86vm.so: $(XXF86VM_OBJS) | $(ROOTFS_DIR)/lib/libX11.so $(ROOTFS_DIR)/lib/libXext.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(BUILD_DIR)/third_party/libXxf86vm $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/extensions $(SYSROOT_DIR)/usr/lib/pkgconfig
+$(ROOTFS_DIR)/usr/lib/libXxf86vm.so: $(XXF86VM_OBJS) | $(ROOTFS_DIR)/usr/lib/libX11.so $(ROOTFS_DIR)/usr/lib/libXext.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(BUILD_DIR)/third_party/libXxf86vm $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/extensions $(SYSROOT_DIR)/usr/lib/pkgconfig
 	@echo "  [LD-LIBXXF86VM] $@"
 	@$(LD) -shared -soname libXxf86vm.so.1 -o $(SYSROOT_DIR)/usr/lib/libXxf86vm.so.1 $(XXF86VM_OBJS) -L$(abspath $(SYSROOT_DIR))/usr/lib -lXext -lX11 -lc
 	@ln -sf libXxf86vm.so.1 $(SYSROOT_DIR)/usr/lib/libXxf86vm.so
-	@cp -f $(SYSROOT_DIR)/usr/lib/libXxf86vm.so.1 $(ROOTFS_DIR)/lib/libXxf86vm.so.1
-	@ln -sf libXxf86vm.so.1 $(ROOTFS_DIR)/lib/libXxf86vm.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libXxf86vm.so.1 $(ROOTFS_DIR)/usr/lib/libXxf86vm.so.1
+	@ln -sf libXxf86vm.so.1 $(ROOTFS_DIR)/usr/lib/libXxf86vm.so
 	@mkdir -p $(SYSROOT_DIR)/usr/include/X11/extensions
 	@cp -f third_party/libXxf86vm/include/X11/extensions/*.h $(SYSROOT_DIR)/usr/include/X11/extensions/
 	@printf "prefix=/usr\nexec_prefix=\$${prefix}\nlibdir=\$${exec_prefix}/lib\nincludedir=\$${prefix}/include\n\nName: Xxf86vm\nDescription: XFree86 Video Mode Extension Library\nVersion: 1.1.5\nRequires: xf86vidmodeproto\nRequires.private: x11 xext\nLibs: -L\$${libdir} -lXxf86vm\nCflags: -I\$${includedir}\n" > $(SYSROOT_DIR)/usr/lib/pkgconfig/xxf86vm.pc
 	@cp -f $(SYSROOT_DIR)/usr/lib/pkgconfig/xxf86vm.pc $(SYSROOT_DIR)/usr/share/pkgconfig/ 2>/dev/null || true
 
-libXxf86vm: $(ROOTFS_DIR)/lib/libXxf86vm.so
+libXxf86vm: $(ROOTFS_DIR)/usr/lib/libXxf86vm.so
 
 # ==============================================================================
 # libXt Target
@@ -969,27 +1025,27 @@ $(BUILD_DIR)/third_party/libXt/config.h: | $(BUILD_DIR)/third_party/libXt
 XT_SRCS := $(filter-out %/StringDefs.c, $(sort $(wildcard third_party/libXt/src/*.c)))
 XT_OBJS := $(patsubst third_party/libXt/src/%.c, $(BUILD_DIR)/third_party/libXt/%.o, $(XT_SRCS)) $(BUILD_DIR)/third_party/libXt/StringDefs.o
 
-$(BUILD_DIR)/third_party/libXt/StringDefs.o: $(BUILD_DIR)/third_party/libXt/StringDefs.c | $(ROOTFS_DIR)/lib/libX11.so $(BUILD_DIR)/third_party/libXt/config.h $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libXt
+$(BUILD_DIR)/third_party/libXt/StringDefs.o: $(BUILD_DIR)/third_party/libXt/StringDefs.c | $(ROOTFS_DIR)/usr/lib/libX11.so $(BUILD_DIR)/third_party/libXt/config.h $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libXt
 	@echo "  [CC-LIBXT] $<"
 	@$(CC) -fPIC -O2 -ffreestanding -fno-builtin -DHAVE_CONFIG_H -DHAVE_ASPRINTF=1 -DHAVE_REALLOCARRAY=1 -DHAS_GETCWD=1 \
 	    -DXTHREADS -D_POSIX_THREAD_SAFE_FUNCTIONS -include sys/select.h \
 	    -isystem $(abspath $(SYSROOT_DIR))/usr/include \
 	    -Ithird_party/libXt/include -Ithird_party/libXt/include/X11 -I$(BUILD_DIR)/third_party/libXt/include -Ithird_party/libXt/src -I$(BUILD_DIR)/third_party/libXt -c $< -o $@
 
-$(BUILD_DIR)/third_party/libXt/%.o: third_party/libXt/src/%.c | $(BUILD_DIR)/third_party/libXt/StringDefs.c $(ROOTFS_DIR)/lib/libX11.so $(BUILD_DIR)/third_party/libXt/config.h $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libXt
+$(BUILD_DIR)/third_party/libXt/%.o: third_party/libXt/src/%.c | $(BUILD_DIR)/third_party/libXt/StringDefs.c $(ROOTFS_DIR)/usr/lib/libX11.so $(BUILD_DIR)/third_party/libXt/config.h $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libXt
 	@echo "  [CC-LIBXT] $<"
 	@$(CC) -fPIC -O2 -ffreestanding -fno-builtin -DHAVE_CONFIG_H -DHAVE_ASPRINTF=1 -DHAVE_REALLOCARRAY=1 -DHAS_GETCWD=1 \
 	    -DXTHREADS -D_POSIX_THREAD_SAFE_FUNCTIONS -include sys/select.h \
 	    -isystem $(abspath $(SYSROOT_DIR))/usr/include \
 	    -Ithird_party/libXt/include -Ithird_party/libXt/include/X11 -I$(BUILD_DIR)/third_party/libXt/include -Ithird_party/libXt/src -I$(BUILD_DIR)/third_party/libXt -c $< -o $@
 
-$(ROOTFS_DIR)/lib/libXt.so: $(XT_OBJS) | $(ROOTFS_DIR)/lib/libX11.so $(ROOTFS_DIR)/lib/libSM.so $(ROOTFS_DIR)/lib/libICE.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(BUILD_DIR)/third_party/libXt $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11
+$(ROOTFS_DIR)/usr/lib/libXt.so: $(XT_OBJS) | $(ROOTFS_DIR)/usr/lib/libX11.so $(ROOTFS_DIR)/usr/lib/libSM.so $(ROOTFS_DIR)/usr/lib/libICE.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(BUILD_DIR)/third_party/libXt $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11
 	@echo "  [LD-LIBXT] $@"
 	@$(LD) -shared -soname libXt.so.6 -o $(SYSROOT_DIR)/usr/lib/libXt.so.6 $(XT_OBJS) -L$(abspath $(SYSROOT_DIR))/usr/lib -lX11 -lSM -lICE -lc
 	@ln -sf libXt.so.6 $(SYSROOT_DIR)/usr/lib/libXt.so
-	@cp -f $(SYSROOT_DIR)/usr/lib/libXt.so.6 $(ROOTFS_DIR)/lib/libXt.so.6
-	@ln -sf libXt.so.6 $(ROOTFS_DIR)/lib/libXt.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libXt.so.6 $(ROOTFS_DIR)/usr/lib/libXt.so.6
+	@ln -sf libXt.so.6 $(ROOTFS_DIR)/usr/lib/libXt.so
 	@mkdir -p $(SYSROOT_DIR)/usr/include/X11
 	@cp -r third_party/libXt/include/X11/* $(SYSROOT_DIR)/usr/include/X11/
 	@cp -f $(BUILD_DIR)/third_party/libXt/StringDefs.h $(BUILD_DIR)/third_party/libXt/Shell.h $(SYSROOT_DIR)/usr/include/X11/
@@ -1006,7 +1062,7 @@ $(BUILD_DIR)/third_party/libXmu:
 $(BUILD_DIR)/third_party/libXmu/config.h: | $(BUILD_DIR)/third_party/libXmu
 	@touch $@
 
-$(BUILD_DIR)/third_party/libXmu/%.o: third_party/libXmu/src/%.c | $(ROOTFS_DIR)/lib/libXt.so $(BUILD_DIR)/third_party/libXmu/config.h $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libXmu
+$(BUILD_DIR)/third_party/libXmu/%.o: third_party/libXmu/src/%.c | $(ROOTFS_DIR)/usr/lib/libXt.so $(BUILD_DIR)/third_party/libXmu/config.h $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libXmu
 	@echo "  [CC-LIBXMU] $<"
 	@$(CC) -fPIC -O2 -ffreestanding -fno-builtin -DHAVE_CONFIG_H -DHAVE_ASPRINTF=1 -DHAVE_REALLOCARRAY=1 -DHAS_GETCWD=1 \
 	    -DXTHREADS -D_POSIX_THREAD_SAFE_FUNCTIONS \
@@ -1014,13 +1070,13 @@ $(BUILD_DIR)/third_party/libXmu/%.o: third_party/libXmu/src/%.c | $(ROOTFS_DIR)/
 	    -Ithird_party/libXmu/include -Ithird_party/libXmu/include/X11/Xmu -Ithird_party/libXmu/src \
 	    -Ithird_party/libXt/include -Ithird_party/libXt/include/X11 -I$(BUILD_DIR)/third_party/libXmu -c $< -o $@
 
-$(ROOTFS_DIR)/lib/libXmu.so: $(XMU_OBJS) | $(ROOTFS_DIR)/lib/libXt.so $(ROOTFS_DIR)/lib/libXext.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(BUILD_DIR)/third_party/libXmu $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/Xmu
+$(ROOTFS_DIR)/usr/lib/libXmu.so: $(XMU_OBJS) | $(ROOTFS_DIR)/usr/lib/libXt.so $(ROOTFS_DIR)/usr/lib/libXext.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(BUILD_DIR)/third_party/libXmu $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/Xmu
 	@echo "  [LD-LIBXMU] $@"
 	@$(LD) -shared -soname libXmu.so.6 -o $(SYSROOT_DIR)/usr/lib/libXmu.so.6 $(XMU_OBJS) -L$(abspath $(SYSROOT_DIR))/usr/lib -lXt -lXext -lX11 -lSM -lICE -lc
 	@ln -sf libXmu.so.6 $(SYSROOT_DIR)/usr/lib/libXmu.so
-	@cp -f $(SYSROOT_DIR)/usr/lib/libXmu.so.6 $(ROOTFS_DIR)/lib/libXmu.so.6
-	@ln -sf libXmu.so.6 $(ROOTFS_DIR)/lib/libXmu.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libXmu.so.6 $(ROOTFS_DIR)/usr/lib/libXmu.so.6
+	@ln -sf libXmu.so.6 $(ROOTFS_DIR)/usr/lib/libXmu.so
 	@mkdir -p $(SYSROOT_DIR)/usr/include/X11/Xmu
 	@cp -r third_party/libXmu/include/X11/Xmu/* $(SYSROOT_DIR)/usr/include/X11/Xmu/
 
@@ -1036,7 +1092,7 @@ $(BUILD_DIR)/third_party/libXaw:
 $(BUILD_DIR)/third_party/libXaw/config.h: | $(BUILD_DIR)/third_party/libXaw
 	@touch $@
 
-$(BUILD_DIR)/third_party/libXaw/%.o: third_party/libXaw/src/%.c | $(ROOTFS_DIR)/lib/libXmu.so $(ROOTFS_DIR)/lib/libXpm.so $(BUILD_DIR)/third_party/libXaw/config.h $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libXaw
+$(BUILD_DIR)/third_party/libXaw/%.o: third_party/libXaw/src/%.c | $(ROOTFS_DIR)/usr/lib/libXmu.so $(ROOTFS_DIR)/usr/lib/libXpm.so $(BUILD_DIR)/third_party/libXaw/config.h $(SYSROOT_STAMP) $(BUILD_DIR)/third_party/libXaw
 	@echo "  [CC-LIBXAW] $<"
 	@$(CC) -fPIC -O2 -ffreestanding -fno-builtin -DHAVE_CONFIG_H -DHAVE_ASPRINTF=1 -DHAVE_REALLOCARRAY=1 -DHAS_GETCWD=1 \
 	    -DHAVE_WCHAR_H=1 -DHAVE_WCTYPE_H=1 -DHAVE_UNISTD_H=1 -DXTHREADS -D_POSIX_THREAD_SAFE_FUNCTIONS -include sys/select.h \
@@ -1045,16 +1101,16 @@ $(BUILD_DIR)/third_party/libXaw/%.o: third_party/libXaw/src/%.c | $(ROOTFS_DIR)/
 	    -Ithird_party/libXpm/include -Ithird_party/libXmu/include -Ithird_party/libXt/include -Ithird_party/libXt/include/X11 \
 	    -I$(BUILD_DIR)/third_party/libXaw -c $< -o $@
 
-$(ROOTFS_DIR)/lib/libXaw.so: $(XAW_OBJS) | $(ROOTFS_DIR)/lib/libXmu.so $(ROOTFS_DIR)/lib/libXpm.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
-	@mkdir -p $(BUILD_DIR)/third_party/libXaw $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/Xaw
+$(ROOTFS_DIR)/usr/lib/libXaw.so: $(XAW_OBJS) | $(ROOTFS_DIR)/usr/lib/libXmu.so $(ROOTFS_DIR)/usr/lib/libXpm.so $(SYSROOT_STAMP) $(ROOTFS_DIR)
+	@mkdir -p $(BUILD_DIR)/third_party/libXaw $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/X11/Xaw
 	@echo "  [LD-LIBXAW] $@"
 	@$(LD) -shared -soname libXaw7.so.7 -o $(SYSROOT_DIR)/usr/lib/libXaw7.so.7 $(XAW_OBJS) -L$(abspath $(SYSROOT_DIR))/usr/lib -lXmu -lXt -lXext -lX11 -lXpm -lc
 	@ln -sf libXaw7.so.7 $(SYSROOT_DIR)/usr/lib/libXaw.so
 	@ln -sf libXaw7.so.7 $(SYSROOT_DIR)/usr/lib/libXaw7.so
-	@cp -f $(SYSROOT_DIR)/usr/lib/libXaw7.so.7 $(ROOTFS_DIR)/lib/libXaw7.so.7
-	@ln -sf libXaw7.so.7 $(ROOTFS_DIR)/lib/libXaw7.so
-	@ln -sf libXaw7.so.7 $(ROOTFS_DIR)/lib/libXaw.so
-	@ln -sf libXaw7.so.7 $(ROOTFS_DIR)/lib/libXaw.so.7
+	@cp -f $(SYSROOT_DIR)/usr/lib/libXaw7.so.7 $(ROOTFS_DIR)/usr/lib/libXaw7.so.7
+	@ln -sf libXaw7.so.7 $(ROOTFS_DIR)/usr/lib/libXaw7.so
+	@ln -sf libXaw7.so.7 $(ROOTFS_DIR)/usr/lib/libXaw.so
+	@ln -sf libXaw7.so.7 $(ROOTFS_DIR)/usr/lib/libXaw.so.7
 	@mkdir -p $(SYSROOT_DIR)/usr/include/X11/Xaw
 	@cp -r third_party/libXaw/include/X11/Xaw/* $(SYSROOT_DIR)/usr/include/X11/Xaw/
 
@@ -1064,22 +1120,24 @@ $(ROOTFS_DIR)/lib/libXaw.so: $(XAW_OBJS) | $(ROOTFS_DIR)/lib/libXmu.so $(ROOTFS_
 $(XTERM_BUILD_DIR):
 	@mkdir -p $@
 
-$(XTERM_BUILD_DIR)/Makefile: | $(XTERM_BUILD_DIR) $(ROOTFS_DIR)/lib/libXaw.so $(ROOTFS_DIR)/lib/libXmu.so $(ROOTFS_DIR)/lib/libXt.so $(ROOTFS_DIR)/lib/libXpm.so $(ROOTFS_DIR)/lib/libXext.so $(ROOTFS_DIR)/lib/libSM.so $(ROOTFS_DIR)/lib/libICE.so $(ROOTFS_DIR)/lib/libX11.so $(LIBNCURSES_A) $(ROOTFS_DIR)
+$(XTERM_BUILD_DIR)/Makefile: | $(XTERM_BUILD_DIR) $(ROOTFS_DIR)/usr/lib/libXaw.so $(ROOTFS_DIR)/usr/lib/libXmu.so $(ROOTFS_DIR)/usr/lib/libXt.so $(ROOTFS_DIR)/usr/lib/libXpm.so $(ROOTFS_DIR)/usr/lib/libXext.so $(ROOTFS_DIR)/usr/lib/libSM.so $(ROOTFS_DIR)/usr/lib/libICE.so $(ROOTFS_DIR)/usr/lib/libX11.so $(LIBNCURSES_A) $(ROOTFS_DIR)
 	@echo "  [CONF-XTERM] Konfiguracja xterm (Autotools out-of-tree)..."
 	@cd $(XTERM_BUILD_DIR) && \
 	CC="$(CC) -nostdlib $(abspath $(SYSROOT_DIR))/usr/lib/crt0.o" \
 	CPP="$(CC) -E -isystem $(abspath $(SYSROOT_DIR))/usr/include" \
 	CFLAGS="-O2 -ffreestanding -isystem $(abspath $(SYSROOT_DIR))/usr/include -DUSE_SYSV_PGRP=1 -DUSE_POSIX_TERMIOS=1" \
-	LDFLAGS="-L$(abspath $(ROOTFS_DIR))/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -Wl,-rpath-link=$(abspath $(ROOTFS_DIR))/lib -lXaw7 -lXmu -lXt -lSM -lICE -lXpm -lXext -lX11 -lxcb -lXau -lXdmcp -lncurses -lm -lc" \
+	LDFLAGS="-L$(abspath $(ROOTFS_DIR))/usr/lib -L$(abspath $(ROOTFS_DIR))/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -Wl,-rpath-link=$(abspath $(ROOTFS_DIR))/usr/lib -lXaw7 -lXmu -lXt -lSM -lICE -lXpm -lXext -lX11 -lxcb -lXau -lXdmcp -lncurses -lm -lc" \
 	$(abspath third_party/xterm)/configure --host=x86_64-elf --without-xinerama --disable-imake --disable-setuid --disable-setgid --disable-freetype --without-pcre --without-pcre2 --disable-luit
 
-$(ROOTFS_DIR)/bin/xterm: $(XTERM_BUILD_DIR)/Makefile | $(ROOTFS_DIR)
-	@mkdir -p $(ROOTFS_DIR)/bin $(ROOTFS_DIR)/etc/X11/app-defaults $(ROOTFS_DIR)/usr/share/X11/app-defaults $(ROOTFS_DIR)/usr/lib/X11/app-defaults
+$(ROOTFS_DIR)/usr/bin/xterm: $(XTERM_BUILD_DIR)/Makefile | $(ROOTFS_DIR)
+	@mkdir -p $(ROOTFS_DIR)/usr/bin $(ROOTFS_DIR)/bin $(ROOTFS_DIR)/etc/X11/app-defaults $(ROOTFS_DIR)/usr/share/X11/app-defaults $(ROOTFS_DIR)/usr/lib/X11/app-defaults
 	@echo "  [MAKE-XTERM] Kompilacja oficjalnego upstream xterm (-j$(JOBS))..."
 	@cd $(XTERM_BUILD_DIR) && \
 	$(MAKE) -j$(JOBS) EXTRA_CFLAGS="-DUSE_SYSV_PGRP=1 -DHAVE_GRANTPT_PTY_ISATTY=1 -DUSE_POSIX_TERMIOS=1" && \
-	cp -f xterm $(abspath $(ROOTFS_DIR))/bin/xterm && \
-	cp -f resize $(abspath $(ROOTFS_DIR))/bin/resize 2>/dev/null || true
+	cp -f xterm $(abspath $(ROOTFS_DIR))/usr/bin/xterm && \
+	cp -f resize $(abspath $(ROOTFS_DIR))/usr/bin/resize 2>/dev/null || true && \
+	ln -sf /usr/bin/xterm $(abspath $(ROOTFS_DIR))/bin/xterm && \
+	ln -sf /usr/bin/resize $(abspath $(ROOTFS_DIR))/bin/resize 2>/dev/null || true
 	@if [ -f userland/skeleton/etc/X11/app-defaults/XTerm ]; then \
 		cp -f userland/skeleton/etc/X11/app-defaults/XTerm $(ROOTFS_DIR)/etc/X11/app-defaults/XTerm; \
 		cp -f userland/skeleton/etc/X11/app-defaults/XTerm $(ROOTFS_DIR)/etc/X11/app-defaults/XTerm-color; \
@@ -1088,6 +1146,8 @@ $(ROOTFS_DIR)/bin/xterm: $(XTERM_BUILD_DIR)/Makefile | $(ROOTFS_DIR)
 		cp -f userland/skeleton/etc/X11/app-defaults/XTerm $(ROOTFS_DIR)/usr/lib/X11/app-defaults/XTerm; \
 		cp -f userland/skeleton/etc/X11/app-defaults/XTerm $(ROOTFS_DIR)/usr/lib/X11/app-defaults/XTerm-color; \
 	fi
+
+$(ROOTFS_DIR)/bin/xterm: $(ROOTFS_DIR)/usr/bin/xterm
 	@if [ -f userland/skeleton/etc/X11/app-defaults/SzponTerm ]; then \
 		cp -f userland/skeleton/etc/X11/app-defaults/SzponTerm $(ROOTFS_DIR)/etc/X11/app-defaults/SzponTerm; \
 		cp -f userland/skeleton/etc/X11/app-defaults/SzponTerm $(ROOTFS_DIR)/etc/X11/app-defaults/SzponTerm-color; \
@@ -1200,17 +1260,17 @@ OPENSSL_APP_OBJS = \
 OPENSSL_STAMP := $(OPENSSL_BUILD_DIR)/.built
 
 $(OPENSSL_STAMP): $(OPENSSL_BUILD_DIR)/Makefile | $(LIBC_SO) $(LIBM_SO) $(CRT0_O) $(LIBC_A) $(ROOTFS_DIR)
-	@mkdir -p $(OPENSSL_BUILD_DIR) $(OPENSSL_BUILD_DIR)/ssl $(OPENSSL_BUILD_DIR)/crypto $(OPENSSL_BUILD_DIR)/apps $(OPENSSL_BUILD_DIR)/providers $(ROOTFS_DIR)/lib $(ROOTFS_DIR)/bin $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/openssl $(SYSROOT_DIR)/usr/lib/pkgconfig $(SYSROOT_DIR)/usr/share/pkgconfig
+	@mkdir -p $(OPENSSL_BUILD_DIR) $(OPENSSL_BUILD_DIR)/ssl $(OPENSSL_BUILD_DIR)/crypto $(OPENSSL_BUILD_DIR)/apps $(OPENSSL_BUILD_DIR)/providers $(ROOTFS_DIR)/usr/lib $(ROOTFS_DIR)/usr/bin $(ROOTFS_DIR)/bin $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/openssl $(SYSROOT_DIR)/usr/lib/pkgconfig $(SYSROOT_DIR)/usr/share/pkgconfig
 	@echo "  [MAKE-OPENSSL] Kompilacja OpenSSL (libcrypto, libssl, CLI)..."
 	@$(MAKE) -j$(JOBS) -C $(OPENSSL_BUILD_DIR) build_sw
 	@$(LD) -shared -soname libcrypto.so.4 -o $(OPENSSL_BUILD_DIR)/libcrypto.so.4 --whole-archive $(OPENSSL_BUILD_DIR)/libcrypto.a --no-whole-archive -L$(abspath $(SYSROOT_DIR))/usr/lib -lc -lm
 	@rm -f $(OPENSSL_BUILD_DIR)/libcrypto.so
 	@ln -sf libcrypto.so.4 $(OPENSSL_BUILD_DIR)/libcrypto.so
-	@rm -f $(SYSROOT_DIR)/usr/lib/libcrypto.so $(SYSROOT_DIR)/usr/lib/libcrypto.so.4 $(ROOTFS_DIR)/lib/libcrypto.so $(ROOTFS_DIR)/lib/libcrypto.so.4
+	@rm -f $(SYSROOT_DIR)/usr/lib/libcrypto.so $(SYSROOT_DIR)/usr/lib/libcrypto.so.4 $(ROOTFS_DIR)/usr/lib/libcrypto.so $(ROOTFS_DIR)/usr/lib/libcrypto.so.4
 	@cp -f $(OPENSSL_BUILD_DIR)/libcrypto.so.4 $(SYSROOT_DIR)/usr/lib/libcrypto.so.4
 	@ln -sf libcrypto.so.4 $(SYSROOT_DIR)/usr/lib/libcrypto.so
-	@cp -f $(OPENSSL_BUILD_DIR)/libcrypto.so.4 $(ROOTFS_DIR)/lib/libcrypto.so.4
-	@ln -sf libcrypto.so.4 $(ROOTFS_DIR)/lib/libcrypto.so
+	@cp -f $(OPENSSL_BUILD_DIR)/libcrypto.so.4 $(ROOTFS_DIR)/usr/lib/libcrypto.so.4
+	@ln -sf libcrypto.so.4 $(ROOTFS_DIR)/usr/lib/libcrypto.so
 	@cp -f $(OPENSSL_BUILD_DIR)/libcrypto.a $(SYSROOT_DIR)/usr/lib/ 2>/dev/null || true
 	@cp -rf $(OPENSSL_BUILD_DIR)/include/openssl/* $(SYSROOT_DIR)/usr/include/openssl/ 2>/dev/null || true
 	@cp -rf third_party/openssl/include/openssl/* $(SYSROOT_DIR)/usr/include/openssl/ 2>/dev/null || true
@@ -1219,21 +1279,39 @@ $(OPENSSL_STAMP): $(OPENSSL_BUILD_DIR)/Makefile | $(LIBC_SO) $(LIBM_SO) $(CRT0_O
 	@$(LD) -shared -soname libssl.so.4 -o $(OPENSSL_BUILD_DIR)/libssl.so.4 --whole-archive $(OPENSSL_BUILD_DIR)/libssl.a --no-whole-archive -L$(OPENSSL_BUILD_DIR) -L$(abspath $(SYSROOT_DIR))/usr/lib -lcrypto -lc -lm
 	@rm -f $(OPENSSL_BUILD_DIR)/libssl.so
 	@ln -sf libssl.so.4 $(OPENSSL_BUILD_DIR)/libssl.so
-	@rm -f $(SYSROOT_DIR)/usr/lib/libssl.so $(SYSROOT_DIR)/usr/lib/libssl.so.4 $(ROOTFS_DIR)/lib/libssl.so $(ROOTFS_DIR)/lib/libssl.so.4
+	@rm -f $(SYSROOT_DIR)/usr/lib/libssl.so $(SYSROOT_DIR)/usr/lib/libssl.so.4 $(ROOTFS_DIR)/usr/lib/libssl.so $(ROOTFS_DIR)/usr/lib/libssl.so.4
 	@cp -f $(OPENSSL_BUILD_DIR)/libssl.so.4 $(SYSROOT_DIR)/usr/lib/libssl.so.4
 	@ln -sf libssl.so.4 $(SYSROOT_DIR)/usr/lib/libssl.so
-	@cp -f $(OPENSSL_BUILD_DIR)/libssl.so.4 $(ROOTFS_DIR)/lib/libssl.so.4
-	@ln -sf libssl.so.4 $(ROOTFS_DIR)/lib/libssl.so
+	@cp -f $(OPENSSL_BUILD_DIR)/libssl.so.4 $(ROOTFS_DIR)/usr/lib/libssl.so.4
+	@ln -sf libssl.so.4 $(ROOTFS_DIR)/usr/lib/libssl.so
 	@cp -f $(OPENSSL_BUILD_DIR)/libssl.a $(SYSROOT_DIR)/usr/lib/ 2>/dev/null || true
-	@$(CC) $(USER_CFLAGS) -nostdlib $(abspath $(SYSROOT_DIR))/usr/lib/crt0.o -o $(ROOTFS_DIR)/bin/openssl \
+	@$(CC) $(USER_CFLAGS) -nostdlib $(abspath $(SYSROOT_DIR))/usr/lib/crt0.o -o $(ROOTFS_DIR)/usr/bin/openssl \
 	    $(OPENSSL_APP_OBJS) \
 	    $(OPENSSL_BUILD_DIR)/apps/libapps.a \
 	    -L$(OPENSSL_BUILD_DIR) -L$(abspath $(SYSROOT_DIR))/usr/lib -lssl -lcrypto -ldl -lc -lm
+	@ln -sf /usr/bin/openssl $(ROOTFS_DIR)/bin/openssl
 	@touch $@
 
-$(ROOTFS_DIR)/lib/libcrypto.so: $(OPENSSL_STAMP)
-$(ROOTFS_DIR)/lib/libssl.so: $(OPENSSL_STAMP)
-$(ROOTFS_DIR)/bin/openssl: $(OPENSSL_STAMP)
+$(ROOTFS_DIR)/usr/lib/libcrypto.so: $(OPENSSL_STAMP)
+	@mkdir -p $(ROOTFS_DIR)/usr/lib
+	@cp -f $(OPENSSL_BUILD_DIR)/libcrypto.so.4 $(ROOTFS_DIR)/usr/lib/libcrypto.so.4
+	@ln -sf libcrypto.so.4 $(ROOTFS_DIR)/usr/lib/libcrypto.so
+
+$(ROOTFS_DIR)/usr/lib/libssl.so: $(OPENSSL_STAMP)
+	@mkdir -p $(ROOTFS_DIR)/usr/lib
+	@cp -f $(OPENSSL_BUILD_DIR)/libssl.so.4 $(ROOTFS_DIR)/usr/lib/libssl.so.4
+	@ln -sf libssl.so.4 $(ROOTFS_DIR)/usr/lib/libssl.so
+
+$(ROOTFS_DIR)/usr/bin/openssl: $(OPENSSL_STAMP)
+	@mkdir -p $(ROOTFS_DIR)/usr/bin $(ROOTFS_DIR)/bin
+	@if [ -f $(OPENSSL_BUILD_DIR)/apps/openssl ]; then cp -f $(OPENSSL_BUILD_DIR)/apps/openssl $@; fi
+	@ln -sf /usr/bin/openssl $(ROOTFS_DIR)/bin/openssl
+
+$(ROOTFS_DIR)/bin/openssl: $(ROOTFS_DIR)/usr/bin/openssl
+$(ROOTFS_DIR)/lib/libcrypto.so: $(ROOTFS_DIR)/usr/lib/libcrypto.so
+	@ln -sf /usr/lib/libcrypto.so $@ 2>/dev/null || true
+$(ROOTFS_DIR)/lib/libssl.so: $(ROOTFS_DIR)/usr/lib/libssl.so
+	@ln -sf /usr/lib/libssl.so $@ 2>/dev/null || true
 
 # ==============================================================================
 # cURL (libcurl.so, /bin/curl with OpenSSL & Zlib support)
@@ -1242,7 +1320,7 @@ third_party/curl/configure: third_party/curl/configure.ac
 	@echo "  [PRECONF-CURL] Generowanie configure dla cURL..."
 	@cd third_party/curl && autoreconf -fi 2>/dev/null || true
 
-$(CURL_BUILD_DIR)/Makefile: third_party/curl/configure | $(ROOTFS_DIR)/lib/libssl.so $(ROOTFS_DIR)/lib/libcrypto.so $(LIBZ_A) $(SYSROOT_STAMP) $(CURL_BUILD_DIR)
+$(CURL_BUILD_DIR)/Makefile: third_party/curl/configure | $(ROOTFS_DIR)/usr/lib/libssl.so $(ROOTFS_DIR)/usr/lib/libcrypto.so $(LIBZ_A) $(SYSROOT_STAMP) $(CURL_BUILD_DIR)
 	@echo "  [CONF-CURL] Konfiguracja cURL (Autotools cross-compile z OpenSSL)..."
 	@cd $(CURL_BUILD_DIR) && \
 	PKG_CONFIG_PATH="$(abspath $(SYSROOT_DIR))/usr/lib/pkgconfig:$(abspath $(SYSROOT_DIR))/usr/share/pkgconfig" \
@@ -1285,24 +1363,26 @@ $(CURL_BUILD_DIR)/Makefile: third_party/curl/configure | $(ROOTFS_DIR)/lib/libss
 $(CURL_BUILD_DIR):
 	@mkdir -p $@
 
-$(ROOTFS_DIR)/lib/libcurl.so: $(CURL_BUILD_DIR)/Makefile $(ROOTFS_DIR)/lib/libssl.so $(ROOTFS_DIR)/lib/libcrypto.so $(LIBZ_A)
-	@mkdir -p $(CURL_BUILD_DIR) $(ROOTFS_DIR)/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/curl $(SYSROOT_DIR)/usr/lib/pkgconfig
+$(ROOTFS_DIR)/usr/lib/libcurl.so: $(CURL_BUILD_DIR)/Makefile $(ROOTFS_DIR)/usr/lib/libssl.so $(ROOTFS_DIR)/usr/lib/libcrypto.so $(LIBZ_A)
+	@mkdir -p $(CURL_BUILD_DIR) $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/curl $(SYSROOT_DIR)/usr/lib/pkgconfig
 	@echo "  [MAKE-LIBCURL] Kompilacja libcurl..."
 	@$(MAKE) -j$(JOBS) -C $(CURL_BUILD_DIR)/lib
 	@$(LD) -shared -soname libcurl.so.4 -o $(CURL_BUILD_DIR)/lib/libcurl.so.4 --whole-archive $(CURL_BUILD_DIR)/lib/.libs/libcurl.a --no-whole-archive -L$(abspath $(SYSROOT_DIR))/usr/lib -lssl -lcrypto -lz -lc -lm
 	@rm -f $(CURL_BUILD_DIR)/lib/libcurl.so
 	@ln -sf libcurl.so.4 $(CURL_BUILD_DIR)/lib/libcurl.so
-	@rm -f $(SYSROOT_DIR)/usr/lib/libcurl.so $(SYSROOT_DIR)/usr/lib/libcurl.so.4 $(ROOTFS_DIR)/lib/libcurl.so $(ROOTFS_DIR)/lib/libcurl.so.4
+	@rm -f $(SYSROOT_DIR)/usr/lib/libcurl.so $(SYSROOT_DIR)/usr/lib/libcurl.so.4 $(ROOTFS_DIR)/usr/lib/libcurl.so $(ROOTFS_DIR)/usr/lib/libcurl.so.4
 	@cp -f $(CURL_BUILD_DIR)/lib/libcurl.so.4 $(SYSROOT_DIR)/usr/lib/libcurl.so.4
 	@ln -sf libcurl.so.4 $(SYSROOT_DIR)/usr/lib/libcurl.so
-	@cp -f $(CURL_BUILD_DIR)/lib/libcurl.so.4 $(ROOTFS_DIR)/lib/libcurl.so.4
-	@ln -sf libcurl.so.4 $(ROOTFS_DIR)/lib/libcurl.so
+	@cp -f $(CURL_BUILD_DIR)/lib/libcurl.so.4 $(ROOTFS_DIR)/usr/lib/libcurl.so.4
+	@ln -sf libcurl.so.4 $(ROOTFS_DIR)/usr/lib/libcurl.so
 	@cp -rf third_party/curl/include/curl/*.h $(SYSROOT_DIR)/usr/include/curl/ 2>/dev/null || true
 	@cp -f $(CURL_BUILD_DIR)/libcurl.pc $(SYSROOT_DIR)/usr/lib/pkgconfig/ 2>/dev/null || true
 	@cp -f $(CURL_BUILD_DIR)/libcurl.pc $(SYSROOT_DIR)/usr/share/pkgconfig/ 2>/dev/null || true
 
-$(ROOTFS_DIR)/bin/curl: $(ROOTFS_DIR)/lib/libcurl.so $(ROOTFS_DIR)/lib/libssl.so $(ROOTFS_DIR)/lib/libcrypto.so $(LIBZ_A) $(CRT0_O) | $(ROOTFS_DIR)
-	@mkdir -p $(ROOTFS_DIR)/bin
+$(ROOTFS_DIR)/lib/libcurl.so: $(ROOTFS_DIR)/usr/lib/libcurl.so
+
+$(ROOTFS_DIR)/usr/bin/curl: $(ROOTFS_DIR)/usr/lib/libcurl.so $(ROOTFS_DIR)/usr/lib/libssl.so $(ROOTFS_DIR)/usr/lib/libcrypto.so $(LIBZ_A) $(CRT0_O) | $(ROOTFS_DIR)
+	@mkdir -p $(ROOTFS_DIR)/usr/bin $(ROOTFS_DIR)/bin
 	@echo "  [MAKE-CURL] Kompilacja narzędzia CLI cURL..."
 	@$(MAKE) -j$(JOBS) -C $(CURL_BUILD_DIR)/src curl-config2setopts.o curl-tool_main.o 2>/dev/null || true
 	@$(MAKE) -j$(JOBS) -C $(CURL_BUILD_DIR)/src curl 2>/dev/null || true
@@ -1311,6 +1391,9 @@ $(ROOTFS_DIR)/bin/curl: $(ROOTFS_DIR)/lib/libcurl.so $(ROOTFS_DIR)/lib/libssl.so
 	    $(CURL_BUILD_DIR)/src/toolx/curl-*.o \
 	    $(CURL_BUILD_DIR)/lib/.libs/libcurlu.a \
 	    -L$(CURL_BUILD_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lcurl -lssl -lcrypto -lz -ldl -lc -lm
+	@ln -sf /usr/bin/curl $(ROOTFS_DIR)/bin/curl
+
+$(ROOTFS_DIR)/bin/curl: $(ROOTFS_DIR)/usr/bin/curl
 
 # ==============================================================================
 # OpenSSH Portable (sshd, sshd-session, sshd-auth, ssh-keygen, ssh, sftp-server)
@@ -1319,7 +1402,7 @@ third_party/openssh/configure: third_party/openssh/configure.ac
 	@echo "  [PRECONF-OPENSSH] Generowanie configure dla OpenSSH..."
 	@cd $(OPENSSH_SRC_DIR) && autoreconf -fi
 
-$(OPENSSH_BUILD_DIR)/Makefile: third_party/openssh/configure | $(ROOTFS_DIR)/lib/libssl.so $(ROOTFS_DIR)/lib/libcrypto.so $(LIBZ_A) $(SYSROOT_STAMP) $(OPENSSH_BUILD_DIR)
+$(OPENSSH_BUILD_DIR)/Makefile: third_party/openssh/configure | $(ROOTFS_DIR)/usr/lib/libssl.so $(ROOTFS_DIR)/usr/lib/libcrypto.so $(LIBZ_A) $(SYSROOT_STAMP) $(OPENSSH_BUILD_DIR)
 	@echo "  [CONF-OPENSSH] Konfiguracja OpenSSH (Autotools cross-compile)..."
 	@cd $(OPENSSH_BUILD_DIR) && \
 	$(OPENSSH_SRC_DIR)/configure \
@@ -1351,12 +1434,7 @@ $(OPENSSH_BUILD_DIR)/Makefile: third_party/openssh/configure | $(ROOTFS_DIR)/lib
 	@sed -i '' 's|/\* #undef HAVE_SETRESUID \*/|#define HAVE_SETRESUID 1|' $(OPENSSH_BUILD_DIR)/config.h 2>/dev/null || sed -i 's|/\* #undef HAVE_SETRESUID \*/|#define HAVE_SETRESUID 1|' $(OPENSSH_BUILD_DIR)/config.h
 	@sed -i '' 's|/\* #undef HAVE_SETRESGID \*/|#define HAVE_SETRESGID 1|' $(OPENSSH_BUILD_DIR)/config.h 2>/dev/null || sed -i 's|/\* #undef HAVE_SETRESGID \*/|#define HAVE_SETRESGID 1|' $(OPENSSH_BUILD_DIR)/config.h
 	@sed -i '' 's|/\* #undef NO_UID_RESTORATION_TEST \*/|#define NO_UID_RESTORATION_TEST 1|' $(OPENSSH_BUILD_DIR)/config.h 2>/dev/null || sed -i 's|/\* #undef NO_UID_RESTORATION_TEST \*/|#define NO_UID_RESTORATION_TEST 1|' $(OPENSSH_BUILD_DIR)/config.h
-	@sed -i '' 's|/\* #undef DISABLE_FD_PASSING \*/|#define DISABLE_FD_PASSING 1|' $(OPENSSH_BUILD_DIR)/config.h 2>/dev/null || sed -i 's|/\* #undef DISABLE_FD_PASSING \*/|#define DISABLE_FD_PASSING 1|' $(OPENSSH_BUILD_DIR)/config.h
-
-$(OPENSSH_BUILD_DIR):
-	@mkdir -p $@
-
-$(ROOTFS_DIR)/usr/sbin/sshd: $(OPENSSH_BUILD_DIR)/Makefile | $(ROOTFS_DIR)/lib/libssl.so $(ROOTFS_DIR)/lib/libcrypto.so $(LIBZ_A) $(SYSROOT_STAMP) $(ROOTFS_DIR)
+$(ROOTFS_DIR)/usr/sbin/sshd: $(OPENSSH_BUILD_DIR)/Makefile | $(ROOTFS_DIR)/usr/lib/libssl.so $(ROOTFS_DIR)/usr/lib/libcrypto.so $(LIBZ_A) $(SYSROOT_STAMP) $(ROOTFS_DIR)
 	@mkdir -p $(ROOTFS_DIR)/usr/sbin $(ROOTFS_DIR)/usr/bin $(ROOTFS_DIR)/usr/libexec $(ROOTFS_DIR)/bin $(ROOTFS_DIR)/etc/ssh $(ROOTFS_DIR)/var/empty
 	@echo "  [MAKE-OPENSSH] Kompilacja OpenSSH (sshd, sshd-session, sshd-auth, ssh-keygen, ssh)..."
 	@$(MAKE) -j$(JOBS) -C $(OPENSSH_BUILD_DIR) sshd sshd-session sshd-auth ssh-keygen ssh sftp-server
@@ -1391,7 +1469,7 @@ third_party/xkbcomp/configure: third_party/xkbcomp/configure.ac
 	@echo "  [PRECONF-XKBCOMP] Generowanie configure dla xkbcomp..."
 	@cd third_party/xkbcomp && autoreconf -fi -I ../util-macros $(ACLOCAL_EXTRA_DIRS) 2>/dev/null || true
 
-$(XKBCOMP_BUILD_DIR)/Makefile: third_party/xkbcomp/configure | $(ROOTFS_DIR)/lib/libxkbfile.so $(ROOTFS_DIR)/lib/libX11.so $(SYSROOT_STAMP) $(LIBC_SO) $(CRT0_O)
+$(XKBCOMP_BUILD_DIR)/Makefile: third_party/xkbcomp/configure | $(ROOTFS_DIR)/usr/lib/libxkbfile.so $(ROOTFS_DIR)/usr/lib/libX11.so $(SYSROOT_STAMP) $(LIBC_SO) $(CRT0_O)
 	@mkdir -p $(XKBCOMP_BUILD_DIR)
 	@echo "  [CONF-XKBCOMP] Konfiguracja xkbcomp..."
 	@cd $(XKBCOMP_BUILD_DIR) && \
@@ -1430,7 +1508,27 @@ $(ROOTFS_DIR)/usr/share/X11/xkb: $(XKBCONFIG_BUILD_DIR)/build.ninja | $(ROOTFS_D
 	@cp -rf $(SYSROOT_DIR)/usr/share/xkeyboard-config-2 $(ROOTFS_DIR)/usr/share/
 	@cd $(ROOTFS_DIR)/usr/share/X11 && ln -sfn ../xkeyboard-config-2 xkb
 
-$(XSERVER_BUILD_DIR)/build.ninja: $(BUILD_DIR)/szpontos_cross.ini | $(ROOTFS_DIR)/lib/libdrm.so $(ROOTFS_DIR)/lib/libgbm.so $(ROOTFS_DIR)/lib/libpixman-1.so $(ROOTFS_DIR)/lib/libxkbfile.so $(ROOTFS_DIR)/lib/libXfont2.so $(ROOTFS_DIR)/lib/libfontenc.so $(ROOTFS_DIR)/lib/libpciaccess.so $(ROOTFS_DIR)/lib/libGL.so $(SYSROOT_STAMP)
+EPOXY_BUILD_DIR := $(BUILD_DIR)/third_party/libepoxy
+
+$(ROOTFS_DIR)/usr/lib/libepoxy.so: $(BUILD_DIR)/szpontos_cross.ini | $(ROOTFS_DIR)/usr/lib/libGL.so $(ROOTFS_DIR)/usr/lib/libEGL.so $(ROOTFS_DIR)/usr/lib/libX11.so $(SYSROOT_STAMP)
+	@mkdir -p $(EPOXY_BUILD_DIR)
+	@echo "  [CONF-EPOXY] Konfiguracja libepoxy (meson cross-compile)..."
+	@if [ ! -f $(EPOXY_BUILD_DIR)/build.ninja ]; then \
+		PKG_CONFIG_PATH="$(abspath $(SYSROOT_DIR))/usr/lib/pkgconfig:$(abspath $(SYSROOT_DIR))/usr/share/pkgconfig" \
+		meson setup $(EPOXY_BUILD_DIR) third_party/libepoxy \
+		    --cross-file $(BUILD_DIR)/szpontos_cross.ini \
+		    -Dprefix=/usr -Ddocs=false -Dtests=false -Dglx=yes -Degl=yes -Dx11=true ; \
+	fi
+	@echo "  [NINJA-EPOXY] Kompilacja libepoxy..."
+	@ninja -j$(JOBS) -C $(EPOXY_BUILD_DIR)
+	@DESTDIR=$(SYSROOT_DIR) ninja -j$(JOBS) -C $(EPOXY_BUILD_DIR) install >/dev/null 2>&1 || true
+	@cp -a $(SYSROOT_DIR)/usr/lib/libepoxy.so* $(ROOTFS_DIR)/usr/lib/
+	@echo "  [OK]  libepoxy installed to sysroot and rootfs"
+
+$(ROOTFS_DIR)/lib/libepoxy.so: $(ROOTFS_DIR)/usr/lib/libepoxy.so
+	@ln -sf /usr/lib/libepoxy.so $@ 2>/dev/null || true
+
+$(XSERVER_BUILD_DIR)/build.ninja: $(BUILD_DIR)/szpontos_cross.ini | $(ROOTFS_DIR)/usr/lib/libdrm.so $(ROOTFS_DIR)/usr/lib/libgbm.so $(ROOTFS_DIR)/usr/lib/libpixman-1.so $(ROOTFS_DIR)/usr/lib/libxkbfile.so $(ROOTFS_DIR)/usr/lib/libXfont2.so $(ROOTFS_DIR)/usr/lib/libfontenc.so $(ROOTFS_DIR)/usr/lib/libpciaccess.so $(ROOTFS_DIR)/usr/lib/libGL.so $(ROOTFS_DIR)/usr/lib/libepoxy.so $(SYSROOT_STAMP)
 	@mkdir -p $(XSERVER_BUILD_DIR)
 	@echo "  [CONF-XORG] Konfiguracja X.Org Server (meson cross-compile)..."
 	@PKG_CONFIG_PATH="$(abspath $(SYSROOT_DIR))/usr/lib/pkgconfig:$(abspath $(SYSROOT_DIR))/usr/share/pkgconfig" \
@@ -1444,11 +1542,11 @@ $(XSERVER_BUILD_DIR)/build.ninja: $(BUILD_DIR)/szpontos_cross.ini | $(ROOTFS_DIR
 	    -Dxvfb=false \
 	    -Dxwin=false \
 	    -Dxquartz=false \
-	    -Dglamor=false \
+	    -Dglamor=true \
 	    -Dglx=true \
 	    -Ddri1=false \
-	    -Ddri2=false \
-	    -Ddri3=false \
+	    -Ddri2=true \
+	    -Ddri3=true \
 	    -Dgbm=true \
 	    -Dudev=false \
 	    -Dudev_kms=false \
@@ -1483,11 +1581,11 @@ $(XSERVER_BUILD_DIR)/build.ninja: $(BUILD_DIR)/szpontos_cross.ini | $(ROOTFS_DIR
 	    -Dxvfb=false \
 	    -Dxwin=false \
 	    -Dxquartz=false \
-	    -Dglamor=false \
+	    -Dglamor=true \
 	    -Dglx=true \
 	    -Ddri1=false \
-	    -Ddri2=false \
-	    -Ddri3=false \
+	    -Ddri2=true \
+	    -Ddri3=true \
 	    -Dgbm=true \
 	    -Dudev=false \
 	    -Dudev_kms=false \
@@ -1511,9 +1609,17 @@ $(XSERVER_BUILD_DIR)/build.ninja: $(BUILD_DIR)/szpontos_cross.ini | $(ROOTFS_DIR
 	    -Dxkb_dir=/usr/share/X11/xkb \
 	    -Dxkb_bin_dir=/usr/bin \
 	    -Dxkb_output_dir=/var/lib/xkb
+	@if [ -f $(XSERVER_BUILD_DIR)/dix-config.h ]; then \
+		sed -i '' -e 's|#define DRI_DRIVER_PATH ".*"|#define DRI_DRIVER_PATH "/usr/lib/dri:/lib/dri"|g' $(XSERVER_BUILD_DIR)/dix-config.h 2>/dev/null || \
+		sed -i -e 's|#define DRI_DRIVER_PATH ".*"|#define DRI_DRIVER_PATH "/usr/lib/dri:/lib/dri"|g' $(XSERVER_BUILD_DIR)/dix-config.h ; \
+	fi
 
 $(XSERVER_BUILD_DIR)/hw/xfree86/Xorg: $(XSERVER_BUILD_DIR)/build.ninja
 	@echo "  [NINJA-XORG] Kompilacja X.Org Server (ninja -j$(JOBS))..."
+	@if [ -f $(XSERVER_BUILD_DIR)/dix-config.h ]; then \
+		sed -i '' -e 's|#define DRI_DRIVER_PATH ".*"|#define DRI_DRIVER_PATH "/usr/lib/dri:/lib/dri"|g' $(XSERVER_BUILD_DIR)/dix-config.h 2>/dev/null || \
+		sed -i -e 's|#define DRI_DRIVER_PATH ".*"|#define DRI_DRIVER_PATH "/usr/lib/dri:/lib/dri"|g' $(XSERVER_BUILD_DIR)/dix-config.h ; \
+	fi
 	@ninja -j$(JOBS) -C $(XSERVER_BUILD_DIR)
 
 $(ROOTFS_DIR)/usr/bin/Xorg: $(XSERVER_BUILD_DIR)/hw/xfree86/Xorg | $(ROOTFS_DIR)
@@ -1529,7 +1635,12 @@ $(ROOTFS_DIR)/usr/bin/Xorg: $(XSERVER_BUILD_DIR)/hw/xfree86/Xorg | $(ROOTFS_DIR)
 	fi
 	@cp -f $(XSERVER_BUILD_DIR)/hw/xfree86/dixmods/*.so $(ROOTFS_DIR)/usr/lib/xorg/modules/ 2>/dev/null || true
 	@cp -f $(XSERVER_BUILD_DIR)/hw/xfree86/dixmods/*.so $(ROOTFS_DIR)/usr/lib/xorg/modules/xlibre-25/ 2>/dev/null || true
+	@cp -f $(XSERVER_BUILD_DIR)/hw/xfree86/glamor_egl/*.so $(ROOTFS_DIR)/usr/lib/xorg/modules/ 2>/dev/null || true
+	@cp -f $(XSERVER_BUILD_DIR)/hw/xfree86/glamor_egl/*.so $(ROOTFS_DIR)/usr/lib/xorg/modules/xlibre-25/ 2>/dev/null || true
+	@ln -sf libglamoregl.so $(ROOTFS_DIR)/usr/lib/xorg/modules/glamoregl.so 2>/dev/null || true
+	@ln -sf libglamoregl.so $(ROOTFS_DIR)/usr/lib/xorg/modules/xlibre-25/glamoregl.so 2>/dev/null || true
 	@cp -f userland/skeleton/etc/X11/xorg.conf $(ROOTFS_DIR)/etc/X11/xorg.conf 2>/dev/null || true
+	@cp -f userland/skeleton/etc/X11/xorg-sw.conf $(ROOTFS_DIR)/etc/X11/xorg-sw.conf 2>/dev/null || true
 
 MOUSE_SRCS := third_party/xf86-input-mouse/src/mouse.c third_party/xf86-input-mouse/src/pnp.c third_party/xf86-input-mouse/src/lnx_mouse.c
 MOUSE_OBJS := $(patsubst third_party/xf86-input-mouse/src/%.c, $(MOUSE_BUILD_DIR)/%.o, $(MOUSE_SRCS))
@@ -1584,14 +1695,14 @@ $(ROOTFS_DIR)/usr/lib/xorg/modules/input/kbd_drv.so: $(KBD_OBJS) | $(ROOTFS_DIR)
 MESA_BUILD_DIR := $(BUILD_DIR)/third_party/mesa
 MESA_CROSS_FILE := $(BUILD_DIR)/szpontos_cross.ini
 
-$(MESA_BUILD_DIR)/build.ninja: $(MESA_CROSS_FILE) | $(ROOTFS_DIR)/lib/libdrm.so $(ROOTFS_DIR)/lib/libxshmfence.so $(ROOTFS_DIR)/lib/libxcb.so $(ROOTFS_DIR)/lib/libXxf86vm.so $(LIBSTDCXX_SO) $(SYSROOT_STAMP)
+$(MESA_BUILD_DIR)/build.ninja: $(MESA_CROSS_FILE) | $(ROOTFS_DIR)/usr/lib/libdrm.so $(ROOTFS_DIR)/usr/lib/libxshmfence.so $(ROOTFS_DIR)/usr/lib/libxcb.so $(ROOTFS_DIR)/usr/lib/libXxf86vm.so $(LIBSTDCXX_SO) $(SYSROOT_STAMP)
 	@mkdir -p $(MESA_BUILD_DIR)
 	@echo "  [CONF-MESA] Konfiguracja Mesa 3D (meson cross-compile)..."
 	@PKG_CONFIG_PATH="$(abspath $(SYSROOT_DIR))/usr/lib/pkgconfig:$(abspath $(SYSROOT_DIR))/usr/share/pkgconfig" \
 	meson setup $(MESA_BUILD_DIR) third_party/mesa \
 	    --cross-file $(MESA_CROSS_FILE) \
 	    -Dprefix=/usr \
-	    -Dgallium-drivers=softpipe \
+	    -Dgallium-drivers=crocus,virgl,softpipe \
 	    -Dgallium-vdpau=disabled \
 	    -Dgallium-va=disabled \
 	    -Dgallium-xa=disabled \
@@ -1616,7 +1727,7 @@ $(MESA_BUILD_DIR)/build.ninja: $(MESA_CROSS_FILE) | $(ROOTFS_DIR)/lib/libdrm.so 
 	meson setup $(MESA_BUILD_DIR) third_party/mesa \
 	    --cross-file $(MESA_CROSS_FILE) \
 	    -Dprefix=/usr \
-	    -Dgallium-drivers=softpipe \
+	    -Dgallium-drivers=crocus,virgl,softpipe \
 	    -Dgallium-vdpau=disabled \
 	    -Dgallium-va=disabled \
 	    -Dgallium-xa=disabled \
@@ -1641,39 +1752,62 @@ $(MESA_BUILD_DIR)/build.ninja: $(MESA_CROSS_FILE) | $(ROOTFS_DIR)/lib/libdrm.so 
 $(MESA_BUILD_DIR)/src/egl/libEGL.so.1.0.0: $(MESA_BUILD_DIR)/build.ninja
 	@echo "  [NINJA-MESA] Kompilacja Mesa 3D (ninja -j$(JOBS))..."
 	@ninja -j$(JOBS) -C $(MESA_BUILD_DIR)
+	@rm -f $(SYSROOT_DIR)/usr/lib/libgbm.so $(SYSROOT_DIR)/usr/lib/libgbm.so.1
 	@DESTDIR=$(abspath $(SYSROOT_DIR)) ninja -j$(JOBS) -C $(MESA_BUILD_DIR) install >/dev/null 2>&1 || true
 
-$(ROOTFS_DIR)/lib/libEGL.so: $(MESA_BUILD_DIR)/src/egl/libEGL.so.1.0.0 | $(ROOTFS_DIR)
-	@mkdir -p $(ROOTFS_DIR)/lib/dri $(ROOTFS_DIR)/lib/gbm $(ROOTFS_DIR)/usr/lib
+$(ROOTFS_DIR)/usr/lib/libEGL.so: $(MESA_BUILD_DIR)/src/egl/libEGL.so.1.0.0 | $(ROOTFS_DIR)
+	@mkdir -p $(ROOTFS_DIR)/usr/lib $(ROOTFS_DIR)/usr/lib/dri $(ROOTFS_DIR)/usr/lib/gbm
 	@ln -sf libEGL.so.1.0.0 $(SYSROOT_DIR)/usr/lib/libEGL.so 2>/dev/null || true
 	@ln -sf libEGL.so.1.0.0 $(SYSROOT_DIR)/usr/lib/libEGL.so.1 2>/dev/null || true
 	@ln -sf libGLESv2.so.2.0.0 $(SYSROOT_DIR)/usr/lib/libGLESv2.so 2>/dev/null || true
 	@ln -sf libGLESv2.so.2.0.0 $(SYSROOT_DIR)/usr/lib/libGLESv2.so.2 2>/dev/null || true
 	@ln -sf libGL.so.1.2.0 $(SYSROOT_DIR)/usr/lib/libGL.so 2>/dev/null || true
 	@ln -sf libGL.so.1.2.0 $(SYSROOT_DIR)/usr/lib/libGL.so.1 2>/dev/null || true
-	@cp -a $(SYSROOT_DIR)/usr/lib/libgallium*.so* $(ROOTFS_DIR)/lib/
-	@cp -a $(SYSROOT_DIR)/usr/lib/libEGL* $(ROOTFS_DIR)/lib/
-	@cp -a $(SYSROOT_DIR)/usr/lib/libGLESv2* $(ROOTFS_DIR)/lib/
-	@cp -a $(SYSROOT_DIR)/usr/lib/libGL* $(ROOTFS_DIR)/lib/
-	@$(MAKE) -C $(ROOT_DIR)/libgbm install
-	@cp -a $(SYSROOT_DIR)/usr/lib/libexpat* $(ROOTFS_DIR)/lib/
-	@cp -a $(SYSROOT_DIR)/usr/lib/dri/* $(ROOTFS_DIR)/lib/dri/
-	@ln -sf kms_swrast_dri.so $(ROOTFS_DIR)/lib/dri/szpont-drm_dri.so
+	@cp -a $(SYSROOT_DIR)/usr/lib/libgallium*.so* $(ROOTFS_DIR)/usr/lib/
+	@cp -a $(SYSROOT_DIR)/usr/lib/libEGL* $(ROOTFS_DIR)/usr/lib/
+	@cp -a $(SYSROOT_DIR)/usr/lib/libGLESv2* $(ROOTFS_DIR)/usr/lib/
+	@cp -a $(SYSROOT_DIR)/usr/lib/libGL.so* $(ROOTFS_DIR)/usr/lib/ 2>/dev/null || true
+	@cp -a $(MESA_BUILD_DIR)/src/gbm/libgbm.so* $(SYSROOT_DIR)/usr/lib/ 2>/dev/null || true
+	@cp -a $(MESA_BUILD_DIR)/src/gbm/libgbm.so* $(ROOTFS_DIR)/usr/lib/ 2>/dev/null || cp -a $(SYSROOT_DIR)/usr/lib/libgbm.so* $(ROOTFS_DIR)/usr/lib/ 2>/dev/null || true
+	@rm -rf $(ROOTFS_DIR)/usr/lib/*.p $(SYSROOT_DIR)/usr/lib/*.p
+	@ln -sf libgbm.so.1 $(ROOTFS_DIR)/usr/lib/libgbm.so 2>/dev/null || true
+	@ln -sf libgbm.so.1 $(SYSROOT_DIR)/usr/lib/libgbm.so 2>/dev/null || true
+	@mkdir -p $(ROOTFS_DIR)/usr/lib/gbm $(SYSROOT_DIR)/usr/lib/gbm
+	@cp -a $(MESA_BUILD_DIR)/src/gbm/backends/dri/dri_gbm.so $(ROOTFS_DIR)/usr/lib/gbm/ 2>/dev/null || cp -a $(SYSROOT_DIR)/usr/lib/gbm/* $(ROOTFS_DIR)/usr/lib/gbm/ 2>/dev/null || true
+	@cp -a $(ROOTFS_DIR)/usr/lib/gbm/* $(SYSROOT_DIR)/usr/lib/gbm/ 2>/dev/null || true
+	@cp -a $(SYSROOT_DIR)/usr/lib/libexpat* $(ROOTFS_DIR)/usr/lib/
+	@cp -a $(SYSROOT_DIR)/usr/lib/dri/* $(ROOTFS_DIR)/usr/lib/dri/
+	@ln -sf kms_swrast_dri.so $(ROOTFS_DIR)/usr/lib/dri/szpont-drm_dri.so
 	@ln -sf kms_swrast_dri.so $(SYSROOT_DIR)/usr/lib/dri/szpont-drm_dri.so
-	@rm -rf $(ROOTFS_DIR)/usr/lib/dri $(ROOTFS_DIR)/usr/lib/gbm
-	@ln -sf /lib/dri $(ROOTFS_DIR)/usr/lib/dri
-	@ln -sf /lib/gbm $(ROOTFS_DIR)/usr/lib/gbm
+	@ln -sf libdril_dri.so $(ROOTFS_DIR)/usr/lib/dri/crocus_dri.so 2>/dev/null || true
+	@ln -sf libdril_dri.so $(ROOTFS_DIR)/usr/lib/dri/i915_dri.so 2>/dev/null || true
+	@ln -sf libdril_dri.so $(ROOTFS_DIR)/usr/lib/dri/virtio_gpu_dri.so 2>/dev/null || true
+	@ln -sf libdril_dri.so $(SYSROOT_DIR)/usr/lib/dri/crocus_dri.so 2>/dev/null || true
+	@ln -sf libdril_dri.so $(SYSROOT_DIR)/usr/lib/dri/i915_dri.so 2>/dev/null || true
+	@ln -sf libdril_dri.so $(SYSROOT_DIR)/usr/lib/dri/virtio_gpu_dri.so 2>/dev/null || true
 
-$(ROOTFS_DIR)/lib/libGL.so: $(ROOTFS_DIR)/lib/libEGL.so
-$(ROOTFS_DIR)/lib/libGLESv2.so: $(ROOTFS_DIR)/lib/libEGL.so
-$(ROOTFS_DIR)/lib/libgallium-25.0.5.so: $(ROOTFS_DIR)/lib/libEGL.so
-$(ROOTFS_DIR)/lib/libexpat.so: $(ROOTFS_DIR)/lib/libEGL.so
-$(ROOTFS_DIR)/lib/dri/libdril_dri.so: $(ROOTFS_DIR)/lib/libEGL.so
+$(ROOTFS_DIR)/usr/lib/libGL.so: $(ROOTFS_DIR)/usr/lib/libEGL.so
+$(ROOTFS_DIR)/usr/lib/libGLESv2.so: $(ROOTFS_DIR)/usr/lib/libEGL.so
+$(ROOTFS_DIR)/usr/lib/libgallium-25.0.5.so: $(ROOTFS_DIR)/usr/lib/libEGL.so
+$(ROOTFS_DIR)/usr/lib/libexpat.so: $(ROOTFS_DIR)/usr/lib/libEGL.so
+$(ROOTFS_DIR)/usr/lib/dri/libdril_dri.so: $(ROOTFS_DIR)/usr/lib/libEGL.so
+$(ROOTFS_DIR)/usr/lib/libgbm.so: $(ROOTFS_DIR)/usr/lib/libEGL.so
+
+$(ROOTFS_DIR)/lib/libEGL.so: $(ROOTFS_DIR)/usr/lib/libEGL.so
+	@ln -sf /usr/lib/libEGL.so $@ 2>/dev/null || true
+$(ROOTFS_DIR)/lib/libGL.so: $(ROOTFS_DIR)/usr/lib/libGL.so
+	@ln -sf /usr/lib/libGL.so $@ 2>/dev/null || true
+$(ROOTFS_DIR)/lib/libGLESv2.so: $(ROOTFS_DIR)/usr/lib/libGLESv2.so
+	@ln -sf /usr/lib/libGLESv2.so $@ 2>/dev/null || true
+$(ROOTFS_DIR)/lib/libgbm.so: $(ROOTFS_DIR)/usr/lib/libgbm.so
+	@ln -sf /usr/lib/libgbm.so $@ 2>/dev/null || true
+$(ROOTFS_DIR)/lib/libexpat.so: $(ROOTFS_DIR)/usr/lib/libexpat.so
+	@ln -sf /usr/lib/libexpat.so $@ 2>/dev/null || true
 
 ALL_THIRDPARTY_OUTPUTS := \
-	$(LIBNCURSES_A) $(LIBZ_A) $(ROOTFS_DIR)/bin/nano $(ROOTFS_DIR)/bin/file $(MAGIC_DB) \
-	$(ROOTFS_DIR)/bin/zsh $(ROOTFS_DIR)/bin/fastfetch $(ROOTFS_DIR)/bin/git $(ALL_ROOTFS_SOS) \
-	$(ROOTFS_DIR)/bin/xterm $(ROOTFS_DIR)/bin/openssl $(ROOTFS_DIR)/bin/curl $(ROOTFS_DIR)/etc/ssl/cert.pem \
+	$(LIBNCURSES_A) $(LIBZ_A) $(ROOTFS_DIR)/usr/bin/nano $(ROOTFS_DIR)/usr/bin/file $(MAGIC_DB) \
+	$(ROOTFS_DIR)/usr/bin/zsh $(ROOTFS_DIR)/usr/bin/fastfetch $(ROOTFS_DIR)/usr/bin/git $(ALL_ROOTFS_SOS) \
+	$(ROOTFS_DIR)/usr/bin/xterm $(ROOTFS_DIR)/usr/bin/openssl $(ROOTFS_DIR)/usr/bin/curl $(ROOTFS_DIR)/etc/ssl/cert.pem \
 	$(ROOTFS_DIR)/usr/bin/xkbcomp $(ROOTFS_DIR)/usr/share/X11/xkb $(ROOTFS_DIR)/usr/bin/Xorg \
 	$(ROOTFS_DIR)/usr/lib/xorg/modules/input/mouse_drv.so $(ROOTFS_DIR)/usr/lib/xorg/modules/input/kbd_drv.so
 
@@ -1693,37 +1827,37 @@ third-party: $(THIRDPARTY_STAMP)
         xterm openssl curl openssh xkbcomp xkeyboard-config xserver mouse-drv kbd-drv mesa
 
 ncurses: $(LIBNCURSES_A)
-nano: $(ROOTFS_DIR)/bin/nano
-file: $(ROOTFS_DIR)/bin/file $(MAGIC_DB)
-zsh: $(ROOTFS_DIR)/bin/zsh
-fastfetch: $(ROOTFS_DIR)/bin/fastfetch
-zlib: $(ROOTFS_DIR)/lib/libz.so
-git: $(ROOTFS_DIR)/bin/git
-libXau: $(ROOTFS_DIR)/lib/libXau.so
-libXdmcp: $(ROOTFS_DIR)/lib/libXdmcp.so
-libxcb: $(ROOTFS_DIR)/lib/libxcb.so
-libX11: $(ROOTFS_DIR)/lib/libX11.so
-libxkbfile: $(ROOTFS_DIR)/lib/libxkbfile.so
-libfontenc: $(ROOTFS_DIR)/lib/libfontenc.so
-libXfont2: $(ROOTFS_DIR)/lib/libXfont2.so
-libxcvt: $(ROOTFS_DIR)/lib/libxcvt.so
-libpciaccess: $(ROOTFS_DIR)/lib/libpciaccess.so
-pixman: $(ROOTFS_DIR)/lib/libpixman-1.so
-libICE: $(ROOTFS_DIR)/lib/libICE.so
-libSM: $(ROOTFS_DIR)/lib/libSM.so
-libXpm: $(ROOTFS_DIR)/lib/libXpm.so
-libXext: $(ROOTFS_DIR)/lib/libXext.so
-libXt: $(ROOTFS_DIR)/lib/libXt.so
-libXmu: $(ROOTFS_DIR)/lib/libXmu.so
-libXaw: $(ROOTFS_DIR)/lib/libXaw.so
-xterm: $(ROOTFS_DIR)/bin/xterm
-openssl: $(ROOTFS_DIR)/bin/openssl $(ROOTFS_DIR)/lib/libcrypto.so $(ROOTFS_DIR)/lib/libssl.so
-curl: $(ROOTFS_DIR)/bin/curl $(ROOTFS_DIR)/lib/libcurl.so
+nano: $(ROOTFS_DIR)/usr/bin/nano
+file: $(ROOTFS_DIR)/usr/bin/file $(MAGIC_DB)
+zsh: $(ROOTFS_DIR)/usr/bin/zsh
+fastfetch: $(ROOTFS_DIR)/usr/bin/fastfetch
+zlib: $(ROOTFS_DIR)/usr/lib/libz.so
+git: $(ROOTFS_DIR)/usr/bin/git
+libXau: $(ROOTFS_DIR)/usr/lib/libXau.so
+libXdmcp: $(ROOTFS_DIR)/usr/lib/libXdmcp.so
+libxcb: $(ROOTFS_DIR)/usr/lib/libxcb.so
+libX11: $(ROOTFS_DIR)/usr/lib/libX11.so
+libxkbfile: $(ROOTFS_DIR)/usr/lib/libxkbfile.so
+libfontenc: $(ROOTFS_DIR)/usr/lib/libfontenc.so
+libXfont2: $(ROOTFS_DIR)/usr/lib/libXfont2.so
+libxcvt: $(ROOTFS_DIR)/usr/lib/libxcvt.so
+libpciaccess: $(ROOTFS_DIR)/usr/lib/libpciaccess.so
+pixman: $(ROOTFS_DIR)/usr/lib/libpixman-1.so
+libICE: $(ROOTFS_DIR)/usr/lib/libICE.so
+libSM: $(ROOTFS_DIR)/usr/lib/libSM.so
+libXpm: $(ROOTFS_DIR)/usr/lib/libXpm.so
+libXext: $(ROOTFS_DIR)/usr/lib/libXext.so
+libXt: $(ROOTFS_DIR)/usr/lib/libXt.so
+libXmu: $(ROOTFS_DIR)/usr/lib/libXmu.so
+libXaw: $(ROOTFS_DIR)/usr/lib/libXaw.so
+xterm: $(ROOTFS_DIR)/usr/bin/xterm
+openssl: $(ROOTFS_DIR)/usr/bin/openssl $(ROOTFS_DIR)/usr/lib/libcrypto.so $(ROOTFS_DIR)/usr/lib/libssl.so
+curl: $(ROOTFS_DIR)/usr/bin/curl $(ROOTFS_DIR)/usr/lib/libcurl.so
 openssh: $(ROOTFS_DIR)/usr/sbin/sshd
 xkbcomp: $(ROOTFS_DIR)/usr/bin/xkbcomp
 xkeyboard-config: $(ROOTFS_DIR)/usr/share/X11/xkb
 xserver: $(ROOTFS_DIR)/usr/bin/Xorg
 mouse-drv: $(ROOTFS_DIR)/usr/lib/xorg/modules/input/mouse_drv.so
 kbd-drv: $(ROOTFS_DIR)/usr/lib/xorg/modules/input/kbd_drv.so
-mesa: $(ROOTFS_DIR)/lib/libEGL.so
+mesa: $(ROOTFS_DIR)/usr/lib/libEGL.so
 

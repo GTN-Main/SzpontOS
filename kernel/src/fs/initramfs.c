@@ -1,4 +1,6 @@
 #include <fs/initramfs.h>
+#include <fs/devfs.h>
+#include <fs/pipe.h>
 #include <sched/process.h>
 #include <sched/sched.h>
 #include <mm/heap.h>
@@ -200,6 +202,54 @@ static int initramfs_create(vfs_node_t *parent, const char *name, mode_t mode) {
     initramfs_entry_t *child = create_entry(name, VFS_TYPE_FILE, 0, NULL, mode ? mode : 0644, uid, gid);
     if (!child)
         return -1;
+
+    child->is_dynamic_data = true;
+    return initramfs_add_child(p, child);
+}
+
+static int initramfs_mknod(vfs_node_t *parent, const char *name, mode_t mode, dev_t dev) {
+    initramfs_entry_t *p = (initramfs_entry_t *)parent;
+    if (!p || p->node.flags != VFS_TYPE_DIRECTORY)
+        return -1;
+
+    for (size_t i = 0; i < p->child_count; i++) {
+        if (strcmp(p->children[i]->node.name, name) == 0) {
+            return -17; /* -EEXIST */
+        }
+    }
+
+    process_t *curr = sched_get_current_process();
+    if (S_ISCHR(mode) || S_ISBLK(mode)) {
+        if (curr && curr->euid != 0)
+            return -1; /* -EPERM */
+    }
+
+    uid_t uid = curr ? curr->euid : 0;
+    gid_t gid = curr ? curr->egid : 0;
+    uint32_t flags = VFS_TYPE_FILE;
+    if (S_ISCHR(mode))
+        flags = VFS_TYPE_CHARDEVICE;
+    else if (S_ISBLK(mode))
+        flags = VFS_TYPE_BLOCKDEVICE;
+    else if (S_ISFIFO(mode))
+        flags = VFS_TYPE_PIPE;
+
+    initramfs_entry_t *child = create_entry(name, flags, 0, NULL, mode ? mode : 0644, uid, gid);
+    if (!child)
+        return -1;
+
+    child->node.rdev = (uint32_t)dev;
+    if (flags == VFS_TYPE_CHARDEVICE || flags == VFS_TYPE_BLOCKDEVICE) {
+        child->node.ops = devfs_find_ops_for_rdev(flags, (uint32_t)dev);
+    } else if (flags == VFS_TYPE_PIPE) {
+        pipe_chan_t *chan = (pipe_chan_t *)kzalloc(sizeof(pipe_chan_t));
+        if (chan) {
+            chan->readers = 1;
+            chan->writers = 1;
+            child->node.device_data = chan;
+            child->node.ops = &g_fifo_ops;
+        }
+    }
 
     child->is_dynamic_data = true;
     return initramfs_add_child(p, child);
@@ -528,6 +578,7 @@ vfs_node_t *initramfs_init(void *archive_ptr, size_t archive_size) {
     g_initramfs_dir_ops.rename = initramfs_rename;
     g_initramfs_dir_ops.symlink = initramfs_symlink;
     g_initramfs_dir_ops.link = initramfs_link;
+    g_initramfs_dir_ops.mknod = initramfs_mknod;
 
     g_initramfs_symlink_ops.read = NULL;
     g_initramfs_symlink_ops.write = NULL;

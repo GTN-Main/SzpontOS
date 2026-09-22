@@ -46,8 +46,8 @@ SzpontOS łączy potęgę nowoczesnego jądra monolitycznego napisanego w standa
 ### 2. Podsystem DRM/KMS, Mesa 3D & Akceleracja OpenGL
 - **Natywne Sterowniki Jądra DRM:** Węzeł główny `/dev/dri/card0` oraz render nodes `/dev/dri/renderD128` z obsługą dumb bufferów, mapowania mmap i autoryzacji PID.
 - **PRIME dma-buf Buffer Sharing:** Bezpośrednie współdzielenie buforów graficznych pomiędzy procesami w pamięci zero-copy z użyciem gniazd uniksowych i deskryptorów `SCM_RIGHTS`.
-- **Własne Biblioteki Grafikowe:** Autorskie implementacje `libdrm.so` (funkcje `xf86drm`, `xf86drmMode`) oraz `libgbm.so` (Generic Buffer Management).
-- **Port Mesa 3D (25.x):** Pełny stos 3D z driverami Gallium (`softpipe`, `llvmpipe`, `virtio-gpu`), EGL (`libEGL.so`) oraz OpenGL ES 2.0 (`libGLESv2.so`).
+- **Oficjalny Linux libdrm:** Oficjalna biblioteka `libdrm.so` (upstream freedesktop/mesa z driverami `libdrm_intel`, `libdrm_amdgpu`, `libdrm_nouveau`, `libdrm_radeon`) oraz implementacja `libgbm.so` (Generic Buffer Management) z backendem DRI.
+- **Port Mesa 3D (25.x):** Pełny stos 3D z driverami Gallium (`crocus`, `virgl`, `softpipe`, `llvmpipe`), EGL (`libEGL.so`), OpenGL ES 2.0 (`libGLESv2.so`) oraz GBM (`libgbm.so`, `dri_gbm.so`).
 - **Dema i Testy 3D:** Wirujące koła zębate `glxgears`, dynamiczny `gltriangle`, `mesadrmtest`, `drmtest` oraz kultowy terminalowy `donut`.
 
 ### 3. Wielordzeniowość (SMP — Symmetric Multiprocessing)
@@ -196,10 +196,8 @@ SzpontOS/
 │   ├── include/                 # 100% zgodne ze standardem POSIX / C17 / BSD nagłówki
 │   └── src/                     # Implementacja stdio, stdlib, string, pthread, sockets, dlfcn, time
 │
-├── libdrm/                      # Natywna biblioteka DRM (libdrm.so, xf86drm, xf86drmMode, syncobj)
-├── libgbm/                      # Natywna biblioteka Generic Buffer Management (libgbm.so)
-│
 ├── third_party/                 # Przeportowane pakiety open-source wkomponowane w sysroot
+│   ├── libdrm/                  # Oficjalny podmoduł Linux libdrm (libdrm.so, akceleracja intel/amd/nouveau/radeon)
 │   ├── xorg/                    # Oficjalny serwer X.Org X11 z obsługą DRM/KMS i XKB
 │   ├── mesa/                    # Mesa 3D (25.x): sterowniki Gallium, EGL, GLESv2, DRI3
 │   ├── libstdc++/               # GNU C++ Standard Library runtime (libstdc++.so, libstdc++.a)

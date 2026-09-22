@@ -2,11 +2,11 @@
 ROOT_DIR ?= $(abspath ..)
 include $(ROOT_DIR)/config.mk
 
-.PHONY: all userland skeleton init sh lib bin xserver
+.PHONY: all userland skeleton init sh bin xserver
 
 all: userland
 
-userland: skeleton init sh lib bin xserver
+userland: skeleton init sh bin xserver
 	@mkdir -p $(dir $(USERLAND_STAMP))
 	@touch $(USERLAND_STAMP)
 
@@ -32,9 +32,6 @@ init: | skeleton
 
 sh: | skeleton
 	@$(MAKE) -j$(JOBS) -C $(ROOT_DIR)/userland/sh
-
-lib: | skeleton
-	@$(MAKE) -j$(JOBS) -C $(ROOT_DIR)/userland/lib
 
 bin: | skeleton
 	@$(MAKE) -j$(JOBS) -C $(ROOT_DIR)/userland/bin

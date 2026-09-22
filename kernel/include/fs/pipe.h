@@ -19,4 +19,7 @@ typedef struct pipe_chan {
     int writers;
 } pipe_chan_t;
 
+struct vfs_ops;
+extern struct vfs_ops g_fifo_ops;
+
 #endif /* _FS_PIPE_H */

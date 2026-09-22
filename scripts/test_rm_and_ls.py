@@ -6,16 +6,8 @@ import select
 
 def run_test():
     qemu_cmd = [
-        "qemu-system-x86_64",
-        "-M", "pc",
-        "-cpu", "max",
-        "-m", "512M",
-        "-display", "none",
-        "-cdrom", "build/szpontos.iso",
-        "-drive", "file=build/disk.img,format=raw,if=ide,index=0,media=disk,snapshot=on,file.locking=off",
-        "-serial", "stdio",
-        "-no-reboot",
-        "-no-shutdown"
+        "./scripts/run_qemu.sh",
+        "--headless"
     ]
 
     proc = subprocess.Popen(

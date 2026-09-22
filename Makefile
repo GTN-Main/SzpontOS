@@ -26,7 +26,7 @@ toolchain-info:
 	@echo "  [TOOLCHAIN] CORES: $(NPROC) (Parallel Jobs: $(JOBS))"
 
 # Build all core components
-build: toolchain-info $(SYSROOT_STAMP) $(ROOTFS_DIR)/lib/libdrm.so $(ROOTFS_DIR)/lib/libgbm.so $(USERLAND_STAMP) $(MODULES_STAMP) $(THIRDPARTY_STAMP) $(KERNEL_ELF)
+build: toolchain-info $(SYSROOT_STAMP) $(ROOTFS_DIR)/usr/lib/libdrm.so $(USERLAND_STAMP) $(MODULES_STAMP) $(THIRDPARTY_STAMP) $(KERNEL_ELF)
 
 KERNEL_SRCS := $(shell find $(ROOT_DIR)/kernel/src $(ROOT_DIR)/kernel/include $(ROOT_DIR)/kernel/arch -type f 2>/dev/null)
 LIBC_SRCS   := $(shell find $(ROOT_DIR)/libc/src $(ROOT_DIR)/libc/include -type f 2>/dev/null)
@@ -47,18 +47,9 @@ $(SYSROOT_STAMP): $(LIBC_SRCS)
 
 sysroot: $(SYSROOT_STAMP)
 
-LIBDRM_SRCS := $(shell find $(ROOT_DIR)/libdrm -type f 2>/dev/null)
-LIBGBM_SRCS := $(shell find $(ROOT_DIR)/libgbm -type f 2>/dev/null)
+libdrm: $(ROOTFS_DIR)/usr/lib/libdrm.so
 
-$(ROOTFS_DIR)/lib/libdrm.so: $(LIBDRM_SRCS) | $(SYSROOT_STAMP) $(LIBC_SO)
-	@$(MAKE) -j$(JOBS) -C $(ROOT_DIR)/libdrm
-
-libdrm: $(ROOTFS_DIR)/lib/libdrm.so
-
-$(ROOTFS_DIR)/lib/libgbm.so: $(LIBGBM_SRCS) | $(ROOTFS_DIR)/lib/libdrm.so $(SYSROOT_STAMP)
-	@$(MAKE) -j$(JOBS) -C $(ROOT_DIR)/libgbm
-
-libgbm: $(ROOTFS_DIR)/lib/libgbm.so
+libgbm: $(ROOTFS_DIR)/usr/lib/libgbm.so
 
 MODULES_SRCS := $(shell find $(ROOT_DIR)/modules -type f 2>/dev/null)
 $(MODULES_STAMP): $(MODULES_SRCS) | $(SYSROOT_STAMP)

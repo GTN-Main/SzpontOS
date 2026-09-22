@@ -19,28 +19,30 @@ def optimize_rootfs(source_dir):
     """Optymalizuje rozmiar rootfs przed pakowaniem do initramfs."""
     print(f"[*] Optymalizacja rozmiaru rootfs: {source_dir}")
 
-    # 1. Usuń archiwa statyczne (*.a) z lib/
-    for a in glob.glob(os.path.join(source_dir, "lib", "*.a")):
-        print(f"  [-] Usunięto zbędne archiwum statyczne: {os.path.basename(a)}")
-        try:
-            os.remove(a)
-        except OSError:
-            pass
+    # 1. Usuń archiwa statyczne (*.a) z lib/ oraz usr/lib/
+    for lib_subdir in ["lib", os.path.join("usr", "lib")]:
+        for a in glob.glob(os.path.join(source_dir, lib_subdir, "*.a")):
+            print(f"  [-] Usunięto zbędne archiwum statyczne: {os.path.basename(a)}")
+            try:
+                os.remove(a)
+            except OSError:
+                pass
 
-    # 2. Deduplikacja bibliotek dzielonych (.so) w lib/
-    lib_dir = os.path.join(source_dir, "lib")
-    if os.path.isdir(lib_dir):
-        for f in os.listdir(lib_dir):
-            full = os.path.join(lib_dir, f)
-            if os.path.islink(full) or not os.path.isfile(full):
-                continue
-            if f.endswith(".so"):
-                matches = [m for m in os.listdir(lib_dir) if m.startswith(f + ".") and os.path.isfile(os.path.join(lib_dir, m)) and not os.path.islink(os.path.join(lib_dir, m)) and not m.endswith(".p")]
-                if matches:
-                    target = matches[0]
-                    os.remove(full)
-                    os.symlink(target, full)
-                    print(f"  [SYM] {f} -> {target}")
+    # 2. Deduplikacja bibliotek dzielonych (.so) w lib/ oraz usr/lib/
+    for lib_subdir in ["lib", os.path.join("usr", "lib")]:
+        lib_dir = os.path.join(source_dir, lib_subdir)
+        if os.path.isdir(lib_dir):
+            for f in os.listdir(lib_dir):
+                full = os.path.join(lib_dir, f)
+                if os.path.islink(full) or not os.path.isfile(full):
+                    continue
+                if f.endswith(".so"):
+                    matches = [m for m in os.listdir(lib_dir) if m.startswith(f + ".") and os.path.isfile(os.path.join(lib_dir, m)) and not os.path.islink(os.path.join(lib_dir, m)) and not m.endswith(".p")]
+                    if matches:
+                        target = matches[0]
+                        os.remove(full)
+                        os.symlink(target, full)
+                        print(f"  [SYM] {lib_subdir}/{f} -> {target}")
 
     # 3. Deduplikacja pomocników Git w usr/libexec/git-core i /bin
     git_core = os.path.join(source_dir, "usr", "libexec", "git-core")

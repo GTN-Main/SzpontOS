@@ -10,6 +10,8 @@
 #include <kernel/kprint.h>
 #include <kernel/smp.h>
 #include <drivers/pci.h>
+#include <drivers/virtio_gpu.h>
+#include <drivers/i915/i915_drv.h>
 #include <net/net.h>
 
 static vfs_ops_t g_sysfs_dir_ops;
@@ -275,7 +277,13 @@ static size_t gen_pci_vendor(char *buf, size_t max_len, void *arg) {
 
 static size_t gen_pci_device(char *buf, size_t max_len, void *arg) {
     pci_device_t *pdev = (pci_device_t *)arg;
-    return ksnprintf(buf, max_len, "0x%04x\n", pdev->device_id);
+    uint16_t dev_id = pdev->device_id;
+    if (pdev->vendor_id == 0x8086) {
+        if (i915_get_device_gen(dev_id) >= INTEL_GEN9) {
+            dev_id = 0x22b0; /* Alias Gen9+ Intel to Gen8 Cherryview for Mesa crocus driver compatibility */
+        }
+    }
+    return ksnprintf(buf, max_len, "0x%04x\n", dev_id);
 }
 
 static size_t gen_pci_class(char *buf, size_t max_len, void *arg) {
@@ -345,6 +353,58 @@ vfs_node_t *sysfs_init(void) {
         sysfs_create_dynamic_file(dev_node, "class", gen_pci_class, pdev);
     }
 
+    /* Find primary GPU PCI device */
+    pci_device_t *gpu_pdev = NULL;
+    if (virtio_gpu_is_active()) {
+        gpu_pdev = virtio_gpu_get_pci_dev();
+    }
+    if (!gpu_pdev && i915_is_active()) {
+        i915_device_t *idev = i915_get_device();
+        if (idev) {
+            gpu_pdev = idev->pci_dev;
+        }
+    }
+    if (!gpu_pdev) {
+        for (pci_device_t *p = pci_get_device_list(); p; p = p->next) {
+            if (p->class_code == 0x03) {
+                gpu_pdev = p;
+                break;
+            }
+        }
+    }
+
+    /* /sys/dev and /sys/dev/char */
+    vfs_node_t *dev_root_dir = sysfs_create_dir(g_sysfs_root, "dev");
+    vfs_node_t *dev_char_dir = sysfs_create_dir(dev_root_dir, "char");
+
+    /* /sys/dev/char/226:0 (card0) */
+    vfs_node_t *dev_char_card0 = sysfs_create_dir(dev_char_dir, "226:0");
+    sysfs_create_file(dev_char_card0, "uevent", "MAJOR=226\nMINOR=0\nDEVNAME=dri/card0\n");
+    vfs_node_t *dev_char_card0_device = sysfs_create_dir(dev_char_card0, "device");
+    if (gpu_pdev) {
+        sysfs_create_dynamic_file(dev_char_card0_device, "vendor", gen_pci_vendor, gpu_pdev);
+        sysfs_create_dynamic_file(dev_char_card0_device, "device", gen_pci_device, gpu_pdev);
+        sysfs_create_dynamic_file(dev_char_card0_device, "class", gen_pci_class, gpu_pdev);
+    }
+    sysfs_create_file(dev_char_card0_device, "subsystem_vendor", "0x0000\n");
+    sysfs_create_file(dev_char_card0_device, "subsystem_device", "0x0000\n");
+    sysfs_create_file(dev_char_card0_device, "revision", "0x00\n");
+    sysfs_create_file(dev_char_card0_device, "uevent", "MAJOR=226\nMINOR=0\nDEVNAME=dri/card0\n");
+
+    /* /sys/dev/char/226:128 (renderD128) */
+    vfs_node_t *dev_char_render128 = sysfs_create_dir(dev_char_dir, "226:128");
+    sysfs_create_file(dev_char_render128, "uevent", "MAJOR=226\nMINOR=128\nDEVNAME=dri/renderD128\n");
+    vfs_node_t *dev_char_render128_device = sysfs_create_dir(dev_char_render128, "device");
+    if (gpu_pdev) {
+        sysfs_create_dynamic_file(dev_char_render128_device, "vendor", gen_pci_vendor, gpu_pdev);
+        sysfs_create_dynamic_file(dev_char_render128_device, "device", gen_pci_device, gpu_pdev);
+        sysfs_create_dynamic_file(dev_char_render128_device, "class", gen_pci_class, gpu_pdev);
+    }
+    sysfs_create_file(dev_char_render128_device, "subsystem_vendor", "0x0000\n");
+    sysfs_create_file(dev_char_render128_device, "subsystem_device", "0x0000\n");
+    sysfs_create_file(dev_char_render128_device, "revision", "0x00\n");
+    sysfs_create_file(dev_char_render128_device, "uevent", "MAJOR=226\nMINOR=128\nDEVNAME=dri/renderD128\n");
+
     /* /sys/class */
     vfs_node_t *class_dir = sysfs_create_dir(g_sysfs_root, "class");
 
@@ -352,8 +412,25 @@ vfs_node_t *sysfs_init(void) {
     vfs_node_t *drm_class = sysfs_create_dir(class_dir, "drm");
     vfs_node_t *card0 = sysfs_create_dir(drm_class, "card0");
     sysfs_create_file(card0, "dev", "226:0\n");
+    vfs_node_t *class_card0_device = sysfs_create_dir(card0, "device");
+    if (gpu_pdev) {
+        sysfs_create_dynamic_file(class_card0_device, "vendor", gen_pci_vendor, gpu_pdev);
+        sysfs_create_dynamic_file(class_card0_device, "device", gen_pci_device, gpu_pdev);
+    }
+    sysfs_create_file(class_card0_device, "subsystem_vendor", "0x0000\n");
+    sysfs_create_file(class_card0_device, "subsystem_device", "0x0000\n");
+    sysfs_create_file(class_card0_device, "revision", "0x00\n");
+
     vfs_node_t *render128 = sysfs_create_dir(drm_class, "renderD128");
     sysfs_create_file(render128, "dev", "226:128\n");
+    vfs_node_t *class_render128_device = sysfs_create_dir(render128, "device");
+    if (gpu_pdev) {
+        sysfs_create_dynamic_file(class_render128_device, "vendor", gen_pci_vendor, gpu_pdev);
+        sysfs_create_dynamic_file(class_render128_device, "device", gen_pci_device, gpu_pdev);
+    }
+    sysfs_create_file(class_render128_device, "subsystem_vendor", "0x0000\n");
+    sysfs_create_file(class_render128_device, "subsystem_device", "0x0000\n");
+    sysfs_create_file(class_render128_device, "revision", "0x00\n");
 
     /* /sys/class/net */
     vfs_node_t *net_class = sysfs_create_dir(class_dir, "net");

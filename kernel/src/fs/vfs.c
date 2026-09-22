@@ -478,6 +478,54 @@ int vfs_mkdir(const char *path, mode_t mode) {
     return -1;
 }
 
+int vfs_mknod(const char *path, mode_t mode, dev_t dev) {
+    if (!path || !*path)
+        return -22;
+
+    char full_path[256];
+    if (vfs_resolve_path(path, full_path, sizeof(full_path)) != 0)
+        return -2;
+
+    if (vfs_lookup(full_path) != NULL)
+        return -17; /* EEXIST */
+
+    char parent_path[256];
+    char entry_name[128];
+    if (vfs_split_parent(full_path, parent_path, sizeof(parent_path), entry_name, sizeof(entry_name)) != 0)
+        return -2;
+
+    vfs_node_t *parent = vfs_lookup(parent_path);
+    if (!parent)
+        return -2; /* ENOENT */
+    if (parent->flags != VFS_TYPE_DIRECTORY)
+        return -20; /* ENOTDIR */
+
+    if (vfs_check_permission(parent, VFS_WRITE | VFS_EXEC) != 0)
+        return -13; /* EACCES */
+
+    if (parent->ops && parent->ops->mknod) {
+        int r = parent->ops->mknod(parent, entry_name, mode, dev);
+        if (r == 0) {
+            inotify_emit(parent_path, entry_name, IN_CREATE, 0);
+        }
+        return r;
+    }
+
+    if (S_ISREG(mode) || (mode & S_IFMT) == 0) {
+        if (parent->ops && parent->ops->create) {
+            process_t *proc = sched_get_current_process();
+            mode_t actual_mode = (mode ? mode : 0666) & (proc ? ~proc->umask : 0777);
+            int r = parent->ops->create(parent, entry_name, actual_mode);
+            if (r == 0) {
+                inotify_emit(parent_path, entry_name, IN_CREATE, 0);
+            }
+            return r;
+        }
+    }
+
+    return -38; /* -ENOSYS */
+}
+
 int vfs_unlink(const char *path) {
     if (!path || !*path)
         return -22;

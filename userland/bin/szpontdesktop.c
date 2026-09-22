@@ -306,12 +306,26 @@ static pid_t spawn_app(const char *binary) {
     return spawn_app_args(binary, args);
 }
 
+static pid_t spawn_named_app(const char *name) {
+    char path[128];
+    snprintf(path, sizeof(path), "/usr/bin/%s", name);
+    if (access(path, X_OK) == 0) {
+        return spawn_app(path);
+    }
+    snprintf(path, sizeof(path), "/bin/%s", name);
+    return spawn_app(path);
+}
+
 static pid_t spawn_terminal(void) {
+    if (access("/usr/bin/szponterm", X_OK) == 0) {
+        return spawn_app("/usr/bin/szponterm");
+    }
     if (access("/bin/szponterm", X_OK) == 0) {
         return spawn_app("/bin/szponterm");
     }
+    const char *xterm_bin = (access("/usr/bin/xterm", X_OK) == 0) ? "/usr/bin/xterm" : "/bin/xterm";
     char *args[] = {
-        (char *)"/bin/xterm",
+        (char *)xterm_bin,
         (char *)"-bg", (char *)"#000000",
         (char *)"-fg", (char *)"#f8fafc",
         (char *)"-geometry", (char *)"80x24",
@@ -319,7 +333,7 @@ static pid_t spawn_terminal(void) {
         (char *)"-e", (char *)"/bin/sh",
         NULL
     };
-    return spawn_app_args("/bin/xterm", args);
+    return spawn_app_args(xterm_bin, args);
 }
 
 static void draw_pill_button(Display *dpy, Window win, GC gc, int x, int y, int w, int h, unsigned long bg_col,
@@ -998,10 +1012,10 @@ int main(int argc, char *argv[]) {
                             spawn_terminal();
                         } else if (bx >= 182 && bx <= 256) {
                             /* Makaljer */
-                            spawn_app("/bin/makaljer");
+                            spawn_named_app("makaljer");
                         } else if (bx >= 262 && bx <= 336) {
                             /* Detected */
-                            spawn_app("/bin/szpontdetected");
+                            spawn_named_app("szpontdetected");
                         } else if (bx >= g_screen_w - 60) {
                             /* Exit / Logout */
                             printf("[szpontdesktop] Logout clicked. Exiting session...\n");
@@ -1191,9 +1205,9 @@ int main(int argc, char *argv[]) {
                     if (sym == XK_1 || sym == XK_t || sym == XK_T) {
                         spawn_terminal();
                     } else if (sym == XK_2 || sym == XK_m || sym == XK_M) {
-                        spawn_app("/bin/makaljer");
+                        spawn_named_app("makaljer");
                     } else if (sym == XK_3 || sym == XK_d || sym == XK_D) {
-                        spawn_app("/bin/szpontdetected");
+                        spawn_named_app("szpontdetected");
                     } else if (sym == XK_w || sym == XK_W || sym == XK_F4) {
                         if (g_focused_client) {
                             close_client(dpy, g_focused_client);

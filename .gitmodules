@@ -136,3 +136,9 @@
 [submodule "third_party/libxshmfence"]
 	path = third_party/libxshmfence
 	url = https://gitlab.freedesktop.org/xorg/lib/libxshmfence.git
+[submodule "third_party/libdrm"]
+	path = third_party/libdrm
+	url = https://gitlab.freedesktop.org/mesa/libdrm.git
+[submodule "third_party/libepoxy"]
+	path = third_party/libepoxy
+	url = https://github.com/anholt/libepoxy.git

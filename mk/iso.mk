@@ -58,7 +58,7 @@ $(BUILD_DIR)/initramfs.tar: $(USERLAND_STAMP) $(MODULES_STAMP) $(THIRDPARTY_STAM
 	@mkdir -p $(ROOTFS_DIR)/usr/share/artwork
 	@if [ -d artwork ]; then cp -r artwork/* $(ROOTFS_DIR)/usr/share/artwork/ 2>/dev/null || true; fi
 	@if [ -f artwork/szpont-detected.jpg ]; then cp artwork/szpont-detected.jpg $(ROOTFS_DIR)/usr/share/artwork/szpont-detected.png 2>/dev/null || true; fi
-	@rm -f $(ROOTFS_DIR)/lib/*.a
+	@rm -f $(ROOTFS_DIR)/lib/*.a $(ROOTFS_DIR)/usr/lib/*.a
 	@./scripts/verify_rootfs.py $(ROOTFS_DIR)
 	@./scripts/make_initramfs.py $(ROOTFS_DIR) $(BUILD_DIR)/initramfs.tar
 

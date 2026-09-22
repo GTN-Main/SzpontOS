@@ -32,16 +32,18 @@ SzpontOS Shell (sh) - Commands & Guide:
   cd <path>       - Change current working directory
   exit [code]     - Exit the shell
 
-External Commands (/bin/):
-  ls, cat, head, tail, wc, grep, find - Files & text
-  uname, hostname, uptime, date, ps, top - System info
-  df, free, mount, dmesg, sysctl      - Diagnostics
-  mkdir, touch, rm, chmod, sync       - File management
-  id, whoami, su                      - Users & groups
-  kill, killall, sleep, clear         - Process control
-  ping, ifconfig, nc, httpd, curl     - Networking
-  nano, fastfetch, file, zsh, openssl - Applications
-  reboot, shutdown, poweroff          - Power management
+Core Rescue / Boot Commands (/bin/):
+  cat, chmod, chown, date, df, dmesg, hostname, ifconfig,
+  insmod, kill, ls, lsmod, mkdir, modinfo, mount, ping,
+  poweroff, ps, reboot, rm, rmmod, shutdown, sleep, su,
+  sync, sysctl, touch, uname
+
+User Applications & Utilities (/usr/bin/):
+  clear, clock, curl, donut, env, fastfetch, file, find,
+  free, git, grep, groupadd, head, hello, host, httpd, httpget,
+  id, killall, lspci, lsusb, makaljer, nano, nc, openssl,
+  startx, sudo, szpontdesktop, szpontlogin, szponterm, tail,
+  top, uptime, useradd, userdel, wc, whoami, xterm, zsh
 
 Keyboard Shortcuts & Line Editing:
   Up/Down Arrows  - Command history navigation

@@ -77,6 +77,11 @@ int chmod(const char *pathname, mode_t mode);
 int fchmod(int fd, mode_t mode);
 mode_t umask(mode_t mask);
 int mkdir(const char *pathname, mode_t mode);
+int mkdirat(int dirfd, const char *pathname, mode_t mode);
+int mkfifo(const char *pathname, mode_t mode);
+int mkfifoat(int dirfd, const char *pathname, mode_t mode);
+int mknod(const char *pathname, mode_t mode, dev_t dev);
+int mknodat(int dirfd, const char *pathname, mode_t mode, dev_t dev);
 int futimens(int fd, const struct timespec times[2]);
 
 #ifdef __cplusplus

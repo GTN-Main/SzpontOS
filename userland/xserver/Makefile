@@ -2,7 +2,7 @@
 ROOT_DIR ?= $(abspath ../..)
 include $(ROOT_DIR)/config.mk
 
-TARGET := $(ROOTFS_DIR)/bin/SzpontX11
+TARGET := $(ROOTFS_DIR)/usr/bin/SzpontX11
 HDRS   := $(wildcard $(ROOT_DIR)/userland/xserver/include/*.h)
 SRCS   := $(wildcard $(ROOT_DIR)/userland/xserver/src/*.c)
 OBJS   := $(patsubst $(ROOT_DIR)/userland/xserver/src/%.c,$(BUILD_DIR)/userland/xserver/%.o,$(SRCS))
@@ -21,13 +21,16 @@ $(BUILD_DIR)/userland/xserver:
 	@mkdir -p $@
 
 $(TARGET): $(OBJS) $(CRT0_O) $(LIBC_SO) $(LIBM_SO) | $(ROOTFS_DIR)
-	@mkdir -p $(ROOTFS_DIR)/bin
+	@mkdir -p $(ROOTFS_DIR)/usr/bin $(ROOTFS_DIR)/bin
 	@echo "  [LD-SZPONTX11] $@"
 	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $(OBJS) \
-	    -L$(ROOTFS_DIR)/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -ldrm -lpixman-1 -lm -lc -o $@
+	    -L$(ROOTFS_DIR)/lib -L$(ROOTFS_DIR)/usr/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -ldrm -lpixman-1 -lm -lc -o $@
 	@chmod +x $@
-	@if [ ! -f $(ROOTFS_DIR)/usr/bin/Xorg ]; then ln -sf SzpontX11 $(ROOTFS_DIR)/bin/Xorg; fi
-	@if [ ! -f $(ROOTFS_DIR)/usr/bin/Xorg ]; then ln -sf SzpontX11 $(ROOTFS_DIR)/bin/X; fi
+	@ln -sf /usr/bin/SzpontX11 $(ROOTFS_DIR)/bin/SzpontX11
+	@if [ ! -f $(ROOTFS_DIR)/usr/bin/Xorg ]; then ln -sf SzpontX11 $(ROOTFS_DIR)/usr/bin/Xorg; ln -sf /usr/bin/Xorg $(ROOTFS_DIR)/bin/Xorg; fi
+	@if [ ! -f $(ROOTFS_DIR)/usr/bin/X ]; then ln -sf SzpontX11 $(ROOTFS_DIR)/usr/bin/X; ln -sf /usr/bin/X $(ROOTFS_DIR)/bin/X; fi
 
+$(ROOTFS_DIR)/bin/SzpontX11: $(TARGET)
+$(ROOTFS_DIR)/usr/bin/Xorg: $(TARGET)
 $(ROOTFS_DIR)/bin/Xorg: $(TARGET)
 $(ROOTFS_DIR)/bin/X: $(TARGET)

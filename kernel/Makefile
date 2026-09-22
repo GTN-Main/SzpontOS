@@ -62,6 +62,15 @@ KERNEL_C_SRCS := \
     $(ROOT_DIR)/kernel/src/drivers/pci.c \
     $(ROOT_DIR)/kernel/src/drivers/e1000.c \
     $(ROOT_DIR)/kernel/src/drivers/virtio_net.c \
+    $(ROOT_DIR)/kernel/src/drivers/virtio_gpu.c \
+    $(ROOT_DIR)/kernel/src/drivers/i915/i915_pci.c \
+    $(ROOT_DIR)/kernel/src/drivers/i915/i915_gtt.c \
+    $(ROOT_DIR)/kernel/src/drivers/i915/i915_gem.c \
+    $(ROOT_DIR)/kernel/src/drivers/i915/i915_ring.c \
+    $(ROOT_DIR)/kernel/src/drivers/i915/i915_execbuf.c \
+    $(ROOT_DIR)/kernel/src/drivers/i915/i915_display.c \
+    $(ROOT_DIR)/kernel/src/drivers/i915/i915_ioctl.c \
+    $(ROOT_DIR)/kernel/src/drivers/i915/i915_drv.c \
     $(ROOT_DIR)/kernel/src/drivers/rtl8139.c \
     $(ROOT_DIR)/kernel/src/net/net.c \
     $(ROOT_DIR)/kernel/src/net/netif.c \

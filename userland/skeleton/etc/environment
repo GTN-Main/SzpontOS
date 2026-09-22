@@ -9,3 +9,5 @@ LOGNAME=root
 MAGIC=/etc/magic:/usr/share/misc/magic
 LANG=C.UTF-8
 LC_ALL=C.UTF-8
+CROCUS_GEN8=1
+MESA_LOADER_DRIVER_OVERRIDE=crocus
