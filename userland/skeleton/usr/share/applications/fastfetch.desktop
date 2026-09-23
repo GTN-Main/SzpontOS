@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=System Info (Fastfetch)
+GenericName=System Information
+Comment=Neofetch/Fastfetch System Information
+Exec=/usr/bin/szponterm -e /bin/fastfetch
+Icon=dialog-information
+Categories=System;Utility;
+Terminal=false

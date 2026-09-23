@@ -53,9 +53,9 @@ typedef void (*sighandler_t)(int);
 
 struct sigaction {
     uintptr_t sa_handler;
-    uint64_t sa_flags;
-    uintptr_t sa_restorer;
     sigset_t sa_mask;
+    int sa_flags;
+    uintptr_t sa_restorer;
 };
 
 #endif /* SZPONTOS_KERNEL_SIGNAL_H */

@@ -48,5 +48,6 @@ bool vmm_set_range_flags(pagemap_t *map, uintptr_t virt, size_t size, uint64_t f
 bool vmm_user_range(uintptr_t addr, size_t size);
 bool vmm_user_access(pagemap_t *map, uintptr_t addr, size_t size, bool write);
 bool vmm_release_user_page(pagemap_t *map, uintptr_t virt);
+size_t vmm_count_user_pages(pagemap_t *map);
 
 #endif /* SZPONTOS_MM_VMM_H */

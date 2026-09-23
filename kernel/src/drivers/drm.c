@@ -503,10 +503,13 @@ static int drm_ioctl_set_crtc(struct drm_mode_crtc *user_crtc) {
     /* Activate graphics mode and flush FB */
     fb_set_graphics_mode(true);
 
+    klog_info("DRM: set_crtc called: crtc_id=%u, fb_id=%u, mode_valid=%d", crtc->crtc_id, crtc->fb_id, crtc->mode_valid);
+
     drm_fb_t *fb = drm_find_fb(g_crtc.fb_id);
     if (fb) {
         drm_dumb_bo_t *bo = drm_find_bo(fb->bo_handle);
         if (bo) {
+            klog_info("DRM: set_crtc found fb=%u, bo=%u, is_direct=%d, virt=%p", fb->fb_id, bo->handle, bo->is_direct_vram, bo->kernel_virt);
             if (i915_is_active() && bo->i915_gtt_offset) {
                 i915_display_set_mode(i915_get_device(), bo->width, bo->height, (uint32_t)bo->i915_gtt_offset, bo->pitch);
             }
@@ -516,7 +519,11 @@ static int drm_ioctl_set_crtc(struct drm_mode_crtc *user_crtc) {
                 uint32_t stride_pixels = bo->pitch ? (bo->pitch / 4) : fb_get_width();
                 drm_blit_to_screen((const uint32_t *)bo->kernel_virt, stride_pixels, 0, 0, w, h);
             }
+        } else {
+            klog_warn("DRM: set_crtc bo not found for handle %u", fb->bo_handle);
         }
+    } else {
+        klog_warn("DRM: set_crtc fb not found for fb_id %u", g_crtc.fb_id);
     }
 
     spinlock_release(&g_drm_lock);
@@ -923,20 +930,31 @@ static int drm_ioctl_dirty_fb(struct drm_mode_fb_dirty_cmd *user_dirty) {
     if (!drm_copy_from_user(&kdirty, (uintptr_t)user_dirty, sizeof(kdirty)))
         return -14;
     struct drm_mode_fb_dirty_cmd *dirty = &kdirty;
-    if (dirty->fb_id == 0)
-        return -22;
+    static int s_dirty_log = 0;
+    if (s_dirty_log++ < 10) {
+        klog_info("DRM: dirty_fb called: fb_id=%u, clips=%u", dirty->fb_id, dirty->num_clips);
+    }
+    if (dirty->fb_id == 0) {
+        /* Probe call from Xorg modesetting driver (modesetCreateScreenResources).
+         * Must return 0 (success) so modesetting initializes damage tracking!
+         * Returning -EINVAL (-22) causes modesetting to permanently disable dirty updates.
+         */
+        return 0;
+    }
 
     spinlock_acquire(&g_drm_lock);
     drm_fb_t *fb = drm_find_fb(dirty->fb_id);
     if (!fb) {
+        if (s_dirty_log <= 10) klog_warn("DRM: dirty_fb fb not found for %u", dirty->fb_id);
         spinlock_release(&g_drm_lock);
-        return -22;
+        return -2; /* -ENOENT (never return -EINVAL or modesetting disables dirty) */
     }
 
     drm_dumb_bo_t *bo = drm_find_bo(fb->bo_handle);
     if (!bo || !bo->kernel_virt) {
+        if (s_dirty_log <= 10) klog_warn("DRM: dirty_fb bo not found for handle %u", fb->bo_handle);
         spinlock_release(&g_drm_lock);
-        return -22;
+        return -2; /* -ENOENT */
     }
 
     if (!bo->is_direct_vram) {

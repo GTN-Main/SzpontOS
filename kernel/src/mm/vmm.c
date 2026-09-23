@@ -312,6 +312,40 @@ void vmm_destroy_address_space(pagemap_t *map) {
     kfree(map);
 }
 
+size_t vmm_count_user_pages(pagemap_t *map) {
+    if (!map || !map->pml4_virt)
+        return 0;
+
+    size_t count = 0;
+    for (size_t i = 0; i < 256; i++) {
+        if (map->pml4_virt->entries[i] & VMM_FLAG_PRESENT) {
+            uintptr_t pdpt_phys = map->pml4_virt->entries[i] & PHYS_ADDR_MASK;
+            page_table_t *pdpt = (page_table_t *)PHYS_TO_VIRT(pdpt_phys);
+
+            for (size_t j = 0; j < 512; j++) {
+                if (pdpt->entries[j] & VMM_FLAG_PRESENT) {
+                    uintptr_t pd_phys = pdpt->entries[j] & PHYS_ADDR_MASK;
+                    page_table_t *pd = (page_table_t *)PHYS_TO_VIRT(pd_phys);
+
+                    for (size_t k = 0; k < 512; k++) {
+                        if (pd->entries[k] & VMM_FLAG_PRESENT) {
+                            uintptr_t pt_phys = pd->entries[k] & PHYS_ADDR_MASK;
+                            page_table_t *pt = (page_table_t *)PHYS_TO_VIRT(pt_phys);
+
+                            for (size_t l = 0; l < 512; l++) {
+                                if (pt->entries[l] & VMM_FLAG_PRESENT) {
+                                    count++;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return count;
+}
+
 pagemap_t *vmm_clone_address_space(pagemap_t *src) {
     if (!src)
         return NULL;

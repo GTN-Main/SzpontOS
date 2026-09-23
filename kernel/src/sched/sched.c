@@ -302,7 +302,30 @@ void thread_sleep(uint32_t ms) {
     }
 }
 
+static volatile uint64_t g_stat_user_ticks = 0;
+static volatile uint64_t g_stat_sys_ticks = 0;
+static volatile uint64_t g_stat_idle_ticks = 0;
+
+void sched_get_cpu_ticks(uint64_t *user_ticks, uint64_t *sys_ticks, uint64_t *idle_ticks) {
+    if (user_ticks) *user_ticks = g_stat_user_ticks;
+    if (sys_ticks) *sys_ticks = g_stat_sys_ticks;
+    if (idle_ticks) *idle_ticks = g_stat_idle_ticks;
+}
+
 void sched_tick(void) {
+    cpu_t *cpu = smp_current_cpu();
+    uint32_t cid = cpu ? cpu->cpu_id : 0;
+    thread_t *curr = cpu ? cpu->current_thread : NULL;
+    thread_t *idle = (cid < SMP_MAX_CPUS) ? g_idle_threads[cid] : g_idle_threads[0];
+
+    if (!curr || curr == idle || (curr->process && curr->process == g_idle_proc)) {
+        __atomic_fetch_add(&g_stat_idle_ticks, 1, __ATOMIC_RELAXED);
+    } else if (curr->process && curr->process->pagemap && curr->process->pagemap != &g_kernel_pagemap) {
+        __atomic_fetch_add(&g_stat_user_ticks, 1, __ATOMIC_RELAXED);
+    } else {
+        __atomic_fetch_add(&g_stat_sys_ticks, 1, __ATOMIC_RELAXED);
+    }
+
     if (smp_is_bsp()) {
         netif_poll_all();
         timerfd_tick();

@@ -8,6 +8,7 @@
 #include <sched/process.h>
 #include <sched/sched.h>
 #include <mm/pmm.h>
+#include <mm/vmm.h>
 #include <mm/heap.h>
 #include <kernel/string.h>
 #include <kernel/kprint.h>
@@ -167,11 +168,15 @@ static size_t procfs_gen_uptime(char *buf, size_t max_len) {
 }
 
 static size_t procfs_gen_stat(char *buf, size_t max_len) {
-    uint64_t ticks = pit_get_ticks();
-    uint64_t user = ticks / 2;
-    uint64_t sys = ticks / 4;
-    uint64_t idle = ticks - user - sys;
+    uint64_t user = 0, sys = 0, idle = 0;
+    sched_get_cpu_ticks(&user, &sys, &idle);
 
+    uint64_t total = user + sys + idle;
+    if (total == 0) {
+        idle = 1;
+    }
+
+    uint64_t ticks = pit_get_ticks();
     proc_info_t procs[64];
     size_t count = process_get_list(procs, 64);
 
@@ -315,6 +320,20 @@ static size_t procfs_gen_proc_status(process_t *proc, char *buf, size_t max_len)
     else if (proc->status == PROCESS_DEAD)
         state_str = "X (dead)";
 
+    size_t rss_pages = (proc->pagemap) ? vmm_count_user_pages(proc->pagemap) : 0;
+    size_t rss_kb = rss_pages * 4;
+    size_t vmsize_kb = rss_kb;
+    if (proc->brk_current > proc->brk_start) {
+        vmsize_kb += (proc->brk_current - proc->brk_start) / 1024;
+    }
+    if (vmsize_kb < rss_kb + 4096) {
+        vmsize_kb = rss_kb + 4096;
+    }
+    if (proc->status == PROCESS_ZOMBIE) {
+        rss_kb = 0;
+        vmsize_kb = 0;
+    }
+
     return ksnprintf(buf, max_len,
                      "Name:\t%s\n"
                      "Umask:\t0022\n"
@@ -327,11 +346,12 @@ static size_t procfs_gen_proc_status(process_t *proc, char *buf, size_t max_len)
                      "FDSize:\t%d\n"
                      "Groups:\t%d\n"
                      "Threads:\t1\n"
-                     "VmPeak:\t    8192 kB\n"
-                     "VmSize:\t    8192 kB\n"
-                     "VmRSS:\t      64 kB\n",
+                     "VmPeak:\t    %zu kB\n"
+                     "VmSize:\t    %zu kB\n"
+                     "VmRSS:\t      %zu kB\n",
                      proc->name, state_str, proc->pid, proc->pid, proc->ppid, proc->uid, proc->euid, proc->uid,
-                     proc->euid, proc->gid, proc->egid, proc->gid, proc->egid, MAX_FD, proc->gid);
+                     proc->euid, proc->gid, proc->egid, proc->gid, proc->egid, MAX_FD, proc->gid,
+                     vmsize_kb, vmsize_kb, rss_kb);
 }
 
 static size_t procfs_gen_proc_cmdline(process_t *proc, char *buf, size_t max_len) {
@@ -379,8 +399,8 @@ static size_t procfs_gen_proc_stat(process_t *proc, char *buf, size_t max_len) {
 }
 
 static size_t procfs_gen_proc_statm(process_t *proc, char *buf, size_t max_len) {
-    (void)proc;
-    return ksnprintf(buf, max_len, "2048 16 12 8 0 4 0\n");
+    size_t rss_pages = (proc->pagemap) ? vmm_count_user_pages(proc->pagemap) : 0;
+    return ksnprintf(buf, max_len, "%zu %zu 0 0 0 %zu 0\n", rss_pages, rss_pages, rss_pages);
 }
 
 static size_t procfs_gen_proc_maps(process_t *proc, char *buf, size_t max_len) {

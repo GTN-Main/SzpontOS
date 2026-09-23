@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=SzpontView
+GenericName=Image Viewer
+Comment=Modern Image Viewer & Gallery
+Exec=/usr/bin/szpontview
+Icon=image-viewer
+Categories=Graphics;Viewer;
+Terminal=false

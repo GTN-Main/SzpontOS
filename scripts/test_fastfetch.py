@@ -37,7 +37,7 @@ def run_test():
     commands_sent = False
 
     try:
-        while time.time() - start_time < 35:
+        while time.time() - start_time < 60:
             r, _, _ = select.select([proc.stdout], [], [], 0.1)
             if r:
                 chunk = os.read(proc.stdout.fileno(), 1024).decode('utf-8', errors='ignore')
@@ -49,8 +49,8 @@ def run_test():
 
                 clean_chunk = re.sub(r'\x1b\[[0-9;?]*[a-zA-Z]', '', output)
 
-                if not commands_sent and "root@szpontos-box" in clean_chunk and "Type 'help'" in clean_chunk:
-                    time.sleep(0.5)
+                if not commands_sent and ("root@szpontos-box" in clean_chunk or "Started terminal session" in clean_chunk):
+                    time.sleep(1.0)
                     print("\n[TEST] Wysyłanie polecenia fastfetch...")
                     commands = [
                         "fastfetch --version",

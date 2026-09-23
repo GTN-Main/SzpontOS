@@ -7,4 +7,4 @@ include $(ROOT_DIR)/config.mk
 all: libs
 
 libs:
-
+	@$(MAKE) -C libszpontui

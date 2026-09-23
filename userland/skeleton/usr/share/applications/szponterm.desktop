@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=SzponTerm
+GenericName=Terminal Emulator
+Comment=SzpontOS High-Performance Native Terminal
+Exec=/usr/bin/szponterm
+Icon=utilities-terminal
+Categories=System;TerminalEmulator;
+Terminal=false

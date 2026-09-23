@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Nano Editor
+GenericName=Text Editor
+Comment=GNU nano lightweight text editor
+Exec=/usr/bin/szponterm -e /bin/nano
+Icon=text-editor
+Categories=Utility;TextEditor;
+Terminal=false

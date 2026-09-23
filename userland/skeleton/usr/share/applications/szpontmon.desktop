@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=SzpontMon
+GenericName=System Monitor
+Comment=Task Manager & Performance Monitor
+Exec=/usr/bin/szpontmon
+Icon=utilities-system-monitor
+Categories=System;Monitor;
+Terminal=false

@@ -2,11 +2,11 @@
 ROOT_DIR ?= $(abspath ..)
 include $(ROOT_DIR)/config.mk
 
-.PHONY: all userland skeleton init sh bin xserver
+.PHONY: all userland skeleton lib init sh bin szpontlogin szpontdesktop szponter szpontview szpontmon xserver
 
 all: userland
 
-userland: skeleton init sh bin xserver
+userland: skeleton lib init sh bin szpontlogin szpontdesktop szponter szpontview szpontmon xserver
 	@mkdir -p $(dir $(USERLAND_STAMP))
 	@touch $(USERLAND_STAMP)
 
@@ -27,14 +27,32 @@ skeleton:
 		cp -f $(ROOTFS_SKELETON_DIR)/etc/X11/app-defaults/XTerm $(ROOTFS_DIR)/usr/lib/X11/app-defaults/XTerm; \
 	fi
 
+lib: | skeleton
+	@$(MAKE) -j$(JOBS) -C $(ROOT_DIR)/userland/lib
+
 init: | skeleton
 	@$(MAKE) -j$(JOBS) -C $(ROOT_DIR)/userland/init
 
 sh: | skeleton
 	@$(MAKE) -j$(JOBS) -C $(ROOT_DIR)/userland/sh
 
-bin: | skeleton
+bin: | skeleton lib
 	@$(MAKE) -j$(JOBS) -C $(ROOT_DIR)/userland/bin
+
+szpontlogin: | skeleton lib
+	@$(MAKE) -j$(JOBS) -C $(ROOT_DIR)/userland/szpontlogin
+
+szpontdesktop: | skeleton lib
+	@$(MAKE) -j$(JOBS) -C $(ROOT_DIR)/userland/szpontdesktop
+
+szponter: | skeleton lib
+	@$(MAKE) -j$(JOBS) -C $(ROOT_DIR)/userland/szponter
+
+szpontview: | skeleton lib
+	@$(MAKE) -j$(JOBS) -C $(ROOT_DIR)/userland/szpontview
+
+szpontmon: | skeleton lib
+	@$(MAKE) -j$(JOBS) -C $(ROOT_DIR)/userland/szpontmon
 
 xserver: | skeleton
 	@$(MAKE) -j$(JOBS) -C $(ROOT_DIR)/userland/xserver

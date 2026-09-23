@@ -33,7 +33,7 @@ $(BUILD_DIR)/initramfs.tar: $(USERLAND_STAMP) $(MODULES_STAMP) $(THIRDPARTY_STAM
 		$(ROOTFS_DIR)/tmp $(ROOTFS_DIR)/tmp/.X11-unix \
 		$(ROOTFS_DIR)/var $(ROOTFS_DIR)/var/log $(ROOTFS_DIR)/var/run $(ROOTFS_DIR)/var/empty $(ROOTFS_DIR)/var/lib/xkb \
 		$(ROOTFS_DIR)/root $(ROOTFS_DIR)/home $(ROOTFS_DIR)/home/szpont \
-		$(ROOTFS_DIR)/usr/share $(ROOTFS_DIR)/usr/share/artwork $(ROOTFS_DIR)/usr/share/X11/app-defaults $(ROOTFS_DIR)/usr/lib/X11/app-defaults
+		$(ROOTFS_DIR)/usr/share $(ROOTFS_DIR)/usr/share/artwork $(ROOTFS_DIR)/usr/share/applications $(ROOTFS_DIR)/usr/share/X11/app-defaults $(ROOTFS_DIR)/usr/lib/X11/app-defaults
 	@chmod 1777 $(ROOTFS_DIR)/tmp $(ROOTFS_DIR)/tmp/.X11-unix 2>/dev/null || true
 	@chmod 755 $(ROOTFS_DIR)/var/empty 2>/dev/null || true
 	@if [ -d $(ROOTFS_SKELETON_DIR) ]; then cp -a $(ROOTFS_SKELETON_DIR)/. $(ROOTFS_DIR)/ 2>/dev/null || true; fi

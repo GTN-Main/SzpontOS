@@ -39,6 +39,9 @@ ALL_ROOTFS_SOS := \
 	$(ROOTFS_DIR)/usr/lib/libEGL.so \
 	$(ROOTFS_DIR)/usr/lib/libGLESv2.so \
 	$(ROOTFS_DIR)/usr/lib/libexpat.so \
+	$(ROOTFS_DIR)/usr/lib/libfreetype.so \
+	$(ROOTFS_DIR)/usr/lib/libharfbuzz.so \
+	$(ROOTFS_DIR)/usr/lib/libcairo.so \
 	$(ROOTFS_DIR)/usr/lib/dri/libdril_dri.so
 
 # ==============================================================================
@@ -244,15 +247,17 @@ $(ROOTFS_DIR)/bin/zsh: $(ROOTFS_DIR)/usr/bin/zsh
 # ==============================================================================
 $(FASTFETCH_BUILD_DIR)/Makefile: third_party/fastfetch/CMakeLists.txt | $(SYSROOT_STAMP) $(LIBC_A) $(CRT0_O) $(LIBM_A) $(LIBDL_A) $(FASTFETCH_BUILD_DIR)
 	@echo "  [CONF-FASTFETCH] Konfiguracja Fastfetch (CMake cross-compile)..."
+	@rm -f $(FASTFETCH_BUILD_DIR)/CMakeCache.txt
 	@cd $(FASTFETCH_BUILD_DIR) && \
 	cmake ../../../third_party/fastfetch \
 	    -DCMAKE_SYSTEM_NAME=Linux \
+	    -DCMAKE_SYSTEM_PROCESSOR=x86_64 \
 	    -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
 	    -DCMAKE_C_COMPILER="$(shell which -a $(CC) 2>/dev/null | grep -v '\.bear' | head -n 1 || which $(CC) 2>/dev/null || echo $(CC))" \
 	    -DCMAKE_C_FLAGS="--sysroot=$(abspath $(SYSROOT_DIR)) -isystem $(abspath $(SYSROOT_DIR))/usr/include -D__linux__=1 -D__unix__=1 -ffreestanding -fno-builtin -O2" \
 	    -DCMAKE_EXE_LINKER_FLAGS="-nostdlib -L$(abspath $(SYSROOT_DIR))/usr/lib -B$(abspath $(SYSROOT_DIR))/usr/lib $(abspath $(SYSROOT_DIR))/usr/lib/crt0.o" \
 	    -DCMAKE_C_STANDARD_LIBRARIES="-Wl,--start-group $(abspath $(SYSROOT_DIR))/usr/lib/libc.a $(abspath $(SYSROOT_DIR))/usr/lib/libm.a $(abspath $(SYSROOT_DIR))/usr/lib/libdl.a -Wl,--end-group" \
-	    -DBINARY_LINK_TYPE=static \
+	    -DBINARY_LINK_TYPE=dlopen \
 	    -DENABLE_VULKAN=OFF \
 	    -DENABLE_WAYLAND=OFF \
 	    -DENABLE_XCB_RANDR=OFF \
@@ -287,6 +292,7 @@ $(ROOTFS_DIR)/usr/bin/fastfetch: $(FASTFETCH_BUILD_DIR)/Makefile | $(SYSROOT_STA
 	@echo "  [MAKE-FASTFETCH] Kompilacja narzędzia Fastfetch (-j$(JOBS))..."
 	@$(MAKE) -j$(JOBS) -C $(FASTFETCH_BUILD_DIR) fastfetch
 	@cp $(FASTFETCH_BUILD_DIR)/fastfetch $@
+	@x86_64-elf-strip $@ 2>/dev/null || true
 	@ln -sf /usr/bin/fastfetch $(ROOTFS_DIR)/bin/fastfetch
 
 $(ROOTFS_DIR)/bin/fastfetch: $(ROOTFS_DIR)/usr/bin/fastfetch
@@ -739,7 +745,7 @@ $(BUILD_DIR)/third_party/pixman/config.h: | $(BUILD_DIR)/third_party/pixman
 
 $(BUILD_DIR)/third_party/pixman/pixman-version.h: | $(BUILD_DIR)/third_party/pixman $(SYSROOT_STAMP)
 	@mkdir -p $(SYSROOT_DIR)/usr/include/pixman-1
-	@printf '#ifndef PIXMAN_VERSION_H\n#define PIXMAN_VERSION_H\n#define PIXMAN_VERSION_MAJOR 0\n#define PIXMAN_VERSION_MINOR 43\n#define PIXMAN_VERSION_MICRO 4\n#define PIXMAN_VERSION_STRING "0.43.4"\n#define PIXMAN_VERSION (PIXMAN_VERSION_MAJOR*10000 + PIXMAN_VERSION_MINOR*100 + PIXMAN_VERSION_MICRO)\n#ifndef PIXMAN_API\n#define PIXMAN_API\n#endif\n#endif\n' > $@
+	@printf '#ifndef PIXMAN_VERSION_H\n#define PIXMAN_VERSION_H\n#define PIXMAN_VERSION_MAJOR 0\n#define PIXMAN_VERSION_MINOR 43\n#define PIXMAN_VERSION_MICRO 4\n#define PIXMAN_VERSION_STRING "0.43.4"\n#define PIXMAN_VERSION_ENCODE(major, minor, micro) (((major)*10000)+((minor)*100)+((micro)*1))\n#define PIXMAN_VERSION PIXMAN_VERSION_ENCODE(PIXMAN_VERSION_MAJOR, PIXMAN_VERSION_MINOR, PIXMAN_VERSION_MICRO)\n#ifndef PIXMAN_API\n#define PIXMAN_API\n#endif\n#endif\n' > $@
 	@cp -f $@ $(SYSROOT_DIR)/usr/include/pixman-1/
 	@cp -f $@ $(SYSROOT_DIR)/usr/include/
 
@@ -758,6 +764,81 @@ $(ROOTFS_DIR)/usr/lib/libpixman-1.so: $(PIXMAN_OBJS) | $(LIBM_SO) $(SYSROOT_STAM
 	@ln -sf libpixman-1.so.0 $(ROOTFS_DIR)/usr/lib/libpixman-1.so
 	@cp -f third_party/pixman/pixman/*.h $(SYSROOT_DIR)/usr/include/pixman-1/ 2>/dev/null || true
 	@cp -f third_party/pixman/pixman/*.h $(SYSROOT_DIR)/usr/include/ 2>/dev/null || true
+
+# ==============================================================================
+# FreeType 2 Target
+# ==============================================================================
+FREETYPE_SRCS_NAMES := \
+	src/base/ftsystem.c src/base/ftinit.c src/base/ftdebug.c src/base/ftbase.c \
+	src/base/ftbbox.c src/base/ftbdf.c src/base/ftbitmap.c src/base/ftcid.c \
+	src/base/ftfstype.c src/base/ftgasp.c src/base/ftglyph.c src/base/ftgxval.c \
+	src/base/ftmm.c src/base/ftotval.c src/base/ftpatent.c src/base/ftpfr.c \
+	src/base/ftstroke.c src/base/ftsynth.c src/base/fttype1.c src/base/ftwinfnt.c \
+	src/autofit/autofit.c src/bdf/bdf.c src/cff/cff.c src/cid/type1cid.c \
+	src/pcf/pcf.c src/pfr/pfr.c src/psaux/psaux.c src/pshinter/pshinter.c \
+	src/psnames/psnames.c src/raster/raster.c src/sfnt/sfnt.c src/smooth/smooth.c \
+	src/truetype/truetype.c src/type1/type1.c src/type42/type42.c src/winfonts/winfnt.c \
+	src/gzip/ftgzip.c src/lzw/ftlzw.c src/sdf/sdf.c src/svg/svg.c
+
+FREETYPE_SRCS := $(addprefix third_party/freetype/, $(FREETYPE_SRCS_NAMES))
+FREETYPE_OBJS := $(patsubst third_party/freetype/%.c, $(BUILD_DIR)/third_party/freetype/%.o, $(FREETYPE_SRCS))
+
+$(BUILD_DIR)/third_party/freetype/%.o: third_party/freetype/%.c | $(SYSROOT_STAMP)
+	@mkdir -p $(dir $@)
+	@echo "  [CC-FREETYPE] $<"
+	@$(CC) $(USER_CFLAGS) -DFT2_BUILD_LIBRARY -Ithird_party/freetype/include -isystem $(SYSROOT_DIR)/usr/include -c $< -o $@
+
+$(ROOTFS_DIR)/usr/lib/libfreetype.so: $(FREETYPE_OBJS) | $(ROOTFS_DIR)/usr/lib/libz.so $(SYSROOT_STAMP)
+	@mkdir -p $(SYSROOT_DIR)/usr/lib $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/freetype2
+	@echo "  [LD-FREETYPE] $@"
+	@$(LD) -shared -soname libfreetype.so.6 -o $(SYSROOT_DIR)/usr/lib/libfreetype.so.6.20.1 $(FREETYPE_OBJS) -L$(abspath $(SYSROOT_DIR))/usr/lib -lz -lm -lc
+	@ln -sf libfreetype.so.6.20.1 $(SYSROOT_DIR)/usr/lib/libfreetype.so.6
+	@ln -sf libfreetype.so.6.20.1 $(SYSROOT_DIR)/usr/lib/libfreetype.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libfreetype.so.6.20.1 $(ROOTFS_DIR)/usr/lib/libfreetype.so.6.20.1
+	@ln -sf libfreetype.so.6.20.1 $(ROOTFS_DIR)/usr/lib/libfreetype.so.6
+	@ln -sf libfreetype.so.6.20.1 $(ROOTFS_DIR)/usr/lib/libfreetype.so
+	@cp -rf third_party/freetype/include/* $(SYSROOT_DIR)/usr/include/freetype2/ 2>/dev/null || true
+	@cp -rf third_party/freetype/include/* $(SYSROOT_DIR)/usr/include/ 2>/dev/null || true
+
+# ==============================================================================
+# HarfBuzz Target
+# ==============================================================================
+$(BUILD_DIR)/third_party/harfbuzz/harfbuzz.o: third_party/harfbuzz/src/harfbuzz.cc $(ROOTFS_DIR)/usr/lib/libfreetype.so | $(SYSROOT_STAMP)
+	@mkdir -p $(dir $@)
+	@echo "  [CXX-HARFBUZZ] $<"
+	@$(CXX) $(USER_CXXFLAGS) -Ithird_party/harfbuzz/src -Ithird_party/freetype/include -I$(SYSROOT_DIR)/usr/include/freetype2 -DHAVE_FREETYPE=1 -DHAVE_OT=1 -DHB_NO_MT=1 -c $< -o $@
+
+$(ROOTFS_DIR)/usr/lib/libharfbuzz.so: $(BUILD_DIR)/third_party/harfbuzz/harfbuzz.o | $(ROOTFS_DIR)/usr/lib/libfreetype.so $(LIBSTDCXX_SO) $(SYSROOT_STAMP)
+	@mkdir -p $(SYSROOT_DIR)/usr/lib $(ROOTFS_DIR)/usr/lib $(SYSROOT_DIR)/usr/include/harfbuzz
+	@echo "  [LD-HARFBUZZ] $@"
+	@$(LD) -shared -soname libharfbuzz.so.0 -o $(SYSROOT_DIR)/usr/lib/libharfbuzz.so.0.60830.0 $< -L$(abspath $(SYSROOT_DIR))/usr/lib -lfreetype -lstdc++ -lm -lc
+	@ln -sf libharfbuzz.so.0.60830.0 $(SYSROOT_DIR)/usr/lib/libharfbuzz.so.0
+	@ln -sf libharfbuzz.so.0.60830.0 $(SYSROOT_DIR)/usr/lib/libharfbuzz.so
+	@cp -f $(SYSROOT_DIR)/usr/lib/libharfbuzz.so.0.60830.0 $(ROOTFS_DIR)/usr/lib/libharfbuzz.so.0.60830.0
+	@ln -sf libharfbuzz.so.0.60830.0 $(ROOTFS_DIR)/usr/lib/libharfbuzz.so.0
+	@ln -sf libharfbuzz.so.0.60830.0 $(ROOTFS_DIR)/usr/lib/libharfbuzz.so
+	@cp -rf third_party/harfbuzz/src/hb*.h $(SYSROOT_DIR)/usr/include/harfbuzz/ 2>/dev/null || true
+	@cp -rf third_party/harfbuzz/src/hb*.h $(SYSROOT_DIR)/usr/include/ 2>/dev/null || true
+
+# ==============================================================================
+# Cairo Target
+# ==============================================================================
+$(ROOTFS_DIR)/usr/lib/libcairo.so: $(ROOTFS_DIR)/usr/lib/libpixman-1.so $(ROOTFS_DIR)/usr/lib/libfreetype.so $(ROOTFS_DIR)/usr/lib/libX11.so
+	@mkdir -p $(SYSROOT_DIR)/usr/lib $(ROOTFS_DIR)/usr/lib
+	@if [ ! -f $(BUILD_DIR)/third_party/cairo/src/libcairo.so.2.11800.0 ]; then \
+		ninja -C $(BUILD_DIR)/third_party/cairo src/libcairo.so.2.11800.0 2>/dev/null || true; \
+	fi
+	@if [ -f $(BUILD_DIR)/third_party/cairo/src/libcairo.so.2.11800.0 ]; then \
+		cp -f $(BUILD_DIR)/third_party/cairo/src/libcairo.so.2.11800.0 $(SYSROOT_DIR)/usr/lib/ && \
+		ln -sf libcairo.so.2.11800.0 $(SYSROOT_DIR)/usr/lib/libcairo.so.2 && \
+		ln -sf libcairo.so.2.11800.0 $(SYSROOT_DIR)/usr/lib/libcairo.so && \
+		cp -f $(BUILD_DIR)/third_party/cairo/src/libcairo.so.2.11800.0 $(ROOTFS_DIR)/usr/lib/ && \
+		ln -sf libcairo.so.2.11800.0 $(ROOTFS_DIR)/usr/lib/libcairo.so.2 && \
+		ln -sf libcairo.so.2.11800.0 $(ROOTFS_DIR)/usr/lib/libcairo.so && \
+		mkdir -p $(SYSROOT_DIR)/usr/include/cairo && \
+		cp -rf third_party/cairo/src/cairo*.h $(SYSROOT_DIR)/usr/include/cairo/ 2>/dev/null || true && \
+		cp -rf $(BUILD_DIR)/third_party/cairo/src/cairo-features.h $(SYSROOT_DIR)/usr/include/cairo/ 2>/dev/null || true; \
+	fi
 
 # ==============================================================================
 # libICE Target

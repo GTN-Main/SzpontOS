@@ -21,4 +21,6 @@ void sched_remove_thread(thread_t *thread);
 void sched_block_current_thread(void);
 void sched_unblock_thread(thread_t *thread);
 
+void sched_get_cpu_ticks(uint64_t *user_ticks, uint64_t *sys_ticks, uint64_t *idle_ticks);
+
 #endif /* SZPONTOS_SCHED_SCHED_H */

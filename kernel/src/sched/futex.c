@@ -157,7 +157,7 @@ int futex_wake(uintptr_t uaddr, int count) {
  * on the same address can resurrect the (possibly already-freed) thread
  * into the ready queue. */
 void futex_remove_thread(thread_t *t) {
-    if (!t || !t->futex_proc)
+    if (!t || (uintptr_t)t < 0x1000 || (uintptr_t)t > 0xffffffffffff0000ULL || !t->futex_proc)
         return;
 
     uint32_t bucket_idx = FUTEX_HASH(t->futex_uaddr);

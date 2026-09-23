@@ -348,11 +348,19 @@ void process_exit(int exit_code) {
     if (proc->ppid > 0) {
         process_t *parent = process_get_by_pid(proc->ppid);
         if (parent) {
-            process_send_signal(parent, SIGCHLD);
-            wait_queue_wake_all(&parent->wait_child);
+            uintptr_t handler = parent->signal_handlers[SIGCHLD];
+            uint64_t sa_flags = parent->sigactions[SIGCHLD].sa_flags;
+            if (handler == SIG_IGN || (sa_flags & SA_NOCLDWAIT)) {
+                /* Parent ignores SIGCHLD or requested SA_NOCLDWAIT: reparent to init (PID 1) so it gets reaped immediately */
+                proc->ppid = 1;
+                notify_init = true;
+            } else {
+                process_send_signal(parent, SIGCHLD);
+                wait_queue_wake_all(&parent->wait_child);
+            }
         }
     }
-    if (notify_init && proc->ppid != 1) {
+    if (notify_init) {
         process_t *init_proc = process_get_by_pid(1);
         if (init_proc) {
             process_send_signal(init_proc, SIGCHLD);
@@ -362,6 +370,7 @@ void process_exit(int exit_code) {
 
     list_node_t *pos;
     list_for_each(pos, &proc->threads) {
+        if (!pos) break;
         thread_t *t = container_of(pos, thread_t, proc_node);
         futex_remove_thread(t);
         t->state = THREAD_ZOMBIE;
@@ -435,6 +444,7 @@ int process_send_signal(process_t *proc, int sig) {
 
             list_node_t *pos;
             list_for_each(pos, &proc->threads) {
+                if (!pos) break;
                 thread_t *t = container_of(pos, thread_t, proc_node);
                 futex_remove_thread(t);
                 t->state = THREAD_ZOMBIE;
@@ -980,13 +990,19 @@ pid_t process_waitpid(pid_t pid, int *status, int options) {
                             thread_t *t = container_of(tpos, thread_t, proc_node);
                             list_remove(&t->proc_node);
                             sched_remove_thread(t);
+                            while (__atomic_load_n(&t->running_cpu, __ATOMIC_ACQUIRE) != -1) {
+                                __builtin_ia32_pause();
+                            }
                             if (t->kernel_stack_bottom) {
                                 pmm_free_pages(VIRT_TO_PHYS(t->kernel_stack_bottom), KERNEL_STACK_SIZE / PAGE_SIZE);
                             }
                             kfree(t);
                         }
 
-                        vmm_destroy_address_space(p->pagemap);
+                        if (p->pagemap) {
+                            vmm_destroy_address_space(p->pagemap);
+                            p->pagemap = NULL;
+                        }
                         kfree(p);
 
                         return found_pid;

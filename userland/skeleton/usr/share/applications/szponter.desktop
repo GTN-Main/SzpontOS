@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Szponter
+GenericName=File Manager
+Comment=SzpontOS macOS-inspired File Explorer
+Exec=/usr/bin/szponter
+Icon=system-file-manager
+Categories=System;FileManager;Utility;
+Terminal=false

@@ -56,10 +56,9 @@ USR_BIN_PROGS := \
     $(ROOTFS_DIR)/usr/bin/nc \
     $(ROOTFS_DIR)/usr/bin/startx \
     $(ROOTFS_DIR)/usr/bin/sudo \
-    $(ROOTFS_DIR)/usr/bin/szpontdesktop \
     $(ROOTFS_DIR)/usr/bin/szpontdetected \
-    $(ROOTFS_DIR)/usr/bin/szpontlogin \
     $(ROOTFS_DIR)/usr/bin/szponterm \
+    $(ROOTFS_DIR)/usr/bin/szpontui_demo \
     $(ROOTFS_DIR)/usr/bin/tail \
     $(ROOTFS_DIR)/usr/bin/top \
     $(ROOTFS_DIR)/usr/bin/uptime \
@@ -112,7 +111,6 @@ symlinks: $(BIN_PROGS) $(USR_BIN_PROGS)
 	@ln -sf /usr/bin/szponterm $(ROOTFS_DIR)/bin/szponterm
 	@ln -sf /usr/bin/makaljer $(ROOTFS_DIR)/bin/makaljer
 	@ln -sf /usr/bin/szpontdetected $(ROOTFS_DIR)/bin/szpontdetected
-	@ln -sf /usr/bin/szpontlogin $(ROOTFS_DIR)/bin/szpontlogin
 	@chmod 4755 $(ROOTFS_DIR)/usr/bin/sudo $(ROOTFS_DIR)/bin/su 2>/dev/null || true
 
 # Compile standard utility objects
@@ -159,32 +157,6 @@ $(ROOTFS_DIR)/usr/bin/donut: $(BUILD_DIR)/userland/bin/donut.o $(CRT0_O) | $(SYS
 	@rm -f $@
 	@echo "  [LD-DYN] $@"
 	@$(LD) $(USER_LDFLAGS) -pie $(CRT0_O) $< $(LIBM_SO) $(LIBC_SO) -o $@
-
-# X11 Display & Login Manager (szpontlogin)
-$(BUILD_DIR)/userland/bin/szpontlogin.o: $(ROOT_DIR)/userland/bin/szpontlogin.c | $(SYSROOT_STAMP) $(BUILD_DIR)/userland/bin
-	@mkdir -p $(BUILD_DIR)/userland/bin
-	@echo "  [CC-SZPONTLOGIN] $<"
-	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/szpontlogin.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -c $< -o $@
-
-$(ROOTFS_DIR)/usr/bin/szpontlogin: $(BUILD_DIR)/userland/bin/szpontlogin.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/usr/bin $(LIBC_SO) $(LIBM_SO) $(ROOTFS_DIR)/usr/lib/libX11.so $(ROOTFS_DIR)/usr/lib/libXext.so
-	@mkdir -p $(ROOTFS_DIR)/usr/bin
-	@rm -f $@
-	@echo "  [LD-SZPONTLOGIN] $@"
-	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $< -L$(ROOTFS_DIR)/lib -L$(ROOTFS_DIR)/usr/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lXext -lX11 -lxcb -lXau -lXdmcp -lm -lc -o $@
-	@chmod +x $@
-
-# X11 Desktop Environment (szpontdesktop)
-$(BUILD_DIR)/userland/bin/szpontdesktop.o: $(ROOT_DIR)/userland/bin/szpontdesktop.c | $(SYSROOT_STAMP) $(BUILD_DIR)/userland/bin
-	@mkdir -p $(BUILD_DIR)/userland/bin
-	@echo "  [CC-SZPONTDESKTOP] $<"
-	@$(CC) $(USER_CFLAGS) -MMD -MP -MF $(BUILD_DIR)/userland/bin/szpontdesktop.d -isystem $(abspath $(SYSROOT_DIR))/usr/include -I$(abspath $(SYSROOT_DIR))/usr/include -I$(ROOT_DIR)/third_party/stb -c $< -o $@
-
-$(ROOTFS_DIR)/usr/bin/szpontdesktop: $(BUILD_DIR)/userland/bin/szpontdesktop.o $(CRT0_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/usr/bin $(LIBC_SO) $(LIBM_SO) $(ROOTFS_DIR)/usr/lib/libX11.so $(ROOTFS_DIR)/usr/lib/libXext.so
-	@mkdir -p $(ROOTFS_DIR)/usr/bin
-	@rm -f $@
-	@echo "  [LD-SZPONTDESKTOP] $@"
-	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $< -L$(ROOTFS_DIR)/lib -L$(ROOTFS_DIR)/usr/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lXext -lX11 -lxcb -lXau -lXdmcp -lm -lc -o $@
-	@chmod +x $@
 
 # Native X11 Terminal Emulator (szponterm)
 $(BUILD_DIR)/userland/bin/szponterm.o: $(ROOT_DIR)/userland/bin/szponterm.c | $(SYSROOT_STAMP) $(BUILD_DIR)/userland/bin
@@ -284,6 +256,23 @@ $(ROOTFS_DIR)/usr/tbin/cpptest: $(BUILD_DIR)/userland/bin/cpptest.o $(CRT0_O) $(
 	@echo "  [LD]  $@"
 	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $(CRTI_O) $$($(CC) -print-file-name=crtbegin.o) $< $$($(CC) -print-file-name=crtend.o) $(CRTN_O) -L$(ROOTFS_DIR)/lib -L$(ROOTFS_DIR)/usr/lib -L$(abspath $(SYSROOT_DIR))/usr/lib -lstdc++ -lm -lc -o $@
 	@chmod +x $@
+
+# Native SzpontUI C++ Showcase Application
+$(BUILD_DIR)/userland/bin/szpontui_demo.o: $(ROOT_DIR)/userland/bin/szpontui_demo.cpp | $(SYSROOT_STAMP) $(BUILD_DIR)/userland/bin
+	@mkdir -p $(BUILD_DIR)/userland/bin
+	@echo "  [CXX-SZPONTUI-DEMO] $<"
+	@$(CXX) $(USER_CXXFLAGS) -isystem $(SYSROOT_DIR)/usr/include/SzpontUI -I$(SYSROOT_DIR)/usr/include/SzpontUI -isystem $(SYSROOT_DIR)/usr/include/freetype2 -isystem $(SYSROOT_DIR)/usr/include/harfbuzz -isystem $(SYSROOT_DIR)/usr/include/pixman-1 -MMD -MP -MF $(BUILD_DIR)/userland/bin/szpontui_demo.d -c $< -o $@
+
+$(ROOTFS_DIR)/usr/bin/szpontui_demo: $(BUILD_DIR)/userland/bin/szpontui_demo.o $(CRT0_O) $(CRTI_O) $(CRTN_O) | $(SYSROOT_STAMP) $(ROOTFS_DIR)/usr/bin $(LIBC_SO) $(LIBM_SO) $(LIBSTDCXX_SO) $(ROOTFS_DIR)/usr/lib/libszpontui.so
+	@mkdir -p $(ROOTFS_DIR)/usr/bin
+	@rm -f $@
+	@echo "  [LD-SZPONTUI-DEMO] $@"
+	@$(CC) -O2 -ffreestanding -fno-builtin -nostdlib -B$(abspath $(SYSROOT_DIR))/usr/lib $(CRT0_O) $(CRTI_O) $$($(CC) -print-file-name=crtbegin.o) $< $$($(CC) -print-file-name=crtend.o) $(CRTN_O) \
+		-L$(ROOTFS_DIR)/lib -L$(ROOTFS_DIR)/usr/lib -L$(abspath $(SYSROOT_DIR))/usr/lib \
+		-Wl,-rpath-link=$(ROOTFS_DIR)/usr/lib \
+		-lszpontui -lharfbuzz -lfreetype -lz -lpixman-1 -lX11 -lXext -lxcb -lXau -lXdmcp -lstdc++ -lm -lc -o $@
+	@chmod +x $@
+
 
 # Native OpenGL / EGL smoke test linked against libEGL.so, libGLESv2.so, libm.so, libc.so
 $(BUILD_DIR)/userland/bin/gltriangle.o: $(ROOT_DIR)/userland/bin/gltriangle.c | $(SYSROOT_STAMP) $(BUILD_DIR)/userland/bin

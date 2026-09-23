@@ -150,6 +150,69 @@ static bool virtio_gpu_send_command(const void *cmd, size_t cmd_size,
     return true;
 }
 
+static bool virtio_gpu_send_batch_xfer_and_flush(const virtio_gpu_transfer_to_host_2d_t *xfer,
+                                                 const virtio_gpu_resource_flush_t *flush) {
+    if (!g_virtio_gpu_active && !g_common_cfg)
+        return false;
+
+    if (g_ctrl_qsize < 4)
+        return false;
+
+    memcpy(g_cmd_buf, xfer, sizeof(*xfer));
+    memcpy(g_cmd_buf + 256, flush, sizeof(*flush));
+
+    memset(g_resp_buf, 0, 512);
+
+    /* Chain 1 (Desc 0 -> Desc 1): Transfer to host 2D */
+    g_ctrl_desc[0].addr = g_cmd_buf_phys;
+    g_ctrl_desc[0].len = (uint32_t)sizeof(*xfer);
+    g_ctrl_desc[0].flags = VRING_DESC_F_NEXT;
+    g_ctrl_desc[0].next = 1;
+
+    g_ctrl_desc[1].addr = g_resp_buf_phys;
+    g_ctrl_desc[1].len = (uint32_t)sizeof(virtio_gpu_ctrl_hdr_t);
+    g_ctrl_desc[1].flags = VRING_DESC_F_WRITE;
+    g_ctrl_desc[1].next = 0;
+
+    /* Chain 2 (Desc 2 -> Desc 3): Resource flush */
+    g_ctrl_desc[2].addr = g_cmd_buf_phys + 256;
+    g_ctrl_desc[2].len = (uint32_t)sizeof(*flush);
+    g_ctrl_desc[2].flags = VRING_DESC_F_NEXT;
+    g_ctrl_desc[2].next = 3;
+
+    g_ctrl_desc[3].addr = g_resp_buf_phys + 256;
+    g_ctrl_desc[3].len = (uint32_t)sizeof(virtio_gpu_ctrl_hdr_t);
+    g_ctrl_desc[3].flags = VRING_DESC_F_WRITE;
+    g_ctrl_desc[3].next = 0;
+
+    /* Enqueue both head descriptors (0 and 2) */
+    uint16_t avail_idx = g_ctrl_avail->idx;
+    g_ctrl_avail->ring[avail_idx % g_ctrl_qsize] = 0;
+    g_ctrl_avail->ring[(avail_idx + 1) % g_ctrl_qsize] = 2;
+    __asm__ volatile ("" ::: "memory");
+    g_ctrl_avail->idx = avail_idx + 2;
+    __asm__ volatile ("" ::: "memory");
+
+    /* Single doorbell ring to trigger host batch processing */
+    *g_ctrl_notify_addr = 0;
+
+    /* Wait for host responses */
+    uint16_t target_used = g_ctrl_last_used_idx + 2;
+    uint32_t timeout = 50000000;
+    while (g_ctrl_used->idx != target_used && --timeout > 0) {
+        __asm__ volatile ("pause");
+    }
+
+    if (timeout == 0) {
+        klog_warn("VirtIO-GPU: Batch flush timeout! (used=%u, target=%u)", g_ctrl_used->idx, target_used);
+        g_ctrl_last_used_idx = g_ctrl_used->idx;
+        return false;
+    }
+
+    g_ctrl_last_used_idx = g_ctrl_used->idx;
+    return true;
+}
+
 void virtio_gpu_flush(uint32_t x, uint32_t y, uint32_t w, uint32_t h) {
     if (!g_virtio_gpu_active)
         return;
@@ -178,9 +241,6 @@ void virtio_gpu_flush(uint32_t x, uint32_t y, uint32_t w, uint32_t h) {
     xfer.r.width = w;
     xfer.r.height = h;
 
-    virtio_gpu_ctrl_hdr_t resp;
-    virtio_gpu_send_command(&xfer, sizeof(xfer), NULL, 0, &resp, sizeof(resp));
-
     /* 2. Flush resource to host display scanout */
     virtio_gpu_resource_flush_t flush;
     memset(&flush, 0, sizeof(flush));
@@ -191,7 +251,13 @@ void virtio_gpu_flush(uint32_t x, uint32_t y, uint32_t w, uint32_t h) {
     flush.r.width = w;
     flush.r.height = h;
 
-    virtio_gpu_send_command(&flush, sizeof(flush), NULL, 0, &resp, sizeof(resp));
+    /* Batch both commands to minimize VM exit overhead */
+    if (!virtio_gpu_send_batch_xfer_and_flush(&xfer, &flush)) {
+        /* Fallback to sequential execution if batching failed */
+        virtio_gpu_ctrl_hdr_t resp;
+        virtio_gpu_send_command(&xfer, sizeof(xfer), NULL, 0, &resp, sizeof(resp));
+        virtio_gpu_send_command(&flush, sizeof(flush), NULL, 0, &resp, sizeof(resp));
+    }
 
     spinlock_release(&g_virtio_gpu_lock);
 }
